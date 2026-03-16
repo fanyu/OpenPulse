@@ -1,0 +1,24 @@
+{
+  "originHash" : "ab5191ef16eac6825842a54d4eebfe2b8877b5f3d12c5465070f35671ec30c44",
+  "pins" : [
+    {
+      "identity" : "sqlite.swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/stephencelis/SQLite.swift",
+      "state" : {
+        "revision" : "964c300fb0736699ce945c9edb56ecd62eba27a3",
+        "version" : "0.16.0"
+      }
+    },
+    {
+      "identity" : "swiftzstd",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/aperedera/SwiftZSTD",
+      "state" : {
+        "branch" : "master",
+        "revision" : "04cfb0d98ee6c3b245220a80daa99a17a68f95b6"
+      }
+    }
+  ],
+  "version" : 3
+}

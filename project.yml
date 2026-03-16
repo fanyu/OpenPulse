@@ -1,0 +1,58 @@
+name: OpenPulse
+options:
+  bundleIdPrefix: com.fanyu
+  deploymentTarget:
+    macOS: "26.0"
+  xcodeVersion: "26.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "6.2"
+    MACOSX_DEPLOYMENT_TARGET: "26.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    ENABLE_HARDENED_RUNTIME: YES
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: "33M7V22L6Y"  # Replace with your own Apple Developer Team ID to build
+
+packages:
+  SQLite.swift:
+    url: https://github.com/stephencelis/SQLite.swift
+    from: "0.15.3"
+  SwiftZSTD:
+    url: https://github.com/aperedera/SwiftZSTD
+    branch: master
+
+targets:
+  OpenPulse:
+    type: application
+    platform: macOS
+    sources:
+      - OpenPulse
+    resources:
+      - path: OpenPulse/Resources
+        optional: true
+    info:
+      path: OpenPulse/Info.plist
+      properties:
+        CFBundleName: OpenPulse
+        CFBundleDisplayName: OpenPulse
+        CFBundleIdentifier: com.fanyu.openpulse
+        CFBundleVersion: "1"
+        CFBundleShortVersionString: "1.0"
+        LSUIElement: true
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: false
+        NSUserNotificationAlertStyle: alert
+    entitlements:
+      path: OpenPulse/OpenPulse.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.fanyu.openpulse
+        INFOPLIST_FILE: OpenPulse/Info.plist
+        CODE_SIGN_ENTITLEMENTS: OpenPulse/OpenPulse.entitlements
+    dependencies:
+      - package: SQLite.swift
+        product: SQLite
+      - package: SwiftZSTD
+        product: SwiftZSTD
