@@ -208,7 +208,7 @@ actor CodexParser {
 
 // MARK: - Decodable models
 
-struct CodexRateLimits: Decodable, Sendable {
+struct CodexRateLimits: Codable, Sendable {
     let primary: CodexWindow?
     let secondary: CodexWindow?
     let credits: CodexCredits?
@@ -220,7 +220,7 @@ struct CodexRateLimits: Decodable, Sendable {
     }
 }
 
-struct CodexWindow: Decodable, Sendable {
+struct CodexWindow: Codable, Sendable {
     let usedPercent: Double?
     let windowMinutes: Int?
     let resetsAt: TimeInterval?   // Unix seconds
@@ -248,7 +248,7 @@ struct CodexWindow: Decodable, Sendable {
     }
 }
 
-struct CodexCredits: Decodable, Sendable {
+struct CodexCredits: Codable, Sendable {
     let hasCredits: Bool?
     let unlimited: Bool?
     let balance: String?

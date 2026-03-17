@@ -64,6 +64,7 @@ final class DataSyncService {
     // MARK: - Lifecycle
 
     func start() {
+        restoreCachedCodexLimits()
         purgeOrphanedQuotas()
         for tool in Tool.allCases { scheduleTimer(for: tool) }
         startFSEventWatching()
@@ -88,6 +89,13 @@ final class DataSyncService {
         timers.removeAll()
         fsEventStream?.stop()
         fsEventStream = nil
+    }
+
+    private func restoreCachedCodexLimits() {
+        guard latestCodexLimits == nil,
+              let data = UserDefaults.standard.data(forKey: "cached.codexLimitsData"),
+              let restored = try? JSONDecoder().decode(CodexRateLimits.self, from: data) else { return }
+        latestCodexLimits = restored
     }
 
     func sync() async {
@@ -231,6 +239,9 @@ final class DataSyncService {
         // Rate limits → store as quota record (primary window) + cache full limits in memory
         if let limits = await codexParser.parseLatestRateLimits() {
             latestCodexLimits = limits
+            if let data = try? JSONEncoder().encode(limits) {
+                UserDefaults.standard.set(data, forKey: "cached.codexLimitsData")
+            }
             let primary = limits.primary
             let remainingPct = primary.map { Int($0.remainingPercent) }
             let resetAt = primary?.resetDate
