@@ -4,11 +4,18 @@ import SwiftData
 struct MenuBarView: View {
     @Environment(AppStore.self) private var appStore
     @Environment(\.openWindow) private var openWindow
-    @Query(sort: \SessionRecord.startedAt, order: .reverse) private var sessions: [SessionRecord]
+    @Query private var sessions: [SessionRecord]
     @Query private var quotas: [QuotaRecord]
 
     @AppStorage("menubar.toolOrder") private var toolOrderRaw = Tool.defaultOrderRaw
     @AppStorage("menubar.hiddenTools") private var hiddenToolsRaw = ""
+
+    init() {
+        // Only load today's sessions — avoids scanning the entire session history
+        // (which grows unboundedly) on every sync-triggered view refresh.
+        let start = Calendar.current.startOfDay(for: Date())
+        _sessions = Query(filter: #Predicate<SessionRecord> { $0.startedAt >= start })
+    }
 
     private var orderedVisibleTools: [Tool] {
         let hidden = Set(hiddenToolsRaw.components(separatedBy: ",").filter { !$0.isEmpty })
@@ -18,13 +25,12 @@ struct MenuBarView: View {
     }
 
     @State private var contentHeight: CGFloat = 0
-    // Cached per-tool today token counts — one pass over sessions instead of N+1 scans.
+    // Cached per-tool today token counts — one pass over today's sessions only.
     @State private var todayTokensByTool: [Tool: Int] = [:]
 
     private func rebuildTodayTokens() {
-        let start = Calendar.current.startOfDay(for: Date())
         var map: [Tool: Int] = [:]
-        for session in sessions where session.startedAt >= start {
+        for session in sessions {
             map[session.tool, default: 0] += session.totalTokens
         }
         todayTokensByTool = map
