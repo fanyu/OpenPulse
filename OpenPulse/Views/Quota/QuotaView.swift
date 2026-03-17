@@ -335,23 +335,32 @@ struct CodexDetailCard: View {
 struct CodexDetailRow: View {
     let label: String
     let window: CodexWindow?
-    
+
+    /// True when the rate limit window has already reset — the stored percentages
+    /// are stale and must not be shown as if they reflect the current window.
+    private var isStale: Bool {
+        guard let d = window?.resetDate else { return false }
+        return d < Date()
+    }
+
     private var frac: Double? {
-        guard let u = window?.usedPercent else { return nil }
+        guard !isStale, let u = window?.usedPercent else { return nil }
         return max(0, min(1, (100 - u) / 100))
     }
-    
+
     var body: some View {
+        let isLong = (window?.windowMinutes ?? 0) > 1440
         let used = window?.usedPercent.map { Int($0.rounded()) }
         let rem = used.map { max(0, 100 - $0) }
-        let isLong = (window?.windowMinutes ?? 0) > 1440
-        let footer = window?.resetDate.map { isLong ? $0.formatted(.dateTime.month().day()) : $0.formatted(.dateTime.hour().minute()) }
-        
+        let footer: String? = isStale
+            ? "已重置"
+            : window?.resetDate.map { isLong ? $0.formatted(.dateTime.month().day()) : $0.formatted(.dateTime.hour().minute()) }
+
         UnifiedQuotaRow(
             title: label,
             fraction: frac,
-            primaryValue: rem.map { "\($0)%" },
-            secondaryValue: used.map { "\($0)% used" },
+            primaryValue: isStale ? "—" : rem.map { "\($0)%" },
+            secondaryValue: isStale ? "数据已过期" : used.map { "\($0)% used" },
             countdown: footer
         )
     }
