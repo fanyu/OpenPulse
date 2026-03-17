@@ -4,12 +4,23 @@ import Charts
 
 struct TrendsView: View {
     @Environment(AppStore.self) private var appStore
-    @Query(sort: \SessionRecord.startedAt, order: .reverse) private var allSessions: [SessionRecord]
+    @Query private var allSessions: [SessionRecord]
     @Query(sort: \DailyStatsRecord.date) private var dailyStats: [DailyStatsRecord]
     @Query(sort: \QuotaRecord.updatedAt, order: .reverse) private var allQuotas: [QuotaRecord]
 
     @State private var range: ChartRange = .month
     @State private var showComparison = false
+
+    init() {
+        // Limit to 90 days (the max ChartRange). Without this, allSessions grows
+        // unboundedly and updateDerivedCache() blocks the main thread on window open.
+        let cutoff = Calendar.current.date(byAdding: .day, value: -90, to: Date()) ?? Date()
+        _allSessions = Query(
+            filter: #Predicate<SessionRecord> { $0.startedAt > cutoff },
+            sort: \SessionRecord.startedAt,
+            order: .reverse
+        )
+    }
 
     // Cached derived data — recomputed only when range or underlying data changes,
     // not on every render pass. Eliminates 20+ redundant O(n) filter operations per render.

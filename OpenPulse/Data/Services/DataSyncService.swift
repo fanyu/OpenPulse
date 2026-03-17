@@ -37,6 +37,9 @@ final class DataSyncService {
     private var timers: [Tool: Timer] = [:]
     private var fsEventStream: FSEventStream?
     private var fsDebounceTask: Task<Void, Never>?
+    /// Set to true after the first Codex full scan completes. Prevents re-scanning
+    /// every FSEvents trigger when some sessions permanently lack JSONL model data.
+    private var codexBackfillDone: Bool = false
 
     private let modelContext: ModelContext
 
@@ -211,13 +214,15 @@ final class DataSyncService {
     private func syncCodex() async throws {
         let since = lastSyncDate.map { Calendar.current.date(byAdding: .hour, value: -1, to: $0)! }
 
-        // If any Codex session still has the placeholder model name, force a full re-parse
-        // so that real model names from JSONL files get backfilled into existing records.
-        let hasPlaceholders = hasCodexPlaceholderModels()
-        let effectiveSince: Date? = hasPlaceholders ? nil : since
+        // Full scan to backfill placeholder model names — done at most once per launch.
+        // After the scan (even if some records remain un-fixable), we stop forcing full
+        // scans so that FSEvents-triggered syncs don't re-scan thousands of sessions.
+        let needsBackfill = !codexBackfillDone && hasCodexPlaceholderModels()
+        let effectiveSince: Date? = needsBackfill ? nil : since
+        if needsBackfill { codexBackfillDone = true }
 
         let sessions = try await codexParser.parseSessions(since: effectiveSince)
-        AppLogger.shared.info("Codex: parsed \(sessions.count) sessions (fullScan=\(hasPlaceholders))")
+        AppLogger.shared.info("Codex: parsed \(sessions.count) sessions (fullScan=\(needsBackfill))")
         for session in sessions { upsertSession(session) }
 
         let stats = try await codexParser.parseDailyStats(since: since)
