@@ -168,10 +168,9 @@ struct MenuBarView: View {
                     .foregroundStyle(.secondary)
             }
             if let err = appStore.syncService?.syncError {
-                Text(err.localizedDescription)
+                Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 9))
-                    .foregroundStyle(.red)
-                    .lineLimit(2)
+                    .foregroundStyle(.orange)
                     .help(err.localizedDescription)
             }
             Spacer()
