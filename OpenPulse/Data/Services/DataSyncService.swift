@@ -156,14 +156,14 @@ final class DataSyncService {
 
         let sessions = try await claudeParser.parseSessions(since: since)
         AppLogger.shared.info("ClaudeCode: parsed \(sessions.count) sessions")
-        batchUpsertSessions(sessions)
+        for session in sessions { upsertSession(session) }
     }
 
     /// Parses Antigravity's local markdown files only. No network.
     private func parseAntigravityFiles(since: Date?) async throws {
         let sessions = try await antigravityParser.parseSessions(since: since)
         AppLogger.shared.info("Antigravity: parsed \(sessions.count) sessions")
-        batchUpsertSessions(sessions)
+        for session in sessions { upsertSession(session) }
     }
 
     /// Full Claude sync: local files + subscription quota API.
@@ -231,7 +231,7 @@ final class DataSyncService {
 
         let sessions = try await codexParser.parseSessions(since: effectiveSince)
         AppLogger.shared.info("Codex: parsed \(sessions.count) sessions (fullScan=\(needsBackfill))")
-        batchUpsertSessions(sessions)
+        for session in sessions { upsertSession(session) }
 
         let stats = try await codexParser.parseDailyStats(since: since)
         for stat in stats { upsertDailyStats(stat) }
@@ -304,7 +304,7 @@ final class DataSyncService {
         let since = lastSyncDate.map { Calendar.current.date(byAdding: .hour, value: -1, to: $0)! }
         let sessions = try await openCodeParser.parseSessions(since: since)
         AppLogger.shared.info("OpenCode: parsed \(sessions.count) sessions")
-        batchUpsertSessions(sessions)
+        for session in sessions { upsertSession(session) }
     }
 
     // MARK: - SwiftData upsert helpers
@@ -317,37 +317,6 @@ final class DataSyncService {
             predicate: #Predicate { $0.toolRaw == toolRaw && $0.model == placeholder }
         )
         return ((try? modelContext.fetchCount(descriptor)) ?? 0) > 0
-    }
-
-    /// Batch-upsert sessions: one SwiftData fetch for the whole batch instead of N fetches.
-    private func batchUpsertSessions(_ sessions: [ToolSession]) {
-        guard !sessions.isEmpty else { return }
-        let ids = sessions.map { $0.id }
-        var descriptor = FetchDescriptor<SessionRecord>(
-            predicate: #Predicate<SessionRecord> { ids.contains($0.id) }
-        )
-        let existing = (try? modelContext.fetch(descriptor)) ?? []
-        let byID = Dictionary(uniqueKeysWithValues: existing.map { ($0.id, $0) })
-
-        for session in sessions {
-            if let record = byID[session.id] {
-                record.inputTokens = session.inputTokens
-                record.outputTokens = session.outputTokens
-                record.cacheReadTokens = session.cacheReadTokens
-                record.cacheWriteTokens = session.cacheWriteTokens
-                record.endedAt = session.endedAt
-                if !session.taskDescription.isEmpty { record.taskDescription = session.taskDescription }
-                if !session.model.isEmpty { record.model = session.model }
-            } else {
-                modelContext.insert(SessionRecord(
-                    id: session.id, tool: session.tool, startedAt: session.startedAt,
-                    endedAt: session.endedAt, inputTokens: session.inputTokens,
-                    outputTokens: session.outputTokens, cacheReadTokens: session.cacheReadTokens,
-                    cacheWriteTokens: session.cacheWriteTokens, taskDescription: session.taskDescription,
-                    model: session.model, cwd: session.cwd, gitBranch: session.gitBranch
-                ))
-            }
-        }
     }
 
     private func upsertSession(_ session: ToolSession) {
