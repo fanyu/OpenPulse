@@ -23,7 +23,9 @@ actor CodexParser {
 
     func parseSessions(since date: Date? = nil) async throws -> [ToolSession] {
         guard FileManager.default.fileExists(atPath: dbPath) else { return [] }
-        let db = try Connection(.uri(dbPath, parameters: [.mode(.readOnly)]))
+        // CANTOPEN (14) can occur transiently when Codex is checkpointing/vacuuming.
+        // Treat as "no data this cycle" rather than a hard error.
+        guard let db = try? Connection(.uri(dbPath, parameters: [.mode(.readOnly)])) else { return [] }
 
         let threads = Table("threads")
         let idCol = Expression<String>("id")
@@ -117,7 +119,7 @@ actor CodexParser {
 
     func parseDailyStats(since date: Date? = nil) async throws -> [DailyStats] {
         guard FileManager.default.fileExists(atPath: dbPath) else { return [] }
-        let db = try Connection(.uri(dbPath, parameters: [.mode(.readOnly)]))
+        guard let db = try? Connection(.uri(dbPath, parameters: [.mode(.readOnly)])) else { return [] }
 
         let threads = Table("threads")
         let tokensCol = Expression<Int64?>("tokens_used")
