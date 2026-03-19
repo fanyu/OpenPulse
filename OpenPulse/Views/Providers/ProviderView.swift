@@ -81,7 +81,7 @@ private struct ProviderCardContainer: View {
     private var providerContent: some View {
         switch provider {
         case .claudeCode:   ClaudeProviderContent()
-        case .codex:        CodexProviderContent()
+        case .codex:        CodexProviderContent(appStore: appStore)
         case .copilot:      CopilotProviderContent()
         case .antigravity:  AntigravityProviderContent(appStore: appStore)
         case .opencode:     OpenCodeProviderContent()
@@ -106,7 +106,10 @@ private struct ProviderCardContainer: View {
 
     private var isConfigured: Bool {
         switch provider {
-        case .codex, .claudeCode, .antigravity, .opencode: return true
+        case .codex:
+            return !(appStore.syncService?.latestCodexAccounts.isEmpty ?? true)
+                || FileManager.default.fileExists(atPath: URL.homeDirectory.appending(path: ".codex/auth.json").path)
+        case .claudeCode, .antigravity, .opencode: return true
         case .copilot:
             guard let token = try? KeychainService.retrieve(key: KeychainService.Keys.githubToken) else { return false }
             return !token.isEmpty

@@ -182,11 +182,18 @@ struct QuotaView: View {
                     todayTokens: toolTodayTokens(for: .claudeCode)
                 )
             case .codex:
-                CodexDetailCard(
-                    limits: appStore.syncService?.latestCodexLimits,
-                    fallbackQuota: quotas.first(where: { $0.tool == .codex }),
-                    todayTokens: toolTodayTokens(for: .codex)
-                )
+                if let accounts = appStore.syncService?.latestCodexAccounts, !accounts.isEmpty {
+                    CodexAccountsDetailCard(
+                        accounts: accounts,
+                        todayTokens: toolTodayTokens(for: .codex)
+                    )
+                } else {
+                    CodexDetailCard(
+                        limits: nil,
+                        fallbackQuota: quotas.first(where: { $0.tool == .codex && $0.accountKey == nil }),
+                        todayTokens: toolTodayTokens(for: .codex)
+                    )
+                }
             case .copilot:
                 CopilotDetailCard(
                     snapshots: appStore.syncService?.latestCopilotSnapshots,
@@ -311,9 +318,9 @@ struct CodexDetailCard: View {
         DetailCardContainer(tool: .codex, todayTokens: todayTokens) {
             if let limits {
                 VStack(spacing: 12) {
-                    CodexDetailRow(label: limits.primary?.windowLabel ?? "5h Session", window: limits.primary)
+                    CodexDetailRow(label: "5h Session", window: limits.fiveHourWindow)
                     Divider().opacity(0.5)
-                    CodexDetailRow(label: limits.secondary?.windowLabel ?? "Cycle", window: limits.secondary)
+                    CodexDetailRow(label: "7d Weekly", window: limits.oneWeekWindow)
                 }
             } else if let q = fallbackQuota, let r = q.remaining, let t = q.total, t > 0 {
                 let frac = Double(r) / Double(t)
@@ -325,6 +332,63 @@ struct CodexDetailCard: View {
                     secondaryValue: "\(max(0, 100 - pct))% used",
                     countdown: q.toModel().resetCountdown
                 )
+            } else {
+                Text("尚未获取数据").foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+struct CodexAccountsDetailCard: View {
+    let accounts: [CodexAccountSnapshot]
+    let todayTokens: Int
+
+    var body: some View {
+        DetailCardContainer(tool: .codex, todayTokens: todayTokens) {
+            VStack(alignment: .leading, spacing: 14) {
+                ForEach(accounts) { account in
+                    CodexAccountDetailRow(account: account)
+                    if account.id != accounts.last?.id {
+                        Divider().opacity(0.35)
+                    }
+                }
+            }
+        }
+    }
+}
+
+struct CodexAccountDetailRow: View {
+    let account: CodexAccountSnapshot
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(account.titleText).font(.headline)
+                    if let subtitleText = account.subtitleText {
+                        Text(subtitleText).font(.caption).foregroundStyle(.secondary)
+                    }
+                    if let metaText = account.metaText {
+                        Text(metaText).font(.caption2).foregroundStyle(.tertiary)
+                    }
+                }
+                Spacer()
+                if account.isCurrent {
+                    Text("当前账号")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(.green)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(Color.green.opacity(0.12), in: Capsule())
+                }
+            }
+
+            if let limits = account.limits {
+                CodexDetailRow(label: "5h Session", window: limits.fiveHourWindow)
+                Divider().opacity(0.5)
+                CodexDetailRow(label: "7d Weekly", window: limits.oneWeekWindow)
+            } else if let error = account.usageError {
+                Text(error).foregroundStyle(.secondary)
             } else {
                 Text("尚未获取数据").foregroundStyle(.secondary)
             }

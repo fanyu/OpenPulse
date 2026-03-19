@@ -133,8 +133,10 @@ actor AntigravityParser {
         let remainingPct = Int((minFraction * 100).rounded())
 
         return ToolQuota(
-            id: .antigravity,
+            id: Tool.antigravity.rawValue,
             tool: .antigravity,
+            accountKey: nil,
+            accountLabel: nil,
             remaining: remainingPct,
             total: 100,
             unit: .requests,

@@ -220,26 +220,79 @@ struct CodexRateLimits: Codable, Sendable {
         case primary, secondary, credits
         case planType = "plan_type"
     }
+
+    var fiveHourWindow: CodexWindow? {
+        selectNearestWindow(targetSeconds: 5 * 60 * 60)
+    }
+
+    var oneWeekWindow: CodexWindow? {
+        selectNearestWindow(targetSeconds: 7 * 24 * 60 * 60)
+    }
+
+    private func selectNearestWindow(targetSeconds: Int) -> CodexWindow? {
+        [primary, secondary]
+            .compactMap { $0 }
+            .min { lhs, rhs in
+                abs(lhs.durationSeconds - targetSeconds) < abs(rhs.durationSeconds - targetSeconds)
+            }
+    }
 }
 
 struct CodexWindow: Codable, Sendable {
     let usedPercent: Double?
     let windowMinutes: Int?
+    let windowSeconds: Int?
     let resetsAt: TimeInterval?   // Unix seconds
 
     enum CodingKeys: String, CodingKey {
         case usedPercent = "used_percent"
         case windowMinutes = "window_minutes"
+        case windowSeconds = "limit_window_seconds"
         case resetsAt = "resets_at"
+        case resetAt = "reset_at"
+    }
+
+    init(usedPercent: Double?, windowMinutes: Int?, windowSeconds: Int?, resetsAt: TimeInterval?) {
+        self.usedPercent = usedPercent
+        self.windowMinutes = windowMinutes ?? windowSeconds.map { max(0, $0 / 60) }
+        self.windowSeconds = windowSeconds
+        self.resetsAt = resetsAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let usedPercent = try container.decodeIfPresent(Double.self, forKey: .usedPercent)
+        let windowMinutes = try container.decodeIfPresent(Int.self, forKey: .windowMinutes)
+        let windowSeconds = try container.decodeIfPresent(Int.self, forKey: .windowSeconds)
+        let resetsAt = try container.decodeIfPresent(TimeInterval.self, forKey: .resetsAt)
+            ?? container.decodeIfPresent(TimeInterval.self, forKey: .resetAt)
+        self.init(
+            usedPercent: usedPercent,
+            windowMinutes: windowMinutes,
+            windowSeconds: windowSeconds,
+            resetsAt: resetsAt
+        )
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(usedPercent, forKey: .usedPercent)
+        try container.encodeIfPresent(windowMinutes, forKey: .windowMinutes)
+        try container.encodeIfPresent(windowSeconds, forKey: .windowSeconds)
+        try container.encodeIfPresent(resetsAt, forKey: .resetsAt)
     }
 
     var resetDate: Date? { resetsAt.map { Date(timeIntervalSince1970: $0) } }
     var remainingPercent: Double { 100 - (usedPercent ?? 0) }
+    var durationSeconds: Int { windowSeconds ?? (windowMinutes ?? 0) * 60 }
 
     /// Human-readable window label derived from windowMinutes.
     /// e.g. 300 → "5h Session", 10080 → "7d Weekly", 20160 → "14d Cycle"
     var windowLabel: String {
         guard let mins = windowMinutes else { return "Window" }
+        if mins == 300 { return "5h Session" }
+        if mins == 10080 { return "7d Weekly" }
+        if mins == 20160 { return "14d Cycle" }
         let totalHours = mins / 60
         let days = totalHours / 24
         if days >= 1 {

@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 63;
+	objectVersion = 77;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -29,7 +29,9 @@
 		7FB9F2A8ECCC0B3539C6C429 /* CompareView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D05939178581C41AF8FC17BF /* CompareView.swift */; };
 		88E842D5D0DAFD92629A68D4 /* SQLite in Frameworks */ = {isa = PBXBuildFile; productRef = 20E251EA3ACA7A06A6007A56 /* SQLite */; };
 		8A245E69560FCDDB793578B1 /* AppStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A494FF8BD7215CF0925772F8 /* AppStore.swift */; };
+		8DCA34358535ACF567C1B86B /* CodexAccountService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70978988BAE12EE3FFBBB75A /* CodexAccountService.swift */; };
 		9237BBED7F7DEB34F008A597 /* GlobalHotkeyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 342E886F9BF540A62FBE8BC7 /* GlobalHotkeyService.swift */; };
+		96950433BB59A1B34ED7AF1B /* CodexAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00887B511AFC8B11A0DCBC2 /* CodexAccount.swift */; };
 		9B55BE0FE4AF691EB7E7DB4B /* QuotaView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42286951DA0BA5C7591060C1 /* QuotaView.swift */; };
 		A7F5BB96B28B86404C636C2C /* AntigravityParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17FF3012B7E2288F242C0B7 /* AntigravityParser.swift */; };
 		ACFE41DA09FDB63087A5CC73 /* CommonUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = E44DFE8B1FF414DC177BEF99 /* CommonUI.swift */; };
@@ -71,6 +73,7 @@
 		62113CA5D975C1A71899C037 /* QuotaRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuotaRecord.swift; sourceTree = "<group>"; };
 		6D058DCA8091F77E73442094 /* LogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogView.swift; sourceTree = "<group>"; };
 		7086BEBA8F024D0188556DD4 /* SessionRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionRecord.swift; sourceTree = "<group>"; };
+		70978988BAE12EE3FFBBB75A /* CodexAccountService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexAccountService.swift; sourceTree = "<group>"; };
 		8918557F1ECC6689CA035E80 /* ToolAnalysisViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolAnalysisViews.swift; sourceTree = "<group>"; };
 		89E51531D07B099F396C58D4 /* DataSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DataSyncService.swift; sourceTree = "<group>"; };
 		94FD8AE1EE05A1ACE40E370B /* ToolLogoImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolLogoImage.swift; sourceTree = "<group>"; };
@@ -84,6 +87,7 @@
 		AD19B5E14DF8670708D6A8C0 /* ModelPricing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelPricing.swift; sourceTree = "<group>"; };
 		B225807FEB6829DD500E63EB /* Provider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Provider.swift; sourceTree = "<group>"; };
 		BCCDA4DF0EC129A5D3945AA3 /* DailyStatsRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyStatsRecord.swift; sourceTree = "<group>"; };
+		C00887B511AFC8B11A0DCBC2 /* CodexAccount.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexAccount.swift; sourceTree = "<group>"; };
 		D05939178581C41AF8FC17BF /* CompareView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompareView.swift; sourceTree = "<group>"; };
 		D5CAC165D978D26D6B4C0AB6 /* OpenCodeParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenCodeParser.swift; sourceTree = "<group>"; };
 		E44DFE8B1FF414DC177BEF99 /* CommonUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommonUI.swift; sourceTree = "<group>"; };
@@ -161,6 +165,7 @@
 			isa = PBXGroup;
 			children = (
 				AAE363D258692709B22F2620 /* AppLogger.swift */,
+				70978988BAE12EE3FFBBB75A /* CodexAccountService.swift */,
 				89E51531D07B099F396C58D4 /* DataSyncService.swift */,
 				A3BA6F0CC3FDD8DFCCCF7CD5 /* KeychainService.swift */,
 				9AC7AD8BD5E6F4A728B429D9 /* NotificationService.swift */,
@@ -243,6 +248,7 @@
 		ADC55ED6D79B662A4454414A /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				C00887B511AFC8B11A0DCBC2 /* CodexAccount.swift */,
 				FA613E3CB91EF6FF4D66FE15 /* DailyStats.swift */,
 				AD19B5E14DF8670708D6A8C0 /* ModelPricing.swift */,
 				B225807FEB6829DD500E63EB /* Provider.swift */,
@@ -352,6 +358,7 @@
 				LastUpgradeCheck = 2600;
 				TargetAttributes = {
 					21DE71877164FBA218D63715 = {
+						DevelopmentTeam = 33M7V22L6Y;
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -367,9 +374,10 @@
 			mainGroup = 259F6CFA96D2EC24F6BD224D;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				C3DFABD442685BF2F25B19FE /* XCRemoteSwiftPackageReference "SQLite" */,
+				C3DFABD442685BF2F25B19FE /* XCRemoteSwiftPackageReference "SQLite.swift" */,
 				CC46313A9273438FCDF44A48 /* XCRemoteSwiftPackageReference "SwiftZSTD" */,
 			);
+			preferredProjectObjectVersion = 77;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -398,6 +406,8 @@
 				DB9441BF2084C275703BE518 /* AppLogger.swift in Sources */,
 				8A245E69560FCDDB793578B1 /* AppStore.swift in Sources */,
 				FC608AD2FF7457A67AB70153 /* ClaudeCodeParser.swift in Sources */,
+				96950433BB59A1B34ED7AF1B /* CodexAccount.swift in Sources */,
+				8DCA34358535ACF567C1B86B /* CodexAccountService.swift in Sources */,
 				43F0E34C09A23184A9BF94FE /* CodexParser.swift in Sources */,
 				ACFE41DA09FDB63087A5CC73 /* CommonUI.swift in Sources */,
 				7FB9F2A8ECCC0B3539C6C429 /* CompareView.swift in Sources */,
@@ -442,7 +452,6 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = OpenPulse/OpenPulse.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				DEVELOPMENT_TEAM = K52WP93HZU;
 				INFOPLIST_FILE = OpenPulse/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -586,7 +595,6 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = OpenPulse/OpenPulse.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				DEVELOPMENT_TEAM = K52WP93HZU;
 				INFOPLIST_FILE = OpenPulse/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -621,7 +629,7 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		C3DFABD442685BF2F25B19FE /* XCRemoteSwiftPackageReference "SQLite" */ = {
+		C3DFABD442685BF2F25B19FE /* XCRemoteSwiftPackageReference "SQLite.swift" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/stephencelis/SQLite.swift";
 			requirement = {
@@ -642,7 +650,7 @@
 /* Begin XCSwiftPackageProductDependency section */
 		20E251EA3ACA7A06A6007A56 /* SQLite */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = C3DFABD442685BF2F25B19FE /* XCRemoteSwiftPackageReference "SQLite" */;
+			package = C3DFABD442685BF2F25B19FE /* XCRemoteSwiftPackageReference "SQLite.swift" */;
 			productName = SQLite;
 		};
 		A34676B78475615CA09E7538 /* SwiftZSTD */ = {

@@ -18,6 +18,7 @@ build/
 
 # Claude Code local settings (developer-specific)
 .claude/
+.codex/
 
 # Env / secrets
 *.env

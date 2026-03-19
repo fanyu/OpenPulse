@@ -512,7 +512,11 @@ struct TrendsView: View {
             if !balanceQuotas.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
                     Label("余额监控", systemImage: "creditcard.fill").font(.subheadline.bold()).foregroundStyle(.secondary)
-                    HStack(spacing: 12) { ForEach(balanceQuotas, id: \.toolRaw) { costBalanceCard($0) } }
+                    HStack(spacing: 12) {
+                        ForEach(Array(balanceQuotas.enumerated()), id: \.offset) { _, quota in
+                            costBalanceCard(quota)
+                        }
+                    }
                 }
                 .padding(20)
                 .glassEffect(.regular, in: .rect(cornerRadius: 16))
@@ -524,8 +528,12 @@ struct TrendsView: View {
     private func costBalanceCard(_ quota: QuotaRecord) -> some View {
         let fraction = Double(quota.remaining ?? 0) / Double(max(1, quota.total ?? 100))
         return VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) { ToolLogoImage(tool: quota.tool, size: 16); Text(quota.tool.displayName).font(.system(size: 11, weight: .semibold)); Spacer() }
-            QuotaProgressBar(fraction: fraction, color: quotaBarColor(fraction: fraction ?? 0)).frame(height: 4)
+            HStack(spacing: 6) {
+                ToolLogoImage(tool: quota.tool, size: 16)
+                Text(quota.accountLabel ?? quota.tool.displayName).font(.system(size: 11, weight: .semibold))
+                Spacer()
+            }
+            QuotaProgressBar(fraction: fraction, color: quotaBarColor(fraction: fraction)).frame(height: 4)
             Text(String(format: "%.0f%% 剩余", fraction * 100)).font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
         }
         .padding(12)

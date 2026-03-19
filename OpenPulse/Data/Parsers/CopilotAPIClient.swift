@@ -72,7 +72,8 @@ actor CopilotAPIClient {
             let remaining = snap.remaining ?? 0
             let total = snap.entitlement ?? 0
             let quota = ToolQuota(
-                id: .copilot, tool: .copilot,
+                id: Tool.copilot.rawValue, tool: .copilot,
+                accountKey: nil, accountLabel: nil,
                 remaining: total > 0 ? remaining : nil,
                 total: total > 0 ? total : nil,
                 unit: .requests, resetAt: resetAt, updatedAt: Date(),
@@ -83,7 +84,8 @@ actor CopilotAPIClient {
 
         // All unlimited — store nil so UI shows "unlimited"
         let quota = ToolQuota(
-            id: .copilot, tool: .copilot,
+            id: Tool.copilot.rawValue, tool: .copilot,
+            accountKey: nil, accountLabel: nil,
             remaining: nil, total: nil,
             unit: .requests, resetAt: resetAt, updatedAt: Date(),
             raw: snapshots as (any Sendable)

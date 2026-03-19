@@ -48,8 +48,8 @@ private struct MenuBarIcon: View {
 
     private func updateWarningState() {
         var fractions: [Double] = []
-        if let limits = appStore.syncService?.latestCodexLimits,
-           let primary = limits.primary,
+        let hasCodexAccounts = !(appStore.syncService?.latestCodexAccounts.isEmpty ?? true)
+        if let primary = appStore.syncService?.latestCodexAccounts.first(where: \.isCurrent)?.limits?.primary,
            let used = primary.usedPercent {
             fractions.append(max(0, (100 - used) / 100))
         }
@@ -59,6 +59,9 @@ private struct MenuBarIcon: View {
             fractions.append(max(0, (100 - util) / 100))
         }
         for q in quotas where Tool(rawValue: q.toolRaw) != nil {
+            if hasCodexAccounts && q.tool == .codex {
+                continue
+            }
             guard let r = q.remaining, let t = q.total, t > 0 else { continue }
             fractions.append(Double(r) / Double(t))
         }

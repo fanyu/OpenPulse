@@ -122,8 +122,10 @@ actor ClaudeCodeParser {
         let resetAt = fiveHour?.resetsAt.flatMap { ISO8601DateFormatter().date(from: $0) }
 
         return ToolQuota(
-            id: .claudeCode,
+            id: Tool.claudeCode.rawValue,
             tool: .claudeCode,
+            accountKey: nil,
+            accountLabel: nil,
             remaining: remaining,
             total: 100,
             unit: .messages,
@@ -407,4 +409,3 @@ private struct ClaudeUsage: Decodable {
         case cacheCreationInputTokens = "cache_creation_input_tokens"
     }
 }
-

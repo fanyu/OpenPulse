@@ -16,11 +16,141 @@ struct ClaudeProviderContent: View {
 // MARK: - Codex CLI Content
 
 struct CodexProviderContent: View {
+    let appStore: AppStore
+    @State private var isWorking = false
+    @State private var errorMessage: String?
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 16) {
             Label("数据源: \(Provider.codex.dataSourcePath)", systemImage: "folder.badge.gearshape").font(.caption).foregroundStyle(.secondary)
-            Text("Codex CLI 使用本地 SQLite 数据库，无需额外配置即可自动同步。").font(.subheadline).foregroundStyle(.secondary)
+            Text("支持多账户导入、OpenAI OAuth 登录、额度轮询，以及将任一账户切换为当前 `~/.codex/auth.json`。")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 12) {
+                Button("导入当前账号") {
+                    runAsyncAction {
+                        try await appStore.codexAccountService.importCurrentAuth()
+                    }
+                }
+                    .buttonStyle(.bordered)
+                Button(isWorking ? "登录中..." : "新增 OpenAI 登录") {
+                    runAsyncAction {
+                        try await appStore.codexAccountService.addAccountViaOAuth()
+                    }
+                }
+                .buttonStyle(.glassProminent)
+                .disabled(isWorking)
+                Button("刷新额度") {
+                    runAsyncAction {
+                        _ = await appStore.codexAccountService.refreshAllUsage(force: true)
+                    }
+                }
+                .buttonStyle(.bordered)
+                .disabled(isWorking)
+            }
+
+            if let errorMessage {
+                Text(errorMessage).font(.caption).foregroundStyle(.red)
+            }
+
+            if let accounts = appStore.syncService?.latestCodexAccounts, !accounts.isEmpty {
+                VStack(spacing: 12) {
+                    ForEach(accounts) { account in
+                        CodexProviderAccountCard(
+                            account: account,
+                            isWorking: isWorking,
+                            onSwitch: {
+                                runAsyncAction {
+                                    try await appStore.codexAccountService.switchAccount(id: account.id)
+                                }
+                            },
+                            onDelete: {
+                                runAsyncAction {
+                                    await appStore.codexAccountService.deleteAccount(id: account.id)
+                                }
+                            }
+                        )
+                    }
+                }
+            } else {
+                Text("还没有 Codex 账号。先导入当前 `~/.codex/auth.json`，或者直接新增 OpenAI 登录。")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
         }
+    }
+
+    private func runAsyncAction(_ action: @escaping () async throws -> Void) {
+        isWorking = true
+        errorMessage = nil
+        Task {
+            do {
+                try await action()
+                await appStore.syncService?.sync(tool: .codex)
+                await MainActor.run { isWorking = false }
+            } catch {
+                await MainActor.run {
+                    isWorking = false
+                    errorMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+}
+
+private struct CodexProviderAccountCard: View {
+    let account: CodexAccountSnapshot
+    let isWorking: Bool
+    let onSwitch: () -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 8) {
+                        Text(account.titleText).font(.headline)
+                        if account.isCurrent {
+                            Text("当前")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(.green)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 3)
+                                .background(Color.green.opacity(0.12), in: Capsule())
+                        }
+                    }
+                    if let subtitleText = account.subtitleText {
+                        Text(subtitleText).font(.caption).foregroundStyle(.secondary)
+                    }
+                    HStack(spacing: 6) {
+                        if let metaText = account.metaText {
+                            Text(metaText).font(.caption2).foregroundStyle(.tertiary)
+                        }
+                        if let planType = account.planType, !planType.isEmpty, planType != account.metaText {
+                            Text(planType).font(.caption2).foregroundStyle(.tertiary)
+                        }
+                    }
+                }
+                Spacer()
+                HStack(spacing: 8) {
+                    Button("切换", action: onSwitch)
+                        .buttonStyle(.bordered)
+                        .disabled(isWorking || account.isCurrent)
+                    Button(role: .destructive, action: onDelete) {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(isWorking)
+                }
+            }
+            if let error = account.usageError {
+                Text(error).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .padding(14)
+        .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.primary.opacity(0.05), lineWidth: 1))
     }
 }
 
@@ -87,7 +217,7 @@ struct CopilotProviderContent: View {
         Task {
             do {
                 try KeychainService.store(key: KeychainService.Keys.githubToken, value: githubToken)
-                try await CopilotAPIClient().fetchQuota()
+                _ = try await CopilotAPIClient().fetchQuota()
                 await MainActor.run { isVerifying = false; importError = nil }
             } catch { await MainActor.run { isVerifying = false; importError = "验证失败" } }
         }

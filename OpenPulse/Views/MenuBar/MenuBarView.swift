@@ -81,11 +81,18 @@ struct MenuBarView: View {
                 weeklyTokens: []
             )
         case .codex:
-            CodexQuotaCard(
-                limits: appStore.syncService?.latestCodexLimits,
-                fallbackQuota: quotas.first(where: { $0.tool == .codex }),
-                todayTokens: todaySessionTokens(for: .codex)
-            )
+            if let accounts = appStore.syncService?.latestCodexAccounts, !accounts.isEmpty {
+                CodexMultiAccountQuotaCard(
+                    accounts: accounts,
+                    todayTokens: todaySessionTokens(for: .codex)
+                )
+            } else {
+                CodexQuotaCard(
+                    limits: nil,
+                    fallbackQuota: quotas.first(where: { $0.tool == .codex && $0.accountKey == nil }),
+                    todayTokens: todaySessionTokens(for: .codex)
+                )
+            }
         case .copilot:
             CopilotQuotaCard(
                 snapshots: appStore.syncService?.latestCopilotSnapshots,
@@ -281,13 +288,77 @@ struct CodexQuotaCard: View {
             }
             if let limits {
                 VStack(spacing: 6) {
-                    CodexWindowRow(label: limits.primary?.windowLabel ?? "5h Session", window: limits.primary)
-                    CodexWindowRow(label: limits.secondary?.windowLabel ?? "Cycle", window: limits.secondary)
+                    CodexWindowRow(label: "5h Session", window: limits.fiveHourWindow)
+                    CodexWindowRow(label: "7d Weekly", window: limits.oneWeekWindow)
                 }
             } else if let q = fallbackQuota, let r = q.remaining, let t = q.total {
                 let frac = Double(r) / Double(t)
                 let pct = Int((frac * 100).rounded())
                 UnifiedQuotaRow(style: .compact, showUsedAtTop: true, title: "5h Session", fraction: frac, primaryValue: "\(pct)%", secondaryValue: "\(max(0, 100 - pct))% used", countdown: q.toModel().resetCountdown)
+            }
+        }
+        .padding(12)
+        .glassEffect(.regular, in: .rect(cornerRadius: 14))
+    }
+}
+
+struct CodexAccountQuotaCard: View {
+    let account: CodexAccountSnapshot
+
+    var body: some View {
+        VStack(spacing: 8) {
+            HStack(alignment: .top, spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(account.titleText).font(.system(size: 11, weight: .semibold))
+                    if let subtitleText = account.subtitleText {
+                        Text(subtitleText).font(.system(size: 9)).foregroundStyle(.tertiary)
+                    } else if let metaText = account.metaText {
+                        Text(metaText).font(.system(size: 9)).foregroundStyle(.tertiary)
+                    }
+                }
+                Spacer(minLength: 8)
+                if account.isCurrent {
+                    Text("当前")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.green)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(Color.green.opacity(0.12), in: Capsule())
+                }
+            }
+            if let limits = account.limits {
+                VStack(spacing: 6) {
+                    CodexWindowRow(label: "5h Session", window: limits.fiveHourWindow)
+                    CodexWindowRow(label: "7d Weekly", window: limits.oneWeekWindow)
+                }
+            } else if let error = account.usageError {
+                Text(error).font(.caption2).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                Text("尚未获取配额").font(.caption2).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+}
+
+struct CodexMultiAccountQuotaCard: View {
+    let accounts: [CodexAccountSnapshot]
+    let todayTokens: Int
+
+    var body: some View {
+        VStack(spacing: 10) {
+            HStack(alignment: .top) {
+                ToolIconLabel(tool: .codex)
+                Spacer()
+                if todayTokens > 0 { TodayTokenBadge(tokens: todayTokens) }
+            }
+
+            VStack(spacing: 10) {
+                ForEach(accounts) { account in
+                    CodexAccountQuotaCard(account: account)
+                    if account.id != accounts.last?.id {
+                        Divider().opacity(0.25)
+                    }
+                }
             }
         }
         .padding(12)

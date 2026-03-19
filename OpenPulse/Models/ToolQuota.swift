@@ -2,8 +2,10 @@ import Foundation
 
 /// Quota / remaining allowance for a tool.
 struct ToolQuota: Identifiable, Sendable {
-    let id: Tool
+    let id: String
     let tool: Tool
+    let accountKey: String?
+    let accountLabel: String?
     let remaining: Int?
     let total: Int?
     let unit: QuotaUnit

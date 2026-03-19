@@ -8,6 +8,7 @@ final class AppStore {
 
     var selectedTab: AppTab = .trends
     var lastSyncDate: Date?
+    let codexAccountService = CodexAccountService()
 
     let modelContainer: ModelContainer
     private(set) var syncService: DataSyncService?
@@ -30,7 +31,7 @@ final class AppStore {
         guard syncService == nil else { return }
         // Use the container's main context so @Query views see writes immediately
         let context = modelContainer.mainContext
-        let service = DataSyncService(modelContext: context)
+        let service = DataSyncService(modelContext: context, codexAccountService: codexAccountService)
         syncService = service
         service.start()
     }

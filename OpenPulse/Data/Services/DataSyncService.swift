@@ -9,8 +9,8 @@ final class DataSyncService {
     private(set) var lastSyncDate: Date?
     private(set) var syncError: Error?
 
-    /// 最新的 Codex rate limits，包含 primary (5h) 和 secondary (7d) 两个窗口
-    private(set) var latestCodexLimits: CodexRateLimits?
+    /// 最新的 Codex 多账户额度列表
+    private(set) var latestCodexAccounts: [CodexAccountSnapshot] = []
 
     /// 最新的 Claude 订阅配额响应（含 fiveHour / sevenDay 窗口）；无订阅时为 nil
     private(set) var latestClaudeUsage: ClaudeUsageResponse?
@@ -30,6 +30,7 @@ final class DataSyncService {
 
     private let claudeParser = ClaudeCodeParser()
     private let codexParser = CodexParser()
+    private let codexAccountService: CodexAccountService
     private let antigravityParser = AntigravityParser()
     private let copilotClient = CopilotAPIClient()
     private let openCodeParser = OpenCodeParser()
@@ -57,14 +58,14 @@ final class DataSyncService {
         }
     }
 
-    init(modelContext: ModelContext) {
+    init(modelContext: ModelContext, codexAccountService: CodexAccountService) {
         self.modelContext = modelContext
+        self.codexAccountService = codexAccountService
     }
 
     // MARK: - Lifecycle
 
     func start() {
-        restoreCachedCodexLimits()
         purgeOrphanedQuotas()
         for tool in Tool.allCases { scheduleTimer(for: tool) }
         startFSEventWatching()
@@ -89,13 +90,6 @@ final class DataSyncService {
         timers.removeAll()
         fsEventStream?.stop()
         fsEventStream = nil
-    }
-
-    private func restoreCachedCodexLimits() {
-        guard latestCodexLimits == nil,
-              let data = UserDefaults.standard.data(forKey: "cached.codexLimitsData"),
-              let restored = try? JSONDecoder().decode(CodexRateLimits.self, from: data) else { return }
-        latestCodexLimits = restored
     }
 
     func sync() async {
@@ -212,7 +206,8 @@ final class DataSyncService {
         let remaining = fiveHour.map { Int((1.0 - ($0.utilization ?? 0) / 100.0) * 100) }
         let resetAt = fiveHour?.resetsAt.flatMap { ISO8601DateFormatter().date(from: $0) }
         return ToolQuota(
-            id: .claudeCode, tool: .claudeCode,
+            id: Tool.claudeCode.rawValue, tool: .claudeCode,
+            accountKey: nil, accountLabel: nil,
             remaining: remaining, total: 100,
             unit: .messages, resetAt: resetAt, updatedAt: Date(),
             raw: usage
@@ -236,19 +231,25 @@ final class DataSyncService {
         let stats = try await codexParser.parseDailyStats(since: since)
         for stat in stats { upsertDailyStats(stat) }
 
-        // Rate limits → store as quota record (primary window) + cache full limits in memory
-        if let limits = await codexParser.parseLatestRateLimits() {
-            latestCodexLimits = limits
-            if let data = try? JSONEncoder().encode(limits) {
-                UserDefaults.standard.set(data, forKey: "cached.codexLimitsData")
-            }
-            let primary = limits.primary
-            let remainingPct = primary.map { Int($0.remainingPercent) }
-            let resetAt = primary?.resetDate
+        await codexAccountService.syncCurrentSelectionFromAuthFile()
+        let accounts = await codexAccountService.refreshAllUsage()
+        latestCodexAccounts = accounts
+        removeStaleCodexQuotas(validAccountKeys: Set(accounts.map(\.accountID)))
+        for account in accounts {
+            upsertQuota(account.quota)
+        }
+
+        if accounts.isEmpty, let limits = await codexParser.parseLatestRateLimits() {
             let quota = ToolQuota(
-                id: .codex, tool: .codex,
-                remaining: remainingPct, total: 100,
-                unit: .tokens, resetAt: resetAt, updatedAt: Date(),
+                id: Tool.codex.rawValue,
+                tool: .codex,
+                accountKey: nil,
+                accountLabel: nil,
+                remaining: limits.fiveHourWindow.map { Int($0.remainingPercent) },
+                total: 100,
+                unit: .tokens,
+                resetAt: limits.fiveHourWindow?.resetDate,
+                updatedAt: Date(),
                 raw: limits
             )
             upsertQuota(quota)
@@ -386,11 +387,15 @@ final class DataSyncService {
 
     private func upsertQuota(_ quota: ToolQuota) {
         let toolRaw = quota.tool.rawValue
-        var quotaDescriptor = FetchDescriptor<QuotaRecord>(predicate: #Predicate { $0.toolRaw == toolRaw })
+        let accountKey = quota.accountKey
+        var quotaDescriptor = FetchDescriptor<QuotaRecord>(
+            predicate: #Predicate { $0.toolRaw == toolRaw && $0.accountKey == accountKey }
+        )
         quotaDescriptor.fetchLimit = 1
         let existing = (try? modelContext.fetch(quotaDescriptor))?.first
 
         if let existing {
+            existing.accountLabel = quota.accountLabel
             existing.remaining = quota.remaining
             existing.total = quota.total
             existing.resetAt = quota.resetAt
@@ -398,6 +403,8 @@ final class DataSyncService {
         } else {
             let record = QuotaRecord(
                 tool: quota.tool,
+                accountKey: quota.accountKey,
+                accountLabel: quota.accountLabel,
                 remaining: quota.remaining,
                 total: quota.total,
                 unit: quota.unit,
@@ -407,15 +414,27 @@ final class DataSyncService {
         }
     }
 
+    private func removeStaleCodexQuotas(validAccountKeys: Set<String>) {
+        let toolRaw = Tool.codex.rawValue
+        let descriptor = FetchDescriptor<QuotaRecord>(predicate: #Predicate { $0.toolRaw == toolRaw })
+        guard let records = try? modelContext.fetch(descriptor) else { return }
+        for record in records {
+            guard let accountKey = record.accountKey else { continue }
+            if !validAccountKeys.contains(accountKey) {
+                modelContext.delete(record)
+            }
+        }
+    }
+
     // MARK: - Quota notifications
 
     private func checkQuotaNotifications() {
         var quotas: [String: NotificationService.QuotaInfo] = [:]
 
-        if let limits = latestCodexLimits,
-           let primary = limits.primary,
-           let used = primary.usedPercent {
-            quotas[Tool.codex.rawValue] = .init(fraction: max(0, (100 - used) / 100), resetAt: primary.resetDate)
+        if let current = latestCodexAccounts.first(where: \.isCurrent),
+           let fiveHour = current.limits?.fiveHourWindow,
+           let used = fiveHour.usedPercent {
+            quotas[Tool.codex.rawValue] = .init(fraction: max(0, (100 - used) / 100), resetAt: fiveHour.resetDate)
         }
         if let usage = latestClaudeUsage,
            let window = usage.fiveHour,
