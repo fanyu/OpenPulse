@@ -364,7 +364,7 @@ struct CodexMultiAccountQuotaCard: View {
                 Spacer()
                 if codexSmartSwitchEnabled {
                     Button("智能切换") {
-                        runSwitch {
+                        runSwitch(closeWhenNoDecision: false) {
                             try await appStore.codexAccountService.smartSwitch()
                         }
                     }
@@ -389,7 +389,7 @@ struct CodexMultiAccountQuotaCard: View {
                         account: account,
                         isSwitching: isSwitching,
                         onSwitch: { id in
-                            runSwitch {
+                            runSwitch(closeWhenNoDecision: true) {
                                 _ = try await appStore.codexAccountService.switchAccount(id: id, relaunchCodex: true)
                                 return nil as CodexAccountService.SmartSwitchDecision?
                             }
@@ -412,6 +412,7 @@ struct CodexMultiAccountQuotaCard: View {
     }
 
     private func runSwitch(
+        closeWhenNoDecision: Bool,
         _ action: @escaping () async throws -> CodexAccountService.SmartSwitchDecision?
     ) {
         isSwitching = true
@@ -419,6 +420,9 @@ struct CodexMultiAccountQuotaCard: View {
         Task {
             do {
                 let decision = try await action()
+                if decision != nil || closeWhenNoDecision {
+                    await GlobalHotkeyService.shared.closeMenuBar()
+                }
                 await appStore.syncService?.sync(tool: .codex)
                 await MainActor.run {
                     isSwitching = false

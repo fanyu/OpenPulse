@@ -65,6 +65,10 @@ final class GlobalHotkeyService {
         (NSStatusBar.system.value(forKey: "statusItems") as? [NSStatusItem])?.first?.button?.performClick(nil)
     }
 
+    @MainActor func closeMenuBar() {
+        _menuBarWindow?.orderOut(nil)
+    }
+
     // MARK: - Registration
 
     /// Load saved shortcut from UserDefaults and register it.
