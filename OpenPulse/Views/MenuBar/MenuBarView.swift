@@ -9,7 +9,6 @@ struct MenuBarView: View {
 
     @AppStorage("menubar.toolOrder") private var toolOrderRaw = Tool.defaultOrderRaw
     @AppStorage("menubar.hiddenTools") private var hiddenToolsRaw = ""
-
     init() {
         // Only load today's sessions — avoids scanning the entire session history
         // (which grows unboundedly) on every sync-triggered view refresh.
@@ -352,6 +351,7 @@ struct CodexAccountQuotaCard: View {
 
 struct CodexMultiAccountQuotaCard: View {
     @Environment(AppStore.self) private var appStore
+    @AppStorage("codex.smartSwitch.enabled") private var codexSmartSwitchEnabled = false
     let accounts: [CodexAccountSnapshot]
     let todayTokens: Int
     @State private var isSwitching = false
@@ -362,14 +362,24 @@ struct CodexMultiAccountQuotaCard: View {
             HStack(alignment: .top) {
                 ToolIconLabel(tool: .codex)
                 Spacer()
-                Button("智能切换") {
-                    runSwitch {
-                        try await appStore.codexAccountService.smartSwitch()
+                if codexSmartSwitchEnabled {
+                    Button("智能切换") {
+                        runSwitch {
+                            try await appStore.codexAccountService.smartSwitch()
+                        }
                     }
+                    .buttonStyle(
+                        ProminentActionButtonStyle(
+                            fillColor: Color.green.opacity(0.78),
+                            fontSizeOverride: 10,
+                            horizontalPaddingOverride: 7,
+                            verticalPaddingOverride: 2,
+                            cornerRadius: 8
+                        )
+                    )
+                    .controlSize(.mini)
+                    .disabled(isSwitching)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.mini)
-                .disabled(isSwitching)
                 if todayTokens > 0 { TodayTokenBadge(tokens: todayTokens) }
             }
 

@@ -70,6 +70,46 @@ struct ValueChip: View {
     }
 }
 
+struct ProminentActionButtonStyle: ButtonStyle {
+    @Environment(\.controlSize) private var controlSize
+    var fillColor: Color = Color.primary.opacity(0.9)
+    var pressedOpacity: Double = 0.88
+    var fontSizeOverride: CGFloat? = nil
+    var horizontalPaddingOverride: CGFloat? = nil
+    var verticalPaddingOverride: CGFloat? = nil
+    var cornerRadius: CGFloat = 10
+
+    func makeBody(configuration: Configuration) -> some View {
+        let metrics = metricsForControlSize()
+        configuration.label
+            .font(.system(size: fontSizeOverride ?? metrics.fontSize, weight: .semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, horizontalPaddingOverride ?? metrics.horizontalPadding)
+            .padding(.vertical, verticalPaddingOverride ?? metrics.verticalPadding)
+            .background(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(fillColor.opacity(configuration.isPressed ? pressedOpacity : 1))
+            )
+            .scaleEffect(configuration.isPressed ? 0.98 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+
+    private func metricsForControlSize() -> (fontSize: CGFloat, horizontalPadding: CGFloat, verticalPadding: CGFloat) {
+        switch controlSize {
+        case .mini:
+            (10, 8, 3)
+        case .small:
+            (11, 10, 5)
+        case .large:
+            (14, 16, 9)
+        case .regular, .extraLarge:
+            (12, 12, 6)
+        @unknown default:
+            (12, 12, 6)
+        }
+    }
+}
+
 // MARK: - Shared Sections
 
 struct SectionHeader: View {

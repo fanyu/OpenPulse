@@ -31,6 +31,9 @@ struct SettingsView: View {
     @AppStorage("notifications.enabled")   private var notificationsEnabled = false
     @AppStorage("notifications.threshold") private var notificationThreshold = 10
 
+    // MARK: - Codex
+    @AppStorage("codex.smartSwitch.enabled") private var codexSmartSwitchEnabled = false
+
     // MARK: - Computed helpers
 
     private var orderedTools: [Tool] {
@@ -233,6 +236,22 @@ struct SettingsView: View {
                                 ShortcutRow(label: "退出", shortcut: "⌘Q")
                             }
                         }
+                    }
+                }
+
+                SettingsCard(title: "Codex", icon: "arrow.triangle.2.circlepath") {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("启用智能切换")
+                                .font(.body)
+                            Text("开启后，菜单栏会显示「智能切换」入口；后台监测到当前 Codex 账号 5h/7d 配额耗尽时，会自动切换到更优账号并重启 Codex。")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Toggle("", isOn: $codexSmartSwitchEnabled)
+                            .toggleStyle(.switch)
+                            .labelsHidden()
                     }
                 }
                 

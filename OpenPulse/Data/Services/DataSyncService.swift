@@ -233,7 +233,9 @@ final class DataSyncService {
 
         await codexAccountService.syncCurrentSelectionFromAuthFile()
         let accounts = await codexAccountService.refreshAllUsage()
-        if let decision = try? await codexAccountService.autoSmartSwitchIfNeeded(accounts: accounts) {
+        let smartSwitchEnabled = UserDefaults.standard.bool(forKey: "codex.smartSwitch.enabled")
+        if smartSwitchEnabled,
+           let decision = try? await codexAccountService.autoSmartSwitchIfNeeded(accounts: accounts) {
             AppLogger.shared.warning(
                 "Codex auto switch -> \(decision.account.titleText)\(decision.usedCLIFallback ? " (CLI fallback)" : "")"
             )

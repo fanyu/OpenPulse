@@ -33,20 +33,23 @@ struct CodexProviderContent: View {
                         try await appStore.codexAccountService.importCurrentAuth()
                     }
                 }
-                    .buttonStyle(.bordered)
+                .buttonStyle(ProminentActionButtonStyle(fillColor: Color.black.opacity(0.58)))
+                .controlSize(.small)
                 Button(isWorking ? "登录中..." : "新增 OpenAI 登录") {
                     runAsyncAction {
                         try await appStore.codexAccountService.addAccountViaOAuth()
                     }
                 }
-                .buttonStyle(.glassProminent)
+                .buttonStyle(ProminentActionButtonStyle(fillColor: Color.black.opacity(0.82)))
+                .controlSize(.small)
                 .disabled(isWorking)
                 Button("刷新额度") {
                     runAsyncAction {
                         _ = await appStore.codexAccountService.refreshAllUsage(force: true)
                     }
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(ProminentActionButtonStyle(fillColor: Color.black.opacity(0.58)))
+                .controlSize(.small)
                 .disabled(isWorking)
             }
 
@@ -183,7 +186,9 @@ struct CopilotProviderContent: View {
                 Button("从本地配置导入") { importToken() }.buttonStyle(.bordered)
                 if didImport { Label("导入成功", systemImage: "checkmark.circle.fill").foregroundStyle(.green).font(.caption) }
                 Spacer()
-                Button("保存并验证") { saveToken() }.buttonStyle(.glassProminent).disabled(githubToken.isEmpty || isVerifying)
+                Button("保存并验证") { saveToken() }
+                    .buttonStyle(ProminentActionButtonStyle(fillColor: Color.black.opacity(0.82)))
+                    .disabled(githubToken.isEmpty || isVerifying)
             }
             if let error = importError { Text(error).font(.caption).foregroundStyle(.red) }
         }
