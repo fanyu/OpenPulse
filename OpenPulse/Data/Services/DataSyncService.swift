@@ -233,13 +233,20 @@ final class DataSyncService {
 
         await codexAccountService.syncCurrentSelectionFromAuthFile()
         let accounts = await codexAccountService.refreshAllUsage()
-        latestCodexAccounts = accounts
-        removeStaleCodexQuotas(validAccountKeys: Set(accounts.map(\.accountID)))
-        for account in accounts {
+        if let decision = try? await codexAccountService.autoSmartSwitchIfNeeded(accounts: accounts) {
+            AppLogger.shared.warning(
+                "Codex auto switch -> \(decision.account.titleText)\(decision.usedCLIFallback ? " (CLI fallback)" : "")"
+            )
+            latestCodexAccounts = await codexAccountService.listAccounts()
+        } else {
+            latestCodexAccounts = accounts
+        }
+        removeStaleCodexQuotas(validAccountKeys: Set(latestCodexAccounts.map(\.accountID)))
+        for account in latestCodexAccounts {
             upsertQuota(account.quota)
         }
 
-        if accounts.isEmpty, let limits = await codexParser.parseLatestRateLimits() {
+        if latestCodexAccounts.isEmpty, let limits = await codexParser.parseLatestRateLimits() {
             let quota = ToolQuota(
                 id: Tool.codex.rawValue,
                 tool: .codex,

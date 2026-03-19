@@ -49,7 +49,7 @@ private struct MenuBarIcon: View {
     private func updateWarningState() {
         var fractions: [Double] = []
         let hasCodexAccounts = !(appStore.syncService?.latestCodexAccounts.isEmpty ?? true)
-        if let primary = appStore.syncService?.latestCodexAccounts.first(where: \.isCurrent)?.limits?.primary,
+        if let primary = appStore.syncService?.latestCodexAccounts.first(where: \.isCurrent)?.limits?.fiveHourWindow,
            let used = primary.usedPercent {
             fractions.append(max(0, (100 - used) / 100))
         }

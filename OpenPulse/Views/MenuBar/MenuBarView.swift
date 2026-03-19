@@ -303,7 +303,10 @@ struct CodexQuotaCard: View {
 }
 
 struct CodexAccountQuotaCard: View {
+    @Environment(AppStore.self) private var appStore
     let account: CodexAccountSnapshot
+    let isSwitching: Bool
+    let onSwitch: (String) -> Void
 
     var body: some View {
         VStack(spacing: 8) {
@@ -324,6 +327,13 @@ struct CodexAccountQuotaCard: View {
                         .padding(.horizontal, 6)
                         .padding(.vertical, 3)
                         .background(Color.green.opacity(0.12), in: Capsule())
+                } else {
+                    Button("切换") {
+                        onSwitch(account.id)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.mini)
+                    .disabled(isSwitching)
                 }
             }
             if let limits = account.limits {
@@ -341,28 +351,82 @@ struct CodexAccountQuotaCard: View {
 }
 
 struct CodexMultiAccountQuotaCard: View {
+    @Environment(AppStore.self) private var appStore
     let accounts: [CodexAccountSnapshot]
     let todayTokens: Int
+    @State private var isSwitching = false
+    @State private var statusMessage: String?
 
     var body: some View {
         VStack(spacing: 10) {
             HStack(alignment: .top) {
                 ToolIconLabel(tool: .codex)
                 Spacer()
+                Button("智能切换") {
+                    runSwitch {
+                        try await appStore.codexAccountService.smartSwitch()
+                    }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+                .disabled(isSwitching)
                 if todayTokens > 0 { TodayTokenBadge(tokens: todayTokens) }
             }
 
             VStack(spacing: 10) {
                 ForEach(accounts) { account in
-                    CodexAccountQuotaCard(account: account)
+                    CodexAccountQuotaCard(
+                        account: account,
+                        isSwitching: isSwitching,
+                        onSwitch: { id in
+                            runSwitch {
+                                _ = try await appStore.codexAccountService.switchAccount(id: id, relaunchCodex: true)
+                                return nil as CodexAccountService.SmartSwitchDecision?
+                            }
+                        }
+                    )
                     if account.id != accounts.last?.id {
                         Divider().opacity(0.25)
                     }
                 }
             }
+            if let statusMessage {
+                Text(statusMessage)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .padding(12)
         .glassEffect(.regular, in: .rect(cornerRadius: 14))
+    }
+
+    private func runSwitch(
+        _ action: @escaping () async throws -> CodexAccountService.SmartSwitchDecision?
+    ) {
+        isSwitching = true
+        statusMessage = nil
+        Task {
+            do {
+                let decision = try await action()
+                await appStore.syncService?.sync(tool: .codex)
+                await MainActor.run {
+                    isSwitching = false
+                    if let decision {
+                        statusMessage = decision.isAutomatic
+                            ? "已自动切换到 \(decision.account.titleText)"
+                            : "已切换到 \(decision.account.titleText)"
+                    } else {
+                        statusMessage = "当前账号已经是最优选择"
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    isSwitching = false
+                    statusMessage = error.localizedDescription
+                }
+            }
+        }
     }
 }
 

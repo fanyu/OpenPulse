@@ -62,7 +62,7 @@ struct CodexProviderContent: View {
                             isWorking: isWorking,
                             onSwitch: {
                                 runAsyncAction {
-                                    try await appStore.codexAccountService.switchAccount(id: account.id)
+                                    _ = try await appStore.codexAccountService.switchAccount(id: account.id)
                                 }
                             },
                             onDelete: {

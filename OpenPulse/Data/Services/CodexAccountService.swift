@@ -5,6 +5,12 @@ import Network
 import Security
 
 actor CodexAccountService {
+    struct SmartSwitchDecision: Sendable {
+        let account: CodexAccountSnapshot
+        let usedCLIFallback: Bool
+        let isAutomatic: Bool
+    }
+
     private enum OAuthConfiguration {
         static let issuer = URL(string: "https://auth.openai.com")!
         static let clientID = "app_EMoamEEZ73f0CkXaXp7hrann"
@@ -21,6 +27,28 @@ actor CodexAccountService {
         static func shouldRefresh(lastFetchedAt: Date?, now: Date) -> Bool {
             guard let lastFetchedAt else { return true }
             return now.timeIntervalSince(lastFetchedAt) >= minimumRefreshInterval
+        }
+    }
+
+    private enum SmartSwitchPolicy {
+        static let weeklyWeight = 0.7
+        static let sessionWeight = 0.3
+        static let minimumScoreGain = 15.0
+        static let cooldown: TimeInterval = 10 * 60
+
+        static func score(for account: CodexAccountSnapshot) -> Double {
+            let weeklyRemaining = max(0, 100 - (account.limits?.oneWeekWindow?.usedPercent ?? 100))
+            let sessionRemaining = max(0, 100 - (account.limits?.fiveHourWindow?.usedPercent ?? 100))
+            return weeklyRemaining * weeklyWeight + sessionRemaining * sessionWeight
+        }
+
+        static func isExhausted(_ account: CodexAccountSnapshot) -> Bool {
+            isWindowExhausted(account.limits?.fiveHourWindow) || isWindowExhausted(account.limits?.oneWeekWindow)
+        }
+
+        static func isWindowExhausted(_ window: CodexWindow?) -> Bool {
+            guard let used = window?.usedPercent else { return false }
+            return used >= 100
         }
     }
 
@@ -76,10 +104,13 @@ actor CodexAccountService {
     private let storeURL: URL
     private let codexAuthURL: URL
     private let codexConfigURL: URL
+    private let userDefaults: UserDefaults
+    private let autoSwitchTimestampKey = "codex.smartSwitch.lastAt"
 
-    init(fileManager: FileManager = .default, session: URLSession = .shared) {
+    init(fileManager: FileManager = .default, session: URLSession = .shared, userDefaults: UserDefaults = .standard) {
         self.fileManager = fileManager
         self.session = session
+        self.userDefaults = userDefaults
         supportDir = URL.homeDirectory.appending(path: ".openpulse")
         storeURL = supportDir.appending(path: "codex-accounts.json")
         codexAuthURL = URL.homeDirectory.appending(path: ".codex/auth.json")
@@ -123,7 +154,7 @@ actor CodexAccountService {
         _ = try upsertAccount(authJSONString: authJSONString, customLabel: customLabel, setAsCurrent: false)
     }
 
-    func switchAccount(id: String) async throws {
+    func switchAccount(id: String, relaunchCodex: Bool = true) async throws -> Bool {
         var store = loadStore()
         guard let account = store.accounts.first(where: { $0.id == id }) else {
             throw ServiceError.accountNotFound
@@ -131,6 +162,41 @@ actor CodexAccountService {
         try writeCurrentAuthString(account.authJSONString)
         store.currentAccountID = account.accountID
         saveStore(store)
+        if relaunchCodex {
+            return try await relaunchCodexApp()
+        }
+        return false
+    }
+
+    func smartSwitch() async throws -> SmartSwitchDecision? {
+        let accounts = await listAccounts()
+        guard let target = bestAccountToSwitch(from: accounts, requireCurrentExhausted: false, enforceMinimumGain: false) else {
+            return nil
+        }
+        let usedCLIFallback = try await switchAccount(id: target.id, relaunchCodex: true)
+        await AppLogger.shared.info("Codex smart switch: switched to \(target.titleText)")
+        return SmartSwitchDecision(account: target, usedCLIFallback: usedCLIFallback, isAutomatic: false)
+    }
+
+    func autoSmartSwitchIfNeeded(accounts: [CodexAccountSnapshot]? = nil) async throws -> SmartSwitchDecision? {
+        let candidates = if let accounts {
+            accounts
+        } else {
+            await listAccounts()
+        }
+        guard let target = bestAccountToSwitch(from: candidates, requireCurrentExhausted: true, enforceMinimumGain: true) else {
+            return nil
+        }
+        let lastAt = userDefaults.object(forKey: autoSwitchTimestampKey) as? Date
+        let now = Date()
+        if let lastAt, now.timeIntervalSince(lastAt) < SmartSwitchPolicy.cooldown {
+            return nil
+        }
+
+        let usedCLIFallback = try await switchAccount(id: target.id, relaunchCodex: true)
+        userDefaults.set(now, forKey: autoSwitchTimestampKey)
+        await AppLogger.shared.warning("Codex auto smart switch: switched to \(target.titleText)")
+        return SmartSwitchDecision(account: target, usedCLIFallback: usedCLIFallback, isAutomatic: true)
     }
 
     func deleteAccount(id: String) {
@@ -277,6 +343,39 @@ actor CodexAccountService {
         return "Codex \(String(accountID.prefix(8)))"
     }
 
+    private func bestAccountToSwitch(
+        from accounts: [CodexAccountSnapshot],
+        requireCurrentExhausted: Bool,
+        enforceMinimumGain: Bool
+    ) -> CodexAccountSnapshot? {
+        guard let current = accounts.first(where: \.isCurrent) else {
+            return rankedAccounts(accounts).first
+        }
+        if requireCurrentExhausted && !SmartSwitchPolicy.isExhausted(current) {
+            return nil
+        }
+
+        let rankedAlternatives = rankedAccounts(accounts.filter { $0.id != current.id })
+        guard let best = rankedAlternatives.first else { return nil }
+
+        if enforceMinimumGain {
+            let gain = SmartSwitchPolicy.score(for: best) - SmartSwitchPolicy.score(for: current)
+            guard gain >= SmartSwitchPolicy.minimumScoreGain else { return nil }
+        }
+
+        return best
+    }
+
+    private func rankedAccounts(_ accounts: [CodexAccountSnapshot]) -> [CodexAccountSnapshot] {
+        accounts.sorted { lhs, rhs in
+            let leftScore = SmartSwitchPolicy.score(for: lhs)
+            let rightScore = SmartSwitchPolicy.score(for: rhs)
+            if leftScore != rightScore { return leftScore > rightScore }
+            if lhs.isCurrent != rhs.isCurrent { return lhs.isCurrent && !rhs.isCurrent }
+            return lhs.updatedAt > rhs.updatedAt
+        }
+    }
+
     private func loadStore() -> CodexAccountsStore {
         guard fileManager.fileExists(atPath: storeURL.path),
               let data = try? Data(contentsOf: storeURL),
@@ -311,6 +410,168 @@ actor CodexAccountService {
         try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
         try Data(jsonString.utf8).write(to: codexAuthURL, options: .atomic)
         chmod(codexAuthURL.path, S_IRUSR | S_IWUSR)
+    }
+
+    private func relaunchCodexApp(workspacePath: String? = nil) async throws -> Bool {
+        forceStopRunningCodex()
+        try await waitForCodexProcessToExit(timeoutSeconds: 3)
+
+        if let appPath = findCodexAppPath() {
+            do {
+                try launchCodexBundleApp(at: appPath, workspacePath: workspacePath)
+                if await waitForCodexProcess(timeoutSeconds: 2) {
+                    return false
+                }
+            } catch {
+                await AppLogger.shared.warning("Codex relaunch via app failed: \(error.localizedDescription)")
+            }
+        }
+
+        try launchViaCodexCLI(workspacePath: workspacePath)
+        return true
+    }
+
+    private func forceStopRunningCodex() {
+        _ = try? runProcess("/usr/bin/osascript", arguments: ["-e", "tell application \"Codex\" to quit"])
+        _ = try? runProcess("/usr/bin/osascript", arguments: ["-e", "tell application \"Codex Desktop\" to quit"])
+        _ = try? runProcess("/usr/bin/pkill", arguments: ["-9", "-x", "Codex"])
+        _ = try? runProcess("/usr/bin/pkill", arguments: ["-9", "-x", "Codex Desktop"])
+    }
+
+    private func waitForCodexProcessToExit(timeoutSeconds: TimeInterval) async throws {
+        let deadline = Date().addingTimeInterval(timeoutSeconds)
+        while Date() < deadline {
+            if !isCodexProcessRunning() { return }
+            try await Task.sleep(for: .milliseconds(120))
+        }
+    }
+
+    private func waitForCodexProcess(timeoutSeconds: TimeInterval) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeoutSeconds)
+        while Date() < deadline {
+            if isCodexProcessRunning() { return true }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        return false
+    }
+
+    private func isCodexProcessRunning() -> Bool {
+        let codex = try? runProcess("/usr/bin/pgrep", arguments: ["-x", "Codex"])
+        if codex?.terminationStatus == 0 { return true }
+        let desktop = try? runProcess("/usr/bin/pgrep", arguments: ["-x", "Codex Desktop"])
+        return desktop?.terminationStatus == 0
+    }
+
+    private func findCodexAppPath() -> URL? {
+        let home = fileManager.homeDirectoryForCurrentUser
+        let candidates = [
+            URL(fileURLWithPath: "/Applications/Codex.app"),
+            URL(fileURLWithPath: "/Applications/Codex Desktop.app"),
+            home.appendingPathComponent("Applications/Codex.app"),
+            home.appendingPathComponent("Applications/Codex Desktop.app")
+        ]
+        if let found = candidates.first(where: { fileManager.fileExists(atPath: $0.path) }) {
+            return found
+        }
+        return spotlightFindApp(named: "Codex.app") ?? spotlightFindApp(named: "Codex Desktop.app")
+    }
+
+    private func launchCodexBundleApp(at appPath: URL, workspacePath: String?) throws {
+        var arguments = ["-na", appPath.path]
+        if let workspacePath, !workspacePath.isEmpty {
+            arguments.append(workspacePath)
+        }
+        let result = try runProcess("/usr/bin/open", arguments: arguments)
+        guard result.terminationStatus == 0 else {
+            throw ServiceError.callbackFailed("无法重启 Codex App。")
+        }
+    }
+
+    private func launchViaCodexCLI(workspacePath: String?) throws {
+        let codexPath = try findCodexCLIPath()
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: codexPath)
+        process.arguments = workspacePath?.isEmpty == false ? ["app", workspacePath!] : ["app"]
+        process.environment = mergedPathEnvironment(for: codexPath)
+        do {
+            try process.run()
+        } catch {
+            throw ServiceError.callbackFailed("无法通过 codex CLI 重启 Codex。")
+        }
+    }
+
+    private func findCodexCLIPath() throws -> String {
+        let home = fileManager.homeDirectoryForCurrentUser
+        let candidates: [URL] = [
+            URL(fileURLWithPath: "/opt/homebrew/bin/codex"),
+            URL(fileURLWithPath: "/usr/local/bin/codex"),
+            URL(fileURLWithPath: "/usr/bin/codex"),
+            home.appendingPathComponent(".local/bin/codex"),
+            home.appendingPathComponent(".npm-global/bin/codex"),
+            home.appendingPathComponent(".volta/bin/codex"),
+            home.appendingPathComponent(".asdf/shims/codex"),
+            home.appendingPathComponent("Library/pnpm/codex"),
+            home.appendingPathComponent("bin/codex")
+        ]
+
+        if let fromPATH = ProcessInfo.processInfo.environment["PATH"]?
+            .split(separator: ":")
+            .map(String.init)
+            .map({ URL(fileURLWithPath: $0).appendingPathComponent("codex") })
+            .first(where: isExecutable) {
+            return fromPATH.path
+        }
+
+        if let match = candidates.first(where: isExecutable) {
+            return match.path
+        }
+
+        throw ServiceError.callbackFailed("未找到 codex CLI。")
+    }
+
+    private func mergedPathEnvironment(for executablePath: String) -> [String: String] {
+        var env = ProcessInfo.processInfo.environment
+        let current = env["PATH"] ?? ""
+        let parent = URL(fileURLWithPath: executablePath).deletingLastPathComponent().path
+        env["PATH"] = parent + (current.isEmpty ? "" : ":\(current)")
+        return env
+    }
+
+    private func isExecutable(_ url: URL) -> Bool {
+        guard let attrs = try? fileManager.attributesOfItem(atPath: url.path),
+              let type = attrs[.type] as? FileAttributeType,
+              type == .typeRegular,
+              let perm = attrs[.posixPermissions] as? NSNumber else {
+            return false
+        }
+        return perm.intValue & 0o111 != 0
+    }
+
+    private func spotlightFindApp(named appName: String) -> URL? {
+        guard let result = try? runProcess("/usr/bin/mdfind", arguments: ["kMDItemFSName == '\(appName)'"]),
+              result.terminationStatus == 0 else {
+            return nil
+        }
+        let firstLine = String(decoding: result.output, as: UTF8.self)
+            .split(whereSeparator: \.isNewline)
+            .map(String.init)
+            .first(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
+        guard let path = firstLine, fileManager.fileExists(atPath: path) else { return nil }
+        return URL(fileURLWithPath: path)
+    }
+
+    @discardableResult
+    private func runProcess(_ launchPath: String, arguments: [String]) throws -> ProcessResult {
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: launchPath)
+        process.arguments = arguments
+        process.standardOutput = pipe
+        process.standardError = pipe
+        try process.run()
+        process.waitUntilExit()
+        let output = pipe.fileHandleForReading.readDataToEndOfFile()
+        return ProcessResult(terminationStatus: process.terminationStatus, output: output)
     }
 
     private func currentAuthAccountID() -> String? {
@@ -816,6 +1077,11 @@ actor CodexAccountService {
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")
     }
+}
+
+private struct ProcessResult {
+    let terminationStatus: Int32
+    let output: Data
 }
 
 private struct CodexUsageAPIResponse: Decodable {
