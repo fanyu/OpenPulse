@@ -4,16 +4,16 @@ import SwiftData
 struct MenuBarView: View {
     @Environment(AppStore.self) private var appStore
     @Environment(\.openWindow) private var openWindow
-    @Query private var sessions: [SessionRecord]
+    @Query private var dailyStats: [DailyStatsRecord]
     @Query private var quotas: [QuotaRecord]
 
     @AppStorage("menubar.toolOrder") private var toolOrderRaw = Tool.defaultOrderRaw
     @AppStorage("menubar.hiddenTools") private var hiddenToolsRaw = ""
     init() {
-        // Only load today's sessions — avoids scanning the entire session history
-        // (which grows unboundedly) on every sync-triggered view refresh.
+        // Only load today's aggregate stats — avoids scanning today's raw sessions
+        // every time the menu bar popover is shown or refreshed.
         let start = Calendar.current.startOfDay(for: Date())
-        _sessions = Query(filter: #Predicate<SessionRecord> { $0.startedAt >= start })
+        _dailyStats = Query(filter: #Predicate<DailyStatsRecord> { $0.date >= start })
     }
 
     private var orderedVisibleTools: [Tool] {
@@ -24,13 +24,13 @@ struct MenuBarView: View {
     }
 
     @State private var contentHeight: CGFloat = 0
-    // Cached per-tool today token counts — one pass over today's sessions only.
+    // Cached per-tool today token counts — one pass over today's aggregate stats only.
     @State private var todayTokensByTool: [Tool: Int] = [:]
 
     private func rebuildTodayTokens() {
         var map: [Tool: Int] = [:]
-        for session in sessions {
-            map[session.tool, default: 0] += session.totalTokens
+        for stats in dailyStats {
+            map[stats.tool, default: 0] += stats.totalInputTokens + stats.totalOutputTokens
         }
         todayTokensByTool = map
     }
@@ -66,7 +66,7 @@ struct MenuBarView: View {
         .frame(width: 380)
         .background(MenuBarWindowCapture())
         .task { rebuildTodayTokens() }
-        .onChange(of: sessions.count) { _, _ in rebuildTodayTokens() }
+        .onChange(of: dailyStats.count) { _, _ in rebuildTodayTokens() }
     }
 
     @ViewBuilder

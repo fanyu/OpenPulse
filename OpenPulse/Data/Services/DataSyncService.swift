@@ -105,6 +105,7 @@ final class DataSyncService {
             await syncCopilot()
             try await syncOpenCode()
             try modelContext.save()
+            syncError = nil
             lastSyncDate = Date()
             let count = (try? modelContext.fetchCount(FetchDescriptor<SessionRecord>())) ?? 0
             AppLogger.shared.info("Sync completed. Total sessions in DB: \(count)")
@@ -119,6 +120,7 @@ final class DataSyncService {
 
     /// Sync a single tool and save. Used by per-tool timers.
     func sync(tool: Tool) async {
+        syncError = nil
         do {
             switch tool {
             case .claudeCode:   try await syncClaudeCode()
@@ -128,6 +130,7 @@ final class DataSyncService {
             case .opencode:     try await syncOpenCode()
             }
             try modelContext.save()
+            syncError = nil
             lastSyncDate = Date()
         } catch {
             syncError = error
@@ -293,9 +296,11 @@ final class DataSyncService {
             try await parseAntigravityFiles(since: since)
             try await syncOpenCode()
             try modelContext.save()
+            syncError = nil
             lastSyncDate = Date()
         } catch {
             AppLogger.shared.error("Local file sync error: \(error)")
+            syncError = error
         }
     }
 
