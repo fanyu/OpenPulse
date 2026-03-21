@@ -140,24 +140,25 @@ actor ClaudeCodeParser {
     private func resolveOAuthToken() async throws -> String? {
         // 1. Try ~/.claude/.credentials.json — always re-read so we pick up refreshed tokens.
         let credFile = claudeDir.appending(path: ".credentials.json")
-        if FileManager.default.fileExists(atPath: credFile.path),
-           let data = try? Data(contentsOf: credFile),
-           let creds = try? JSONDecoder().decode(ClaudeCredentials.self, from: data),
-           let oauth = creds.claudeAiOauth,
-           let token = oauth.accessToken {
-            // Skip if token is expired (expiresAt is Unix ms; leave 5-min buffer)
+        if FileManager.default.fileExists(atPath: credFile.path) {
+            guard let data = try? Data(contentsOf: credFile),
+                  let creds = try? JSONDecoder().decode(ClaudeCredentials.self, from: data),
+                  let oauth = creds.claudeAiOauth,
+                  let token = oauth.accessToken else {
+                return nil
+            }
+
+            // If the credentials file exists, trust it as the source of truth.
+            // Do not fall back to Keychain when the file is stale or malformed,
+            // otherwise an expired file token still triggers recurring Keychain prompts.
             if let exp = oauth.expiresAt {
                 let expiresDate = Date(timeIntervalSince1970: Double(exp) / 1000)
-                if expiresDate > Date().addingTimeInterval(300) { return token }
-                // Expired — fall through to Keychain
-            } else {
-                return token
+                return expiresDate > Date().addingTimeInterval(300) ? token : nil
             }
+            return token
         }
 
-        // 2. Keychain fallback. Always re-read so we pick up token refreshes from
-        //    Claude Code CLI (which updates the Keychain entry after each renewal).
-        //    macOS Keychain reads are fast and silent after the first permission grant.
+        // 2. Keychain fallback only when the credentials file does not exist.
         let rawToken = try? KeychainService.retrieveGenericPassword(service: "Claude Code-credentials")
         return rawToken.flatMap { tokenStr in
             guard let data = tokenStr.data(using: .utf8),

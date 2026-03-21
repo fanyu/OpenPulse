@@ -238,6 +238,9 @@ struct ClaudeQuotaCard: View {
             HStack {
                 ToolIconLabel(tool: .claudeCode)
                 Spacer()
+                if let badge = claudeOffPeakBadgeText {
+                    ClaudeOffPeakBadge(text: badge)
+                }
                 if todayTokens > 0 { TodayTokenBadge(tokens: todayTokens) }
             }
             if let usage {
@@ -255,6 +258,24 @@ struct ClaudeQuotaCard: View {
         .padding(12)
         .glassEffect(.regular, in: .rect(cornerRadius: 14))
     }
+
+    private var claudeOffPeakBadgeText: String? {
+        var calendar = Calendar(identifier: .gregorian)
+        guard let pacificTimeZone = TimeZone(identifier: "America/Los_Angeles") else { return nil }
+        calendar.timeZone = pacificTimeZone
+
+        let now = Date()
+        let weekday = calendar.component(.weekday, from: now) // 1 = Sunday, 7 = Saturday
+        let hour = calendar.component(.hour, from: now)
+
+        if weekday == 1 || weekday == 7 {
+            return "2x weekend"
+        }
+        if hour < 5 || hour >= 11 {
+            return "2x off-peak"
+        }
+        return nil
+    }
 }
 
 struct ClaudeWindowRow: View {
@@ -269,6 +290,36 @@ struct ClaudeWindowRow: View {
             isMultiDay ? countdownString(to: date) : date.formatted(.dateTime.hour().minute())
         }
         UnifiedQuotaRow(style: .compact, showUsedAtTop: true, title: label, fraction: frac, primaryValue: remPct.map { "\($0)%" }, secondaryValue: usedPct.map { "\($0)% used" }, countdown: countdown)
+    }
+}
+
+private struct ClaudeOffPeakBadge: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 9, weight: .bold, design: .monospaced))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(
+                Capsule()
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color(red: 0.99, green: 0.56, blue: 0.16),
+                                Color(red: 0.93, green: 0.36, blue: 0.13),
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+            )
+            .overlay(
+                Capsule()
+                    .stroke(Color.white.opacity(0.18), lineWidth: 0.6)
+            )
+            .shadow(color: Color.orange.opacity(0.22), radius: 6, y: 2)
     }
 }
 
