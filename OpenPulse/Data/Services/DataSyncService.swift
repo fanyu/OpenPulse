@@ -113,6 +113,7 @@ final class DataSyncService {
         } catch {
             syncError = error
             AppLogger.shared.error("Sync error: \(error)")
+            AppLogger.shared.recordSyncError(scope: "full-sync", tool: nil, error: error)
         }
 
         isSyncing = false
@@ -135,6 +136,7 @@ final class DataSyncService {
         } catch {
             syncError = error
             AppLogger.shared.error("Sync error (\(tool.rawValue)): \(error)")
+            AppLogger.shared.recordSyncError(scope: "tool-sync", tool: tool, error: error)
         }
     }
 
@@ -301,6 +303,7 @@ final class DataSyncService {
         } catch {
             AppLogger.shared.error("Local file sync error: \(error)")
             syncError = error
+            AppLogger.shared.recordSyncError(scope: "local-files", tool: nil, error: error)
         }
     }
 

@@ -6,6 +6,7 @@ struct MenuBarView: View {
     @Environment(\.openWindow) private var openWindow
     @Query private var dailyStats: [DailyStatsRecord]
     @Query private var quotas: [QuotaRecord]
+    @State private var logger = AppLogger.shared
 
     @AppStorage("menubar.toolOrder") private var toolOrderRaw = Tool.defaultOrderRaw
     @AppStorage("menubar.hiddenTools") private var hiddenToolsRaw = ""
@@ -183,7 +184,7 @@ struct MenuBarView: View {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 9))
                     .foregroundStyle(.orange)
-                    .help(err.localizedDescription)
+                    .help(syncErrorHelpText(fallback: err.localizedDescription))
             }
             Spacer()
             HStack(spacing: 8) {
@@ -222,6 +223,10 @@ struct MenuBarView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+    }
+
+    private func syncErrorHelpText(fallback: String) -> String {
+        logger.latestPersistentSyncError?.summary ?? fallback
     }
 }
 
