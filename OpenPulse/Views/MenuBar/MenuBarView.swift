@@ -508,7 +508,7 @@ struct CodexWindowRow: View {
         let pct = frac.map { Int(($0 * 100).rounded()) }
         let usedPct = pct.map { max(0, 100 - $0) }
         let isMultiDay = (window?.windowMinutes ?? 0) > 24 * 60
-        let countdown = window?.resetDate.map { isMultiDay ? $0.formatted(.dateTime.month().day()) : $0.formatted(.dateTime.hour().minute()) }
+        let countdown = window?.resetDate.map { isMultiDay ? $0.formatted(.dateTime.month(.twoDigits).day(.twoDigits).hour().minute()) : $0.formatted(.dateTime.hour().minute()) }
         UnifiedQuotaRow(style: .compact, showUsedAtTop: true, title: label, fraction: frac, primaryValue: pct.map { "\($0)%" }, secondaryValue: usedPct.map { "\($0)% used" }, countdown: countdown)
     }
 }

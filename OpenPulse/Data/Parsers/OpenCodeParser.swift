@@ -14,7 +14,15 @@ actor OpenCodeParser {
     func parseSessions(since date: Date? = nil) async throws -> [ToolSession] {
         let dbURL = dataDir.appending(path: "opencode.db")
         guard FileManager.default.fileExists(atPath: dbURL.path) else { return [] }
-        return (try? parseSessions(from: dbURL, since: date)) ?? []
+        do {
+            return try parseSessions(from: dbURL, since: date)
+        } catch {
+            if isCantOpenDatabaseError(error) {
+                await AppLogger.shared.warning("OpenCode DB unavailable this cycle: \(error.localizedDescription)")
+                return []
+            }
+            throw error
+        }
     }
 
     private func parseSessions(from dbURL: URL, since date: Date?) throws -> [ToolSession] {
@@ -70,6 +78,11 @@ actor OpenCodeParser {
             ))
         }
         return sessions
+    }
+
+    private func isCantOpenDatabaseError(_ error: Error) -> Bool {
+        let description = error.localizedDescription.lowercased()
+        return description.contains("unable to open database file") || description.contains("code: 14")
     }
 }
 

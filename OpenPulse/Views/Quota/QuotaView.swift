@@ -418,7 +418,7 @@ struct CodexDetailRow: View {
         let rem = used.map { max(0, 100 - $0) }
         let footer: String? = isStale
             ? "已重置"
-            : window?.resetDate.map { isLong ? $0.formatted(.dateTime.month().day()) : $0.formatted(.dateTime.hour().minute()) }
+            : window?.resetDate.map { isLong ? $0.formatted(.dateTime.month(.twoDigits).day(.twoDigits).hour().minute()) : $0.formatted(.dateTime.hour().minute()) }
 
         UnifiedQuotaRow(
             title: label,
