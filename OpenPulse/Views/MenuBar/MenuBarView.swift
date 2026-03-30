@@ -534,7 +534,11 @@ struct CopilotQuotaCard: View {
     let todayTokens: Int
     private var ordered: [(key: String, value: CopilotSnapshot)] {
         guard let s = snapshots else { return [] }
-        return s.sorted { a, b in
+        return s
+            .filter { key, _ in
+                key != "chat" && key != "completions"
+            }
+            .sorted { a, b in
             if a.key == "premium_interactions" { return true }
             if b.key == "premium_interactions" { return false }
             return a.key < b.key
