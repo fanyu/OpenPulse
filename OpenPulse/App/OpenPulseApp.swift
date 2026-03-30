@@ -44,9 +44,8 @@ struct OpenPulseApp: App {
 private struct MenuBarIcon: View {
     @Query private var quotas: [QuotaRecord]
     @Environment(AppStore.self) private var appStore
-    @State private var isWarning = false
 
-    private func updateWarningState() {
+    private var isWarning: Bool {
         var fractions: [Double] = []
         let hasCodexAccounts = !(appStore.syncService?.latestCodexAccounts.isEmpty ?? true)
         if let primary = appStore.syncService?.latestCodexAccounts.first(where: \.isCurrent)?.limits?.fiveHourWindow,
@@ -65,15 +64,13 @@ private struct MenuBarIcon: View {
             guard let r = q.remaining, let t = q.total, t > 0 else { continue }
             fractions.append(Double(r) / Double(t))
         }
-        isWarning = (fractions.min() ?? 1.0) < 0.15
+        return (fractions.min() ?? 1.0) < 0.15
     }
 
     var body: some View {
         Image(systemName: isWarning ? "waveform.badge.exclamationmark" : "waveform")
             .symbolRenderingMode(isWarning ? .multicolor : .monochrome)
             .background(MenuBarButtonCapture())
-            .task { updateWarningState() }
-            .onChange(of: quotas.count) { _, _ in updateWarningState() }
     }
 }
 
