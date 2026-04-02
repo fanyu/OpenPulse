@@ -45,7 +45,7 @@ struct QuotaView: View {
         return ordered.filter { !hidden.contains($0.rawValue) }
     }
 
-    private var isSyncing: Bool { appStore.syncService?.isSyncing ?? false }
+    private var isSyncing: Bool { appStore.syncService?.isSyncingActive ?? false }
 
     // MARK: - Aggregated stats (served from cache)
 

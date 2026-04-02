@@ -5,9 +5,24 @@ import SwiftData
 @MainActor
 @Observable
 final class DataSyncService {
+    private enum SyncStateError: LocalizedError {
+        case stalled(seconds: Int)
+
+        var errorDescription: String? {
+            switch self {
+            case .stalled(let seconds):
+                "同步已卡住超过 \(seconds) 秒，已允许重新刷新。"
+            }
+        }
+    }
+
+    private static let staleSyncThreshold: TimeInterval = 45
+
     private(set) var isSyncing = false
     private(set) var lastSyncDate: Date?
     private(set) var syncError: Error?
+    private var syncStartedAt: Date?
+    private var activeSyncID: UUID?
 
     /// 最新的 Codex 多账户额度列表
     private(set) var latestCodexAccounts: [CodexAccountSnapshot] = []
@@ -92,11 +107,41 @@ final class DataSyncService {
         fsEventStream = nil
     }
 
+    var isSyncingActive: Bool {
+        guard isSyncing, let syncStartedAt else { return false }
+        return Date().timeIntervalSince(syncStartedAt) < Self.staleSyncThreshold
+    }
+
     func sync() async {
-        guard !isSyncing else { return }
+        if isSyncing {
+            guard let syncStartedAt else {
+                isSyncing = false
+                activeSyncID = nil
+                syncError = SyncStateError.stalled(seconds: Int(Self.staleSyncThreshold))
+                AppLogger.shared.error("Sync state reset: missing start time while marked syncing")
+                return
+            }
+
+            let elapsed = Date().timeIntervalSince(syncStartedAt)
+            guard elapsed >= Self.staleSyncThreshold else { return }
+
+            syncError = SyncStateError.stalled(seconds: Int(elapsed.rounded()))
+            AppLogger.shared.error("Previous sync considered stalled after \(Int(elapsed.rounded()))s; starting a new cycle")
+        }
+
+        let runID = UUID()
+        activeSyncID = runID
+        syncStartedAt = Date()
         isSyncing = true
         syncError = nil
         AppLogger.shared.info("Sync started at \(Date())")
+        defer {
+            if activeSyncID == runID {
+                isSyncing = false
+                syncStartedAt = nil
+                activeSyncID = nil
+            }
+        }
 
         do {
             try await syncClaudeCode()
@@ -115,8 +160,6 @@ final class DataSyncService {
             AppLogger.shared.error("Sync error: \(error)")
             AppLogger.shared.recordSyncError(scope: "full-sync", tool: nil, error: error)
         }
-
-        isSyncing = false
     }
 
     /// Sync a single tool and save. Used by per-tool timers.
@@ -290,7 +333,7 @@ final class DataSyncService {
     /// Parses JSONL/SQLite/markdown but never touches any network API,
     /// so frequent file writes during active use can't trigger rate limits.
     private func syncLocalFiles() async {
-        guard !isSyncing else { return }
+        guard !isSyncingActive else { return }
         let since = lastSyncDate.map { Calendar.current.date(byAdding: .hour, value: -1, to: $0)! }
         do {
             try await parseClaudeFiles(since: since)

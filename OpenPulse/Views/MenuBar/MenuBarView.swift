@@ -38,7 +38,7 @@ struct MenuBarView: View {
 
     private var todayTokens: Int { todayTokensByTool.values.reduce(0, +) }
 
-    private var isSyncing: Bool { appStore.syncService?.isSyncing ?? false }
+    private var isSyncing: Bool { appStore.syncService?.isSyncingActive ?? false }
     private var lastSyncDate: Date? { appStore.syncService?.lastSyncDate ?? appStore.lastSyncDate }
 
     private var maxScrollHeight: CGFloat {
@@ -243,9 +243,6 @@ struct ClaudeQuotaCard: View {
             HStack {
                 ToolIconLabel(tool: .claudeCode)
                 Spacer()
-                if let badge = claudeOffPeakBadgeText {
-                    ClaudeOffPeakBadge(text: badge)
-                }
                 if todayTokens > 0 { TodayTokenBadge(tokens: todayTokens) }
             }
             if let usage {
