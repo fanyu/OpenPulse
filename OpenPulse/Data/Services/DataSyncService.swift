@@ -17,12 +17,15 @@ final class DataSyncService {
     }
 
     private static let staleSyncThreshold: TimeInterval = 45
+    private static let upsertYieldBatchSize = 100
 
     private(set) var isSyncing = false
     private(set) var lastSyncDate: Date?
     private(set) var syncError: Error?
     private var syncStartedAt: Date?
     private var activeSyncID: UUID?
+    private var currentSyncPhase: String?
+    private var currentSyncPhaseStartedAt: Date?
 
     /// 最新的 Codex 多账户额度列表
     private(set) var latestCodexAccounts: [CodexAccountSnapshot] = []
@@ -112,36 +115,56 @@ final class DataSyncService {
         return Date().timeIntervalSince(syncStartedAt) < Self.staleSyncThreshold
     }
 
-    func sync() async {
+    private func beginSyncRun(scope: String, allowStaleRecovery: Bool) -> UUID? {
         if isSyncing {
             guard let syncStartedAt else {
                 isSyncing = false
                 activeSyncID = nil
+                currentSyncPhase = nil
+                currentSyncPhaseStartedAt = nil
                 syncError = SyncStateError.stalled(seconds: Int(Self.staleSyncThreshold))
                 AppLogger.shared.error("Sync state reset: missing start time while marked syncing")
-                return
+                return nil
             }
 
             let elapsed = Date().timeIntervalSince(syncStartedAt)
-            guard elapsed >= Self.staleSyncThreshold else { return }
+            if !allowStaleRecovery || elapsed < Self.staleSyncThreshold {
+                AppLogger.shared.recordDiagnostic(
+                    level: .info,
+                    scope: "sync.skip",
+                    message: "\(scope) skipped while another sync is active (\(Int(elapsed.rounded()))s)"
+                )
+                return nil
+            }
 
             syncError = SyncStateError.stalled(seconds: Int(elapsed.rounded()))
-            AppLogger.shared.error("Previous sync considered stalled after \(Int(elapsed.rounded()))s; starting a new cycle")
+            AppLogger.shared.error("Previous sync considered stalled after \(Int(elapsed.rounded()))s; starting a new cycle for \(scope)")
         }
 
         let runID = UUID()
         activeSyncID = runID
         syncStartedAt = Date()
         isSyncing = true
+        return runID
+    }
+
+    private func endSyncRun(_ runID: UUID) {
+        finishCurrentPhase()
+        if activeSyncID == runID {
+            isSyncing = false
+            syncStartedAt = nil
+            activeSyncID = nil
+            currentSyncPhase = nil
+            currentSyncPhaseStartedAt = nil
+        }
+    }
+
+    func sync() async {
+        guard let runID = beginSyncRun(scope: "full-sync", allowStaleRecovery: true) else { return }
         syncError = nil
         AppLogger.shared.info("Sync started at \(Date())")
-        defer {
-            if activeSyncID == runID {
-                isSyncing = false
-                syncStartedAt = nil
-                activeSyncID = nil
-            }
-        }
+        AppLogger.shared.recordDiagnostic(scope: "sync.start", message: "full sync started")
+        defer { endSyncRun(runID) }
 
         do {
             try await syncClaudeCode()
@@ -149,11 +172,17 @@ final class DataSyncService {
             try await syncAntigravity()
             await syncCopilot()
             try await syncOpenCode()
+            startPhase("model-save")
             try modelContext.save()
+            finishCurrentPhase()
             syncError = nil
             lastSyncDate = Date()
             let count = (try? modelContext.fetchCount(FetchDescriptor<SessionRecord>())) ?? 0
             AppLogger.shared.info("Sync completed. Total sessions in DB: \(count)")
+            if let syncStartedAt {
+                let elapsed = Date().timeIntervalSince(syncStartedAt)
+                AppLogger.shared.recordDiagnostic(scope: "sync.finish", message: "full sync finished in \(Int(elapsed.rounded()))s, sessions=\(count)")
+            }
             checkQuotaNotifications()
         } catch {
             syncError = error
@@ -164,7 +193,10 @@ final class DataSyncService {
 
     /// Sync a single tool and save. Used by per-tool timers.
     func sync(tool: Tool) async {
+        guard let runID = beginSyncRun(scope: "tool-sync:\(tool.rawValue)", allowStaleRecovery: false) else { return }
         syncError = nil
+        AppLogger.shared.recordDiagnostic(scope: "sync.tool.start", message: "\(tool.rawValue) sync started")
+        defer { endSyncRun(runID) }
         do {
             switch tool {
             case .claudeCode:   try await syncClaudeCode()
@@ -173,9 +205,12 @@ final class DataSyncService {
             case .copilot:      await syncCopilot()
             case .opencode:     try await syncOpenCode()
             }
+            startPhase("model-save")
             try modelContext.save()
+            finishCurrentPhase()
             syncError = nil
             lastSyncDate = Date()
+            AppLogger.shared.recordDiagnostic(scope: "sync.tool.finish", message: "\(tool.rawValue) sync finished")
         } catch {
             syncError = error
             AppLogger.shared.error("Sync error (\(tool.rawValue)): \(error)")
@@ -192,20 +227,24 @@ final class DataSyncService {
 
     /// Parses Claude's local files only (stats-cache.json + JSONL). No network.
     private func parseClaudeFiles(since: Date?) async throws {
+        startPhase("claude.local")
         let cachedStats = (try? await claudeParser.parseDailyStatsFromCache()) ?? []
         AppLogger.shared.info("ClaudeCode: parsed \(cachedStats.count) cached daily stats")
-        for stat in cachedStats { upsertDailyStats(stat) }
+        try await upsertDailyStats(cachedStats, label: "claude.dailyStats")
 
         let sessions = try await claudeParser.parseSessions(since: since)
         AppLogger.shared.info("ClaudeCode: parsed \(sessions.count) sessions")
-        for session in sessions { upsertSession(session) }
+        try await upsertSessions(sessions, label: "claude.sessions")
+        finishCurrentPhase()
     }
 
     /// Parses Antigravity's local markdown files only. No network.
     private func parseAntigravityFiles(since: Date?) async throws {
+        startPhase("antigravity.local")
         let sessions = try await antigravityParser.parseSessions(since: since)
         AppLogger.shared.info("Antigravity: parsed \(sessions.count) sessions")
-        for session in sessions { upsertSession(session) }
+        try await upsertSessions(sessions, label: "antigravity.sessions")
+        finishCurrentPhase()
     }
 
     /// Full Claude sync: local files + subscription quota API.
@@ -216,6 +255,7 @@ final class DataSyncService {
     }
 
     private func syncClaudeQuota() async {
+        startPhase("claude.quota")
         // Restore last-known data from disk so the UI never shows "API Key mode" on launch.
         if latestClaudeUsage == nil,
            let cached = UserDefaults.standard.data(forKey: "cached.claudeUsageData"),
@@ -246,6 +286,7 @@ final class DataSyncService {
                 "Claude quota failed (\(claudeQuotaFailCount)x), retry in \(Int(backoff / 60))min: \(error.localizedDescription)"
             )
         }
+        finishCurrentPhase()
     }
 
     /// Build a ToolQuota from a ClaudeUsageResponse (mirrors ClaudeCodeParser.fetchSubscriptionQuota).
@@ -264,21 +305,8 @@ final class DataSyncService {
 
     private func syncCodex() async throws {
         let since = lastSyncDate.map { Calendar.current.date(byAdding: .hour, value: -1, to: $0)! }
-
-        // Full scan to backfill placeholder model names — done at most once per launch.
-        // After the scan (even if some records remain un-fixable), we stop forcing full
-        // scans so that FSEvents-triggered syncs don't re-scan thousands of sessions.
-        let needsBackfill = !codexBackfillDone && hasCodexPlaceholderModels()
-        let effectiveSince: Date? = needsBackfill ? nil : since
-        if needsBackfill { codexBackfillDone = true }
-
-        let sessions = try await codexParser.parseSessions(since: effectiveSince)
-        AppLogger.shared.info("Codex: parsed \(sessions.count) sessions (fullScan=\(needsBackfill))")
-        for session in sessions { upsertSession(session) }
-
-        let stats = try await codexParser.parseDailyStats(since: since)
-        for stat in stats { upsertDailyStats(stat) }
-
+        try await parseCodexFiles(since: since)
+        startPhase("codex.accounts")
         await codexAccountService.syncCurrentSelectionFromAuthFile()
         let accounts = await codexAccountService.refreshAllUsage()
         let smartSwitchEnabled = UserDefaults.standard.bool(forKey: "codex.smartSwitch.enabled")
@@ -292,11 +320,11 @@ final class DataSyncService {
             latestCodexAccounts = accounts
         }
         removeStaleCodexQuotas(validAccountKeys: Set(latestCodexAccounts.map(\.accountID)))
-        for account in latestCodexAccounts {
-            upsertQuota(account.quota)
-        }
+        try await upsertQuotas(latestCodexAccounts.map(\.quota), label: "codex.quotas")
+        finishCurrentPhase()
 
         if latestCodexAccounts.isEmpty, let limits = await codexParser.parseLatestRateLimits() {
+            startPhase("codex.fallbackQuota")
             let quota = ToolQuota(
                 id: Tool.codex.rawValue,
                 tool: .codex,
@@ -310,7 +338,27 @@ final class DataSyncService {
                 raw: limits
             )
             upsertQuota(quota)
+            finishCurrentPhase()
         }
+    }
+
+    private func parseCodexFiles(since: Date?) async throws {
+        startPhase("codex.local")
+
+        // Full scan to backfill placeholder model names — done at most once per launch.
+        // After the scan (even if some records remain un-fixable), we stop forcing full
+        // scans so that FSEvents-triggered syncs don't re-scan thousands of sessions.
+        let needsBackfill = !codexBackfillDone && hasCodexPlaceholderModels()
+        let effectiveSince: Date? = needsBackfill ? nil : since
+        if needsBackfill { codexBackfillDone = true }
+
+        let sessions = try await codexParser.parseSessions(since: effectiveSince)
+        AppLogger.shared.info("Codex: parsed \(sessions.count) sessions (fullScan=\(needsBackfill))")
+        try await upsertSessions(sessions, label: "codex.sessions")
+
+        let stats = try await codexParser.parseDailyStats(since: since)
+        try await upsertDailyStats(stats, label: "codex.dailyStats")
+        finishCurrentPhase()
     }
 
     /// Full Antigravity sync: local markdown files + Google OAuth quota API.
@@ -319,13 +367,16 @@ final class DataSyncService {
         try await parseAntigravityFiles(since: since)
 
         do {
+            startPhase("antigravity.quota")
             let quota = try await antigravityParser.fetchQuota()
             if let accounts = quota.raw as? [AGAccountQuota] {
                 latestAntigravityAccounts = accounts
             }
             upsertQuota(quota)
+            finishCurrentPhase()
         } catch {
             AppLogger.shared.warning("Antigravity quota skipped: \(error.localizedDescription)")
+            finishCurrentPhase()
         }
     }
 
@@ -333,16 +384,21 @@ final class DataSyncService {
     /// Parses JSONL/SQLite/markdown but never touches any network API,
     /// so frequent file writes during active use can't trigger rate limits.
     private func syncLocalFiles() async {
-        guard !isSyncingActive else { return }
+        guard let runID = beginSyncRun(scope: "local-files", allowStaleRecovery: false) else { return }
+        AppLogger.shared.recordDiagnostic(scope: "sync.local.start", message: "local file sync started")
+        defer { endSyncRun(runID) }
         let since = lastSyncDate.map { Calendar.current.date(byAdding: .hour, value: -1, to: $0)! }
         do {
             try await parseClaudeFiles(since: since)
-            try await syncCodex()               // Codex is SQLite-only, no external API
+            try await parseCodexFiles(since: since)
             try await parseAntigravityFiles(since: since)
             try await syncOpenCode()
+            startPhase("model-save")
             try modelContext.save()
+            finishCurrentPhase()
             syncError = nil
             lastSyncDate = Date()
+            AppLogger.shared.recordDiagnostic(scope: "sync.local.finish", message: "local file sync finished")
         } catch {
             AppLogger.shared.error("Local file sync error: \(error)")
             syncError = error
@@ -352,20 +408,25 @@ final class DataSyncService {
 
     private func syncCopilot() async {
         do {
+            startPhase("copilot.quota")
             let (quota, snapshots) = try await copilotClient.fetchQuota()
             latestCopilotSnapshots = snapshots
             latestCopilotResetAt = quota.resetAt
             upsertQuota(quota)
+            finishCurrentPhase()
         } catch {
             AppLogger.shared.warning("Copilot quota skipped: \(error.localizedDescription)")
+            finishCurrentPhase()
         }
     }
 
     private func syncOpenCode() async throws {
+        startPhase("opencode.local")
         let since = lastSyncDate.map { Calendar.current.date(byAdding: .hour, value: -1, to: $0)! }
         let sessions = try await openCodeParser.parseSessions(since: since)
         AppLogger.shared.info("OpenCode: parsed \(sessions.count) sessions")
-        for session in sessions { upsertSession(session) }
+        try await upsertSessions(sessions, label: "opencode.sessions")
+        finishCurrentPhase()
     }
 
     // MARK: - SwiftData upsert helpers
@@ -418,6 +479,21 @@ final class DataSyncService {
         }
     }
 
+    private func upsertSessions(_ sessions: [ToolSession], label: String) async throws {
+        guard !sessions.isEmpty else { return }
+        let start = Date()
+        for (index, session) in sessions.enumerated() {
+            upsertSession(session)
+            if index.isMultiple(of: Self.upsertYieldBatchSize) {
+                await Task.yield()
+            }
+        }
+        let elapsed = Date().timeIntervalSince(start)
+        if elapsed >= 1 {
+            AppLogger.shared.recordDiagnostic(scope: "upsert.sessions", message: "\(label) inserted/updated \(sessions.count) sessions in \(String(format: "%.2f", elapsed))s")
+        }
+    }
+
     private func upsertDailyStats(_ stats: DailyStats) {
         let date = stats.date
         let toolRaw = stats.tool.rawValue
@@ -442,6 +518,21 @@ final class DataSyncService {
                 sessionCount: stats.sessionCount
             )
             modelContext.insert(record)
+        }
+    }
+
+    private func upsertDailyStats(_ stats: [DailyStats], label: String) async throws {
+        guard !stats.isEmpty else { return }
+        let start = Date()
+        for (index, item) in stats.enumerated() {
+            upsertDailyStats(item)
+            if index.isMultiple(of: Self.upsertYieldBatchSize) {
+                await Task.yield()
+            }
+        }
+        let elapsed = Date().timeIntervalSince(start)
+        if elapsed >= 1 {
+            AppLogger.shared.recordDiagnostic(scope: "upsert.dailyStats", message: "\(label) upserted \(stats.count) rows in \(String(format: "%.2f", elapsed))s")
         }
     }
 
@@ -472,6 +563,43 @@ final class DataSyncService {
             )
             modelContext.insert(record)
         }
+    }
+
+    private func upsertQuotas(_ quotas: [ToolQuota], label: String) async throws {
+        guard !quotas.isEmpty else { return }
+        let start = Date()
+        for (index, quota) in quotas.enumerated() {
+            upsertQuota(quota)
+            if index.isMultiple(of: Self.upsertYieldBatchSize) {
+                await Task.yield()
+            }
+        }
+        let elapsed = Date().timeIntervalSince(start)
+        if elapsed >= 1 {
+            AppLogger.shared.recordDiagnostic(scope: "upsert.quotas", message: "\(label) upserted \(quotas.count) rows in \(String(format: "%.2f", elapsed))s")
+        }
+    }
+
+    private func startPhase(_ name: String) {
+        finishCurrentPhase()
+        currentSyncPhase = name
+        currentSyncPhaseStartedAt = Date()
+        AppLogger.shared.info("Sync phase started: \(name)")
+    }
+
+    private func finishCurrentPhase() {
+        guard let currentSyncPhase, let currentSyncPhaseStartedAt else { return }
+        let elapsed = Date().timeIntervalSince(currentSyncPhaseStartedAt)
+        AppLogger.shared.info("Sync phase finished: \(currentSyncPhase) in \(String(format: "%.2f", elapsed))s")
+        if elapsed >= 2 {
+            AppLogger.shared.recordDiagnostic(
+                level: elapsed >= 10 ? .warning : .info,
+                scope: "sync.phase",
+                message: "\(currentSyncPhase) took \(String(format: "%.2f", elapsed))s"
+            )
+        }
+        self.currentSyncPhase = nil
+        self.currentSyncPhaseStartedAt = nil
     }
 
     private func removeStaleCodexQuotas(validAccountKeys: Set<String>) {

@@ -50,6 +50,22 @@ struct PersistentSyncErrorEvent: Codable, Identifiable, Sendable {
     }
 }
 
+struct PersistentDiagnosticEvent: Codable, Identifiable, Sendable {
+    let id: UUID
+    let date: Date
+    let levelRaw: String
+    let scope: String
+    let message: String
+
+    init(id: UUID = UUID(), date: Date, level: LogLevel, scope: String, message: String) {
+        self.id = id
+        self.date = date
+        self.levelRaw = level.rawValue
+        self.scope = scope
+        self.message = message
+    }
+}
+
 /// In-memory ring buffer for runtime logs. Thread-safe via @MainActor.
 @MainActor
 @Observable
@@ -61,9 +77,11 @@ final class AppLogger {
     private let capacity = 500
     private let fileManager = FileManager.default
     private let persistentSyncErrorLogURL: URL
+    private let persistentDiagnosticLogURL: URL
 
     private init() {
         persistentSyncErrorLogURL = Self.makePersistentSyncErrorLogURL()
+        persistentDiagnosticLogURL = Self.makePersistentDiagnosticLogURL()
         latestPersistentSyncError = Self.loadLatestPersistentSyncError(from: persistentSyncErrorLogURL)
     }
 
@@ -91,38 +109,56 @@ final class AppLogger {
         appendPersistentSyncError(event)
     }
 
+    func recordDiagnostic(level: LogLevel = .info, scope: String, message: String) {
+        appendPersistentDiagnostic(
+            PersistentDiagnosticEvent(date: Date(), level: level, scope: scope, message: message)
+        )
+    }
+
     func clear() { entries.removeAll() }
 
     private func appendPersistentSyncError(_ event: PersistentSyncErrorEvent) {
+        appendJSONLine(event, to: persistentSyncErrorLogURL, failureScope: "sync error")
+    }
+
+    private func appendPersistentDiagnostic(_ event: PersistentDiagnosticEvent) {
+        appendJSONLine(event, to: persistentDiagnosticLogURL, failureScope: "diagnostic")
+    }
+
+    private func appendJSONLine<T: Encodable>(_ value: T, to url: URL, failureScope: String) {
         do {
-            try fileManager.createDirectory(
-                at: persistentSyncErrorLogURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
+            try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
-            var data = try encoder.encode(event)
+            var data = try encoder.encode(value)
             data.append(0x0A)
-            if fileManager.fileExists(atPath: persistentSyncErrorLogURL.path) {
-                let handle = try FileHandle(forWritingTo: persistentSyncErrorLogURL)
+            if fileManager.fileExists(atPath: url.path) {
+                let handle = try FileHandle(forWritingTo: url)
                 defer { try? handle.close() }
                 try handle.seekToEnd()
                 try handle.write(contentsOf: data)
             } else {
-                try data.write(to: persistentSyncErrorLogURL, options: .atomic)
+                try data.write(to: url, options: .atomic)
             }
         } catch {
-            log(.error, "Failed to persist sync error log: \(error.localizedDescription)")
+            log(.error, "Failed to persist \(failureScope) log: \(error.localizedDescription)")
         }
     }
 
     private static func makePersistentSyncErrorLogURL() -> URL {
+        makeLogsDirectoryURL().appending(path: "sync-errors.jsonl")
+    }
+
+    private static func makePersistentDiagnosticLogURL() -> URL {
+        makeLogsDirectoryURL().appending(path: "diagnostics.jsonl")
+    }
+
+    private static func makeLogsDirectoryURL() -> URL {
         let baseDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL.homeDirectory.appending(path: "Library/Application Support")
         return baseDir
             .appending(path: "OpenPulse")
             .appending(path: "logs")
-            .appending(path: "sync-errors.jsonl")
     }
 
     private static func loadLatestPersistentSyncError(from url: URL) -> PersistentSyncErrorEvent? {

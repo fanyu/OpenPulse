@@ -757,6 +757,9 @@ final class _MenuBarCaptureView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         guard let w = window else { return }
+        Task { @MainActor in
+            AppLogger.shared.recordDiagnostic(scope: "menubar.open", message: "menu bar window attached")
+        }
         Task { @MainActor in GlobalHotkeyService.shared.registerMenuBarWindow(w) }
     }
 }
