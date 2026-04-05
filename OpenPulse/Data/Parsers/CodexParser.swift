@@ -5,6 +5,17 @@ import SQLite
 /// - Token usage: state_5.sqlite threads table (created_at is Unix seconds)
 /// - Rate limits: latest token_count event from session JSONL files
 actor CodexParser {
+    private enum ParserError: LocalizedError {
+        case transientDatabaseUnavailable(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .transientDatabaseUnavailable(let message):
+                message
+            }
+        }
+    }
+
     private let codexDir: URL
     /// In-memory cache of threadId → model name built by scanning JSONL files.
     /// Rebuilt only on full scans (since == nil) or when empty, so incremental syncs
@@ -23,54 +34,62 @@ actor CodexParser {
 
     func parseSessions(since date: Date? = nil) async throws -> [ToolSession] {
         guard FileManager.default.fileExists(atPath: dbPath) else { return [] }
-        // CANTOPEN (14) can occur transiently when Codex is checkpointing/vacuuming.
-        // Treat as "no data this cycle" rather than a hard error.
-        guard let db = try? Connection(.uri(dbPath, parameters: [.mode(.readOnly)])) else { return [] }
+        do {
+            // CANTOPEN (14) can occur transiently when Codex is checkpointing/vacuuming.
+            // Treat as "no data this cycle" rather than a hard error.
+            guard let db = try? Connection(.uri(dbPath, parameters: [.mode(.readOnly)])) else { return [] }
 
-        let threads = Table("threads")
-        let idCol = Expression<String>("id")
-        let titleCol = Expression<String?>("title")
-        let firstMsgCol = Expression<String?>("first_user_message")
-        let tokensCol = Expression<Int64?>("tokens_used")
-        let createdCol = Expression<Int64>("created_at")   // UNIX seconds
-        let cwdCol = Expression<String?>("cwd")
-        let branchCol = Expression<String?>("git_branch")
-        let modelProviderCol = Expression<String?>("model_provider")
-        let archivedCol = Expression<Bool?>("archived")
+            let threads = Table("threads")
+            let idCol = Expression<String>("id")
+            let titleCol = Expression<String?>("title")
+            let firstMsgCol = Expression<String?>("first_user_message")
+            let tokensCol = Expression<Int64?>("tokens_used")
+            let createdCol = Expression<Int64>("created_at")   // UNIX seconds
+            let cwdCol = Expression<String?>("cwd")
+            let branchCol = Expression<String?>("git_branch")
+            let modelProviderCol = Expression<String?>("model_provider")
+            let archivedCol = Expression<Bool?>("archived")
 
-        // Build threadId → model map from JSONL files (real model names).
-        // Full scan (date == nil) always rebuilds; incremental syncs reuse the cache.
-        if cachedModelMap == nil || date == nil {
-            cachedModelMap = buildModelMap()
+            // Build threadId → model map from JSONL files (real model names).
+            // Full scan (date == nil) always rebuilds; incremental syncs reuse the cache.
+            if cachedModelMap == nil || date == nil {
+                cachedModelMap = buildModelMap()
+            }
+            let modelMap = cachedModelMap ?? [:]
+
+            var sessions: [ToolSession] = []
+            for row in try db.prepare(threads) {
+                // created_at is Unix SECONDS (not ms)
+                let startDate = Date(timeIntervalSince1970: TimeInterval(row[createdCol]))
+                if let cutoff = date, startDate < cutoff { continue }
+                if row[archivedCol] == true { continue }
+
+                let tokens = Int(row[tokensCol] ?? 0)
+                let description = row[firstMsgCol] ?? row[titleCol] ?? ""
+                let threadId = row[idCol]
+                // Prefer real model name from JSONL; fall back to model_provider
+                let modelName = modelMap[threadId] ?? row[modelProviderCol] ?? "openai"
+
+                sessions.append(ToolSession(
+                    id: UUID(uuidString: threadId) ?? UUID(),
+                    tool: .codex,
+                    startedAt: startDate,
+                    inputTokens: tokens * 4 / 5,   // rough split: ~80% input, ~20% output
+                    outputTokens: tokens / 5,
+                    taskDescription: String(description.prefix(300)),
+                    model: modelName,
+                    cwd: row[cwdCol] ?? "",
+                    gitBranch: row[branchCol]
+                ))
+            }
+            return sessions.sorted { $0.startedAt < $1.startedAt }
+        } catch {
+            if isTransientDatabaseError(error) {
+                await AppLogger.shared.warning("Codex DB unavailable this cycle: \(error.localizedDescription)")
+                return []
+            }
+            throw error
         }
-        let modelMap = cachedModelMap ?? [:]
-
-        var sessions: [ToolSession] = []
-        for row in try db.prepare(threads) {
-            // created_at is Unix SECONDS (not ms)
-            let startDate = Date(timeIntervalSince1970: TimeInterval(row[createdCol]))
-            if let cutoff = date, startDate < cutoff { continue }
-            if row[archivedCol] == true { continue }
-
-            let tokens = Int(row[tokensCol] ?? 0)
-            let description = row[firstMsgCol] ?? row[titleCol] ?? ""
-            let threadId = row[idCol]
-            // Prefer real model name from JSONL; fall back to model_provider
-            let modelName = modelMap[threadId] ?? row[modelProviderCol] ?? "openai"
-
-            sessions.append(ToolSession(
-                id: UUID(uuidString: threadId) ?? UUID(),
-                tool: .codex,
-                startedAt: startDate,
-                inputTokens: tokens * 4 / 5,   // rough split: ~80% input, ~20% output
-                outputTokens: tokens / 5,
-                taskDescription: String(description.prefix(300)),
-                model: modelName,
-                cwd: row[cwdCol] ?? "",
-                gitBranch: row[branchCol]
-            ))
-        }
-        return sessions.sorted { $0.startedAt < $1.startedAt }
     }
 
     /// Scans all JSONL rollout files and extracts threadId → model from turn_context events.
@@ -119,40 +138,65 @@ actor CodexParser {
 
     func parseDailyStats(since date: Date? = nil) async throws -> [DailyStats] {
         guard FileManager.default.fileExists(atPath: dbPath) else { return [] }
-        guard let db = try? Connection(.uri(dbPath, parameters: [.mode(.readOnly)])) else { return [] }
+        do {
+            guard let db = try? Connection(.uri(dbPath, parameters: [.mode(.readOnly)])) else { return [] }
 
-        let threads = Table("threads")
-        let tokensCol = Expression<Int64?>("tokens_used")
-        let createdCol = Expression<Int64>("created_at")   // UNIX seconds
-        let archivedCol = Expression<Bool?>("archived")
+            let threads = Table("threads")
+            let tokensCol = Expression<Int64?>("tokens_used")
+            let createdCol = Expression<Int64>("created_at")   // UNIX seconds
+            let archivedCol = Expression<Bool?>("archived")
 
-        var byDay: [String: (tokens: Int, count: Int)] = [:]
-        let fmt = DateFormatter()
-        fmt.dateFormat = "yyyy-MM-dd"
-        fmt.locale = Locale(identifier: "en_US_POSIX")
+            var byDay: [String: (tokens: Int, count: Int)] = [:]
+            let fmt = DateFormatter()
+            fmt.dateFormat = "yyyy-MM-dd"
+            fmt.locale = Locale(identifier: "en_US_POSIX")
 
-        for row in try db.prepare(threads) {
-            let d = Date(timeIntervalSince1970: TimeInterval(row[createdCol]))
-            if let cutoff = date, d < cutoff { continue }
-            if row[archivedCol] == true { continue }
-            let tokens = Int(row[tokensCol] ?? 0)
-            guard tokens > 0 else { continue }
-            let key = fmt.string(from: d)
-            byDay[key, default: (0, 0)].tokens += tokens
-            byDay[key, default: (0, 0)].count += 1
+            for row in try db.prepare(threads) {
+                let d = Date(timeIntervalSince1970: TimeInterval(row[createdCol]))
+                if let cutoff = date, d < cutoff { continue }
+                if row[archivedCol] == true { continue }
+                let tokens = Int(row[tokensCol] ?? 0)
+                guard tokens > 0 else { continue }
+                let key = fmt.string(from: d)
+                byDay[key, default: (0, 0)].tokens += tokens
+                byDay[key, default: (0, 0)].count += 1
+            }
+
+            let calendar = Calendar.current
+            return byDay.compactMap { key, val -> DailyStats? in
+                guard let d = fmt.date(from: key) else { return nil }
+                return DailyStats(
+                    date: calendar.startOfDay(for: d),
+                    tool: .codex,
+                    totalInputTokens: val.tokens * 4 / 5,
+                    totalOutputTokens: val.tokens / 5,
+                    sessionCount: val.count
+                )
+            }.sorted { $0.date < $1.date }
+        } catch {
+            if isTransientDatabaseError(error) {
+                await AppLogger.shared.warning("Codex daily stats unavailable this cycle: \(error.localizedDescription)")
+                return []
+            }
+            throw error
         }
+    }
 
-        let calendar = Calendar.current
-        return byDay.compactMap { key, val -> DailyStats? in
-            guard let d = fmt.date(from: key) else { return nil }
-            return DailyStats(
-                date: calendar.startOfDay(for: d),
-                tool: .codex,
-                totalInputTokens: val.tokens * 4 / 5,
-                totalOutputTokens: val.tokens / 5,
-                sessionCount: val.count
-            )
-        }.sorted { $0.date < $1.date }
+    private func isTransientDatabaseError(_ error: Error) -> Bool {
+        let description = error.localizedDescription.lowercased()
+        if description.contains("unable to open database file") || description.contains("code: 14") {
+            return true
+        }
+        if description.contains("sqlite.result error 0") || description.contains("database is locked") || description.contains("database busy") {
+            return true
+        }
+        if let parserError = error as? ParserError {
+            switch parserError {
+            case .transientDatabaseUnavailable:
+                return true
+            }
+        }
+        return false
     }
 
     // MARK: - Rate limits from latest JSONL session event

@@ -18,6 +18,8 @@ final class DataSyncService {
 
     private static let staleSyncThreshold: TimeInterval = 45
     private static let upsertYieldBatchSize = 100
+    private static let localFileMinimumInterval: TimeInterval = 10
+    private static let localFileFailureBackoff: TimeInterval = 30
 
     private(set) var isSyncing = false
     private(set) var lastSyncDate: Date?
@@ -26,6 +28,8 @@ final class DataSyncService {
     private var activeSyncID: UUID?
     private var currentSyncPhase: String?
     private var currentSyncPhaseStartedAt: Date?
+    private var lastLocalFileSyncAt: Date?
+    private var localFileSyncBlockedUntil: Date = .distantPast
 
     /// 最新的 Codex 多账户额度列表
     private(set) var latestCodexAccounts: [CodexAccountSnapshot] = []
@@ -384,7 +388,26 @@ final class DataSyncService {
     /// Parses JSONL/SQLite/markdown but never touches any network API,
     /// so frequent file writes during active use can't trigger rate limits.
     private func syncLocalFiles() async {
+        let now = Date()
+        if now < localFileSyncBlockedUntil {
+            AppLogger.shared.recordDiagnostic(
+                level: .info,
+                scope: "sync.local.skip",
+                message: "local file sync blocked for \(Int(localFileSyncBlockedUntil.timeIntervalSince(now).rounded()))s"
+            )
+            return
+        }
+        if let lastLocalFileSyncAt,
+           now.timeIntervalSince(lastLocalFileSyncAt) < Self.localFileMinimumInterval {
+            AppLogger.shared.recordDiagnostic(
+                level: .info,
+                scope: "sync.local.skip",
+                message: "local file sync throttled"
+            )
+            return
+        }
         guard let runID = beginSyncRun(scope: "local-files", allowStaleRecovery: false) else { return }
+        lastLocalFileSyncAt = now
         AppLogger.shared.recordDiagnostic(scope: "sync.local.start", message: "local file sync started")
         defer { endSyncRun(runID) }
         let since = lastSyncDate.map { Calendar.current.date(byAdding: .hour, value: -1, to: $0)! }
@@ -400,9 +423,15 @@ final class DataSyncService {
             lastSyncDate = Date()
             AppLogger.shared.recordDiagnostic(scope: "sync.local.finish", message: "local file sync finished")
         } catch {
+            localFileSyncBlockedUntil = Date().addingTimeInterval(Self.localFileFailureBackoff)
             AppLogger.shared.error("Local file sync error: \(error)")
             syncError = error
             AppLogger.shared.recordSyncError(scope: "local-files", tool: nil, error: error)
+            AppLogger.shared.recordDiagnostic(
+                level: .warning,
+                scope: "sync.local.backoff",
+                message: "local file sync backoff \(Int(Self.localFileFailureBackoff))s after error: \(error.localizedDescription)"
+            )
         }
     }
 

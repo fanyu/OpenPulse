@@ -350,6 +350,10 @@ struct CodexQuotaCard: View {
             }
         }
         .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.white.opacity(0.04))
+        )
         .glassEffect(.regular, in: .rect(cornerRadius: 14))
     }
 }

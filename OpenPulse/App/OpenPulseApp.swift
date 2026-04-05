@@ -68,7 +68,7 @@ private struct MenuBarIcon: View {
     }
 
     var body: some View {
-        Image(systemName: isWarning ? "waveform.badge.exclamationmark" : "waveform")
+        Image(systemName: "gauge.open.with.lines.needle.67percent.and.arrowtriangle")
             .symbolRenderingMode(isWarning ? .multicolor : .monochrome)
             .background(MenuBarButtonCapture())
     }
