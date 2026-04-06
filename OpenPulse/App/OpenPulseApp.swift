@@ -68,7 +68,7 @@ private struct MenuBarIcon: View {
     }
 
     var body: some View {
-        Image(systemName: "gauge.open.with.lines.needle.67percent.and.arrowtriangle")
+        Image(systemName: "app.background.dotted")
             .symbolRenderingMode(isWarning ? .multicolor : .monochrome)
             .background(MenuBarButtonCapture())
     }
