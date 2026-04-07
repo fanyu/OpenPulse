@@ -26,13 +26,28 @@ struct PersistentSyncErrorEvent: Codable, Identifiable, Sendable {
     let date: Date
     let scope: String
     let toolRaw: String?
+    let source: String?
+    let path: String?
+    let details: String?
     let message: String
 
-    init(id: UUID = UUID(), date: Date, scope: String, toolRaw: String?, message: String) {
+    init(
+        id: UUID = UUID(),
+        date: Date,
+        scope: String,
+        toolRaw: String?,
+        source: String? = nil,
+        path: String? = nil,
+        details: String? = nil,
+        message: String
+    ) {
         self.id = id
         self.date = date
         self.scope = scope
         self.toolRaw = toolRaw
+        self.source = source
+        self.path = path
+        self.details = details
         self.message = message
     }
 
@@ -46,7 +61,10 @@ struct PersistentSyncErrorEvent: Codable, Identifiable, Sendable {
         default: scope
         }
         let toolLabel = tool?.displayName ?? "Unknown Tool"
-        return "\(scopeLabel) · \(toolLabel) · \(message)"
+        let sourceLabel = source ?? "unknown-source"
+        let pathLabel = path.flatMap { URL(filePath: $0).lastPathComponent }
+        let context = [sourceLabel, pathLabel].compactMap { $0 }.joined(separator: " · ")
+        return "\(scopeLabel) · \(toolLabel) · \(context) · \(message)"
     }
 }
 
@@ -98,11 +116,21 @@ final class AppLogger {
     func warning(_ message: String) { log(.warning, message) }
     func error(_ message: String)   { log(.error, message) }
 
-    func recordSyncError(scope: String, tool: Tool?, error: Error) {
+    func recordSyncError(
+        scope: String,
+        tool: Tool?,
+        error: Error,
+        source: String? = nil,
+        path: String? = nil,
+        details: String? = nil
+    ) {
         let event = PersistentSyncErrorEvent(
             date: Date(),
             scope: scope,
             toolRaw: tool?.rawValue,
+            source: source,
+            path: path,
+            details: details,
             message: error.localizedDescription
         )
         latestPersistentSyncError = event

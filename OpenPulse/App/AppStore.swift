@@ -31,6 +31,10 @@ final class AppStore {
         guard syncService == nil else { return }
         // Use the container's main context so @Query views see writes immediately
         let context = modelContainer.mainContext
+        // DataSyncService already performs explicit saves after each sync cycle.
+        // Disabling SwiftData autosave avoids a long-lived background timer that
+        // repeatedly re-validates the entire context on the main thread.
+        context.autosaveEnabled = false
         let service = DataSyncService(modelContext: context, codexAccountService: codexAccountService)
         syncService = service
         service.start()

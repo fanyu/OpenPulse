@@ -68,7 +68,7 @@ private struct MenuBarIcon: View {
     }
 
     var body: some View {
-        Image(systemName: "app.background.dotted")
+        Image(systemName: "aqi.medium.gauge.open")
             .symbolRenderingMode(isWarning ? .multicolor : .monochrome)
             .background(MenuBarButtonCapture())
     }

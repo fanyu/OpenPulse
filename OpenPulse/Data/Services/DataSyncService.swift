@@ -5,6 +5,14 @@ import SwiftData
 @MainActor
 @Observable
 final class DataSyncService {
+    private struct SyncSourceError: LocalizedError {
+        let source: String
+        let path: String?
+        let underlying: Error
+
+        var errorDescription: String? { underlying.localizedDescription }
+    }
+
     private enum SyncStateError: LocalizedError {
         case stalled(seconds: Int)
 
@@ -20,6 +28,7 @@ final class DataSyncService {
     private static let upsertYieldBatchSize = 100
     private static let localFileMinimumInterval: TimeInterval = 10
     private static let localFileFailureBackoff: TimeInterval = 30
+    private static let localFilePathSilenceDuration: TimeInterval = 300
 
     private(set) var isSyncing = false
     private(set) var lastSyncDate: Date?
@@ -30,6 +39,8 @@ final class DataSyncService {
     private var currentSyncPhaseStartedAt: Date?
     private var lastLocalFileSyncAt: Date?
     private var localFileSyncBlockedUntil: Date = .distantPast
+    private var pendingLocalFilePaths: Set<String> = []
+    private var silencedLocalFailureKeys: [String: Date] = [:]
 
     /// 最新的 Codex 多账户额度列表
     private(set) var latestCodexAccounts: [CodexAccountSnapshot] = []
@@ -176,9 +187,7 @@ final class DataSyncService {
             try await syncAntigravity()
             await syncCopilot()
             try await syncOpenCode()
-            startPhase("model-save")
-            try modelContext.save()
-            finishCurrentPhase()
+            try persistModelContext(scope: "full-sync", tool: nil)
             syncError = nil
             lastSyncDate = Date()
             let count = (try? modelContext.fetchCount(FetchDescriptor<SessionRecord>())) ?? 0
@@ -191,7 +200,14 @@ final class DataSyncService {
         } catch {
             syncError = error
             AppLogger.shared.error("Sync error: \(error)")
-            AppLogger.shared.recordSyncError(scope: "full-sync", tool: nil, error: error)
+            AppLogger.shared.recordSyncError(
+                scope: "full-sync",
+                tool: nil,
+                error: error,
+                source: syncErrorSource(error),
+                path: syncErrorPath(error),
+                details: syncErrorDetails(error)
+            )
         }
     }
 
@@ -209,16 +225,21 @@ final class DataSyncService {
             case .copilot:      await syncCopilot()
             case .opencode:     try await syncOpenCode()
             }
-            startPhase("model-save")
-            try modelContext.save()
-            finishCurrentPhase()
+            try persistModelContext(scope: "tool-sync:\(tool.rawValue)", tool: tool)
             syncError = nil
             lastSyncDate = Date()
             AppLogger.shared.recordDiagnostic(scope: "sync.tool.finish", message: "\(tool.rawValue) sync finished")
         } catch {
             syncError = error
             AppLogger.shared.error("Sync error (\(tool.rawValue)): \(error)")
-            AppLogger.shared.recordSyncError(scope: "tool-sync", tool: tool, error: error)
+            AppLogger.shared.recordSyncError(
+                scope: "tool-sync",
+                tool: tool,
+                error: error,
+                source: syncErrorSource(error),
+                path: syncErrorPath(error),
+                details: syncErrorDetails(error)
+            )
         }
     }
 
@@ -389,6 +410,18 @@ final class DataSyncService {
     /// so frequent file writes during active use can't trigger rate limits.
     private func syncLocalFiles() async {
         let now = Date()
+        pruneExpiredSilencedLocalFailures(referenceDate: now)
+        let triggeredPaths = pendingLocalFilePaths.sorted()
+        pendingLocalFilePaths.removeAll()
+        let activeTriggeredPaths = triggeredPaths.filter { !isSilencedLocalFailureKey($0, referenceDate: now) }
+        if !triggeredPaths.isEmpty, activeTriggeredPaths.isEmpty {
+            AppLogger.shared.recordDiagnostic(
+                level: .info,
+                scope: "sync.local.skip",
+                message: "all triggered paths silenced for \(Int(Self.localFilePathSilenceDuration / 60))m"
+            )
+            return
+        }
         if now < localFileSyncBlockedUntil {
             AppLogger.shared.recordDiagnostic(
                 level: .info,
@@ -408,7 +441,10 @@ final class DataSyncService {
         }
         guard let runID = beginSyncRun(scope: "local-files", allowStaleRecovery: false) else { return }
         lastLocalFileSyncAt = now
-        AppLogger.shared.recordDiagnostic(scope: "sync.local.start", message: "local file sync started")
+        AppLogger.shared.recordDiagnostic(
+            scope: "sync.local.start",
+            message: "local file sync started\(activeTriggeredPaths.isEmpty ? "" : " · paths=\(activeTriggeredPaths.prefix(4).joined(separator: ", "))")"
+        )
         defer { endSyncRun(runID) }
         let since = lastSyncDate.map { Calendar.current.date(byAdding: .hour, value: -1, to: $0)! }
         do {
@@ -416,17 +452,32 @@ final class DataSyncService {
             try await parseCodexFiles(since: since)
             try await parseAntigravityFiles(since: since)
             try await syncOpenCode()
-            startPhase("model-save")
-            try modelContext.save()
-            finishCurrentPhase()
+            try persistModelContext(scope: "local-files", tool: nil)
             syncError = nil
             lastSyncDate = Date()
             AppLogger.shared.recordDiagnostic(scope: "sync.local.finish", message: "local file sync finished")
         } catch {
             localFileSyncBlockedUntil = Date().addingTimeInterval(Self.localFileFailureBackoff)
+            let silencedKey = localFailureSilenceKey(error: error, triggeredPaths: activeTriggeredPaths)
+            if let silencedKey {
+                let silencedUntil = Date().addingTimeInterval(Self.localFilePathSilenceDuration)
+                silencedLocalFailureKeys[silencedKey] = silencedUntil
+                AppLogger.shared.recordDiagnostic(
+                    level: .warning,
+                    scope: "sync.local.silence",
+                    message: "silenced \(silencedKey) for \(Int(Self.localFilePathSilenceDuration / 60))m after repeated file-open failure"
+                )
+            }
             AppLogger.shared.error("Local file sync error: \(error)")
             syncError = error
-            AppLogger.shared.recordSyncError(scope: "local-files", tool: nil, error: error)
+            AppLogger.shared.recordSyncError(
+                scope: "local-files",
+                tool: nil,
+                error: error,
+                source: syncErrorSource(error),
+                path: syncErrorPath(error) ?? activeTriggeredPaths.first,
+                details: syncErrorDetails(error, triggeredPaths: activeTriggeredPaths)
+            )
             AppLogger.shared.recordDiagnostic(
                 level: .warning,
                 scope: "sync.local.backoff",
@@ -631,6 +682,95 @@ final class DataSyncService {
         self.currentSyncPhaseStartedAt = nil
     }
 
+    private func persistModelContext(scope: String, tool: Tool?) throws {
+        startPhase("model-save")
+        do {
+            try modelContext.save()
+            finishCurrentPhase()
+        } catch {
+            let wrapped = SyncSourceError(source: "model-save", path: nil, underlying: error)
+            finishCurrentPhase()
+            if isTransientFileAccessError(error) {
+                AppLogger.shared.warning("Transient model save skipped during \(scope): \(error.localizedDescription)")
+                AppLogger.shared.recordDiagnostic(
+                    level: .warning,
+                    scope: "sync.modelSave.skip",
+                    message: "scope=\(scope) tool=\(tool?.rawValue ?? "none") details=\(syncErrorDetails(wrapped))"
+                )
+                return
+            }
+            throw wrapped
+        }
+    }
+
+    private func isTransientFileAccessError(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        let description = error.localizedDescription.lowercased()
+        if description.contains("the file couldn’t be opened") || description.contains("the file couldn't be opened") {
+            return true
+        }
+        if description.contains("unable to open database file") || description.contains("sqlite.result error 0") {
+            return true
+        }
+        if nsError.domain == NSCocoaErrorDomain, nsError.code == NSFileReadNoSuchFileError {
+            return true
+        }
+        if nsError.domain == NSPOSIXErrorDomain, nsError.code == 2 {
+            return true
+        }
+        return false
+    }
+
+    private func syncErrorSource(_ error: Error) -> String {
+        if let syncSourceError = error as? SyncSourceError {
+            return syncSourceError.source
+        }
+        return currentSyncPhase ?? "unknown"
+    }
+
+    private func syncErrorPath(_ error: Error) -> String? {
+        if let syncSourceError = error as? SyncSourceError {
+            return syncSourceError.path
+        }
+        return nil
+    }
+
+    private func syncErrorDetails(_ error: Error, triggeredPaths: [String] = []) -> String {
+        let nsError = error as NSError
+        var parts: [String] = [
+            "domain=\(nsError.domain)",
+            "code=\(nsError.code)",
+            "phase=\(currentSyncPhase ?? "none")"
+        ]
+        if let syncSourceError = error as? SyncSourceError, let path = syncSourceError.path {
+            parts.append("path=\(path)")
+        }
+        if !triggeredPaths.isEmpty {
+            parts.append("triggered=\(triggeredPaths.prefix(4).joined(separator: ","))")
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    private func localFailureSilenceKey(error: Error, triggeredPaths: [String]) -> String? {
+        if let path = syncErrorPath(error) {
+            return path
+        }
+        if let firstTriggeredPath = triggeredPaths.first {
+            return firstTriggeredPath
+        }
+        let source = syncErrorSource(error)
+        return source == "unknown" ? nil : source
+    }
+
+    private func isSilencedLocalFailureKey(_ key: String, referenceDate: Date) -> Bool {
+        guard let blockedUntil = silencedLocalFailureKeys[key] else { return false }
+        return blockedUntil > referenceDate
+    }
+
+    private func pruneExpiredSilencedLocalFailures(referenceDate: Date) {
+        silencedLocalFailureKeys = silencedLocalFailureKeys.filter { $0.value > referenceDate }
+    }
+
     private func removeStaleCodexQuotas(validAccountKeys: Set<String>) {
         let toolRaw = Tool.codex.rawValue
         let descriptor = FetchDescriptor<QuotaRecord>(predicate: #Predicate { $0.toolRaw == toolRaw })
@@ -702,10 +842,11 @@ final class DataSyncService {
 
         AppLogger.shared.info("Watching paths: \(paths)")
         guard !paths.isEmpty else { return }
-        fsEventStream = FSEventStream(paths: paths) { [weak self] in
+        fsEventStream = FSEventStream(paths: paths) { [weak self] changedPaths in
             // Debounce rapid file-change bursts (e.g. JSONL appends during active use)
             // into a single syncLocalFiles() call after 500 ms of silence.
             Task { @MainActor [weak self] in
+                self?.pendingLocalFilePaths.formUnion(changedPaths)
                 self?.fsDebounceTask?.cancel()
                 self?.fsDebounceTask = Task { [weak self] in
                     try? await Task.sleep(for: .milliseconds(500))
@@ -722,9 +863,9 @@ final class DataSyncService {
 
 final class FSEventStream: @unchecked Sendable {
     private var streamRef: FSEventStreamRef?
-    private let callback: @Sendable () -> Void
+    private let callback: @Sendable ([String]) -> Void
 
-    init(paths: [String], callback: @escaping @Sendable () -> Void) {
+    init(paths: [String], callback: @escaping @Sendable ([String]) -> Void) {
         self.callback = callback
         var context = FSEventStreamContext(
             version: 0,
@@ -735,10 +876,11 @@ final class FSEventStream: @unchecked Sendable {
         )
         streamRef = FSEventStreamCreate(
             nil,
-            { _, info, _, _, _, _ in
+            { _, info, _, eventPathsPointer, _, _ in
                 guard let info else { return }
                 let obj = Unmanaged<FSEventStream>.fromOpaque(info).takeUnretainedValue()
-                obj.callback()
+                let paths = (unsafeBitCast(eventPathsPointer, to: NSArray.self) as? [String]) ?? []
+                obj.callback(paths)
             },
             &context,
             paths as CFArray,

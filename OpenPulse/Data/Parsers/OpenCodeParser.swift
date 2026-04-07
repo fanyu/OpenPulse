@@ -82,7 +82,10 @@ actor OpenCodeParser {
 
     private func isCantOpenDatabaseError(_ error: Error) -> Bool {
         let description = error.localizedDescription.lowercased()
-        return description.contains("unable to open database file") || description.contains("code: 14")
+        return description.contains("unable to open database file")
+            || description.contains("code: 14")
+            || description.contains("the file couldn’t be opened")
+            || description.contains("the file couldn't be opened")
     }
 }
 
