@@ -260,9 +260,62 @@ actor CodexAccountService {
         return await listAccounts()
     }
 
+    func refreshStaleUsage(excludingCurrentAccount: Bool) async -> [CodexAccountSnapshot] {
+        let now = Date()
+        var store = reconcileCurrentAuthIntoStore()
+        let activeAccountID = currentAccountID(from: store)
+        let usageURLs = resolveUsageURLs()
+        let accountsToRefresh = store.accounts.filter { account in
+            if excludingCurrentAccount, account.accountID == activeAccountID {
+                return false
+            }
+            return shouldRefreshStaleUsage(for: account, now: now)
+        }
+
+        guard !accountsToRefresh.isEmpty else {
+            saveStore(store)
+            return await listAccounts()
+        }
+
+        let refreshedAccounts = await withTaskGroup(of: CodexStoredAccount.self, returning: [CodexStoredAccount].self) { group in
+            for account in accountsToRefresh {
+                group.addTask { [session] in
+                    await Self.refreshAccount(
+                        account,
+                        now: now,
+                        forceRefresh: true,
+                        session: session,
+                        usageURLs: usageURLs
+                    )
+                }
+            }
+
+            var refreshed: [CodexStoredAccount] = []
+            refreshed.reserveCapacity(accountsToRefresh.count)
+            for await account in group {
+                refreshed.append(account)
+            }
+            return refreshed
+        }
+
+        let refreshedByAccountID = Dictionary(uniqueKeysWithValues: refreshedAccounts.map { ($0.accountID, $0) })
+        store.accounts = store.accounts.map { refreshedByAccountID[$0.accountID] ?? $0 }
+        store.currentAccountID = currentAccountID(from: store)
+        saveStore(store)
+        return await listAccounts()
+    }
+
     func syncCurrentSelectionFromAuthFile() async {
         let store = reconcileCurrentAuthIntoStore()
         saveStore(store)
+    }
+
+    private func shouldRefreshStaleUsage(for account: CodexStoredAccount, now: Date) -> Bool {
+        guard let window = account.lastUsage?.fiveHourWindow,
+              let resetDate = window.resetDate else {
+            return true
+        }
+        return resetDate <= now
     }
 
     private func currentAccountID(from store: CodexAccountsStore) -> String? {

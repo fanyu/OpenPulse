@@ -530,6 +530,7 @@ struct AntigravityModelGridCell: View {
         VStack(alignment: .leading, spacing: 8) {
             UnifiedQuotaRow(
                 showUsedAtTop: true,
+                valuePlacement: .bottomLeading,
                 title: model.displayName,
                 fraction: model.remainingFraction,
                 primaryValue: pct.map { "\($0)%" },

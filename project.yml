@@ -46,6 +46,9 @@ targets:
         NSUserNotificationAlertStyle: alert
     entitlements:
       path: OpenPulse/OpenPulse.entitlements
+      properties:
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)com.fanyu.openpulse
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.fanyu.openpulse

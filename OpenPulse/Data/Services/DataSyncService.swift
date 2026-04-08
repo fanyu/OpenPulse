@@ -63,10 +63,14 @@ final class DataSyncService {
     private let antigravityParser = AntigravityParser()
     private let copilotClient = CopilotAPIClient()
     private let openCodeParser = OpenCodeParser()
+    private var dotTextAPIService = DotTextAPIService()
 
     private var timers: [Tool: Timer] = [:]
+    private var toolSyncRetryTasks: [Tool: Task<Void, Never>] = [:]
     private var fsEventStream: FSEventStream?
     private var fsDebounceTask: Task<Void, Never>?
+    private var localFileSyncRetryTask: Task<Void, Never>?
+    private var dotTextPushTask: Task<Void, Never>?
     /// Set to true after the first Codex full scan completes. Prevents re-scanning
     /// every FSEvents trigger when some sessions permanently lack JSONL model data.
     private var codexBackfillDone: Bool = false
@@ -117,6 +121,12 @@ final class DataSyncService {
     func stop() {
         timers.values.forEach { $0.invalidate() }
         timers.removeAll()
+        toolSyncRetryTasks.values.forEach { $0.cancel() }
+        toolSyncRetryTasks.removeAll()
+        localFileSyncRetryTask?.cancel()
+        localFileSyncRetryTask = nil
+        dotTextPushTask?.cancel()
+        dotTextPushTask = nil
         fsEventStream?.stop()
         fsEventStream = nil
     }
@@ -193,6 +203,7 @@ final class DataSyncService {
                 AppLogger.shared.recordDiagnostic(scope: "sync.finish", message: "full sync finished in \(Int(elapsed.rounded()))s, sessions=\(count)")
             }
             checkQuotaNotifications()
+            scheduleDotTextQuotaPush()
         } catch {
             syncError = error
             AppLogger.shared.error("Sync error: \(error)")
@@ -209,7 +220,12 @@ final class DataSyncService {
 
     /// Sync a single tool and save. Used by per-tool timers.
     func sync(tool: Tool) async {
-        guard let runID = beginSyncRun(scope: "tool-sync:\(tool.rawValue)", allowStaleRecovery: false) else { return }
+        guard let runID = beginSyncRun(scope: "tool-sync:\(tool.rawValue)", allowStaleRecovery: false) else {
+            scheduleToolSyncRetry(for: tool)
+            return
+        }
+        toolSyncRetryTasks[tool]?.cancel()
+        toolSyncRetryTasks[tool] = nil
         syncError = nil
         AppLogger.shared.recordDiagnostic(scope: "sync.tool.start", message: "\(tool.rawValue) sync started")
         defer { endSyncRun(runID) }
@@ -225,6 +241,9 @@ final class DataSyncService {
             syncError = nil
             lastSyncDate = Date()
             AppLogger.shared.recordDiagnostic(scope: "sync.tool.finish", message: "\(tool.rawValue) sync finished")
+            if tool == .codex || tool == .claudeCode {
+                scheduleDotTextQuotaPush()
+            }
         } catch {
             syncError = error
             AppLogger.shared.error("Sync error (\(tool.rawValue)): \(error)")
@@ -236,6 +255,20 @@ final class DataSyncService {
                 path: syncErrorPath(error),
                 details: syncErrorDetails(error)
             )
+        }
+    }
+
+    private func scheduleToolSyncRetry(for tool: Tool) {
+        guard toolSyncRetryTasks[tool] == nil else { return }
+        toolSyncRetryTasks[tool] = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(10))
+            guard !Task.isCancelled else { return }
+            self?.toolSyncRetryTasks[tool] = nil
+            AppLogger.shared.recordDiagnostic(
+                scope: "sync.tool.retry",
+                message: "\(tool.rawValue) retrying after skipped timer sync"
+            )
+            await self?.sync(tool: tool)
         }
     }
 
@@ -327,7 +360,8 @@ final class DataSyncService {
         await codexAccountService.syncCurrentSelectionFromAuthFile()
         let accounts: [CodexAccountSnapshot]
         if !smartSwitchEnabled, let localLimits, isUsableCodexLocalRateLimits(localLimits) {
-            accounts = await codexAccountService.applyLocalRateLimitsToCurrentAccount(localLimits)
+            _ = await codexAccountService.applyLocalRateLimitsToCurrentAccount(localLimits)
+            accounts = await codexAccountService.refreshStaleUsage(excludingCurrentAccount: true)
             AppLogger.shared.info("Codex: using local rate limits from session JSONL")
         } else {
             accounts = await codexAccountService.refreshAllUsage()
@@ -363,6 +397,40 @@ final class DataSyncService {
             upsertQuota(quota)
             finishCurrentPhase()
         }
+    }
+
+    private func syncCodexLocalQuotaIfNeeded(triggeredPaths: [String]) async throws {
+        let shouldRefreshCodexQuota = triggeredPaths.contains { $0.contains("/.codex/") }
+        guard shouldRefreshCodexQuota else { return }
+
+        let smartSwitchEnabled = UserDefaults.standard.bool(forKey: "codex.smartSwitch.enabled")
+        guard !smartSwitchEnabled else {
+            AppLogger.shared.recordDiagnostic(
+                scope: "codex.localQuota.skip",
+                message: "local Codex quota skipped while smart switch is enabled"
+            )
+            return
+        }
+
+        guard let localLimits = await codexParser.parseLatestRateLimits(),
+              isUsableCodexLocalRateLimits(localLimits) else {
+            AppLogger.shared.recordDiagnostic(
+                scope: "codex.localQuota.skip",
+                message: "no usable local Codex rate limits after file event"
+            )
+            return
+        }
+
+        startPhase("codex.localQuota")
+        await codexAccountService.syncCurrentSelectionFromAuthFile()
+        latestCodexAccounts = await codexAccountService.applyLocalRateLimitsToCurrentAccount(localLimits)
+        removeStaleCodexQuotas(validAccountKeys: Set(latestCodexAccounts.map(\.accountID)))
+        try await upsertQuotas(latestCodexAccounts.map(\.quota), label: "codex.localQuota")
+        AppLogger.shared.recordDiagnostic(
+            scope: "codex.localQuota",
+            message: "updated Codex quota from local session JSONL"
+        )
+        finishCurrentPhase()
     }
 
     private func isUsableCodexLocalRateLimits(_ limits: CodexRateLimits) -> Bool {
@@ -416,9 +484,9 @@ final class DataSyncService {
         let now = Date()
         pruneExpiredSilencedLocalFailures(referenceDate: now)
         let triggeredPaths = pendingLocalFilePaths.sorted()
-        pendingLocalFilePaths.removeAll()
         let activeTriggeredPaths = triggeredPaths.filter { !isSilencedLocalFailureKey($0, referenceDate: now) }
         if !triggeredPaths.isEmpty, activeTriggeredPaths.isEmpty {
+            pendingLocalFilePaths.subtract(triggeredPaths)
             AppLogger.shared.recordDiagnostic(
                 level: .info,
                 scope: "sync.local.skip",
@@ -427,6 +495,7 @@ final class DataSyncService {
             return
         }
         if now < localFileSyncBlockedUntil {
+            scheduleLocalFileSyncRetry(after: localFileSyncBlockedUntil.timeIntervalSince(now))
             AppLogger.shared.recordDiagnostic(
                 level: .info,
                 scope: "sync.local.skip",
@@ -436,6 +505,7 @@ final class DataSyncService {
         }
         if let lastLocalFileSyncAt,
            now.timeIntervalSince(lastLocalFileSyncAt) < Self.localFileMinimumInterval {
+            scheduleLocalFileSyncRetry(after: Self.localFileMinimumInterval - now.timeIntervalSince(lastLocalFileSyncAt))
             AppLogger.shared.recordDiagnostic(
                 level: .info,
                 scope: "sync.local.skip",
@@ -443,7 +513,13 @@ final class DataSyncService {
             )
             return
         }
-        guard let runID = beginSyncRun(scope: "local-files", allowStaleRecovery: false) else { return }
+        guard let runID = beginSyncRun(scope: "local-files", allowStaleRecovery: false) else {
+            scheduleLocalFileSyncRetry(after: 10)
+            return
+        }
+        localFileSyncRetryTask?.cancel()
+        localFileSyncRetryTask = nil
+        pendingLocalFilePaths.subtract(triggeredPaths)
         lastLocalFileSyncAt = now
         AppLogger.shared.recordDiagnostic(
             scope: "sync.local.start",
@@ -454,12 +530,14 @@ final class DataSyncService {
         do {
             try await parseClaudeFiles(since: since)
             try await parseCodexFiles(since: since)
+            try await syncCodexLocalQuotaIfNeeded(triggeredPaths: activeTriggeredPaths)
             try await parseAntigravityFiles(since: since)
             try await syncOpenCode()
             try persistModelContext(scope: "local-files", tool: nil)
             syncError = nil
             lastSyncDate = Date()
             AppLogger.shared.recordDiagnostic(scope: "sync.local.finish", message: "local file sync finished")
+            scheduleDotTextQuotaPush()
         } catch {
             localFileSyncBlockedUntil = Date().addingTimeInterval(Self.localFileFailureBackoff)
             let silencedKey = localFailureSilenceKey(error: error, triggeredPaths: activeTriggeredPaths)
@@ -487,6 +565,21 @@ final class DataSyncService {
                 scope: "sync.local.backoff",
                 message: "local file sync backoff \(Int(Self.localFileFailureBackoff))s after error: \(error.localizedDescription)"
             )
+        }
+    }
+
+    private func scheduleLocalFileSyncRetry(after delay: TimeInterval) {
+        guard localFileSyncRetryTask == nil else { return }
+        localFileSyncRetryTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(Int(max(1, delay) * 1000)))
+            guard !Task.isCancelled else { return }
+            self?.localFileSyncRetryTask = nil
+            guard self?.pendingLocalFilePaths.isEmpty == false else { return }
+            AppLogger.shared.recordDiagnostic(
+                scope: "sync.local.retry",
+                message: "retrying local file sync after throttle"
+            )
+            await self?.syncLocalFiles()
         }
     }
 
@@ -785,6 +878,31 @@ final class DataSyncService {
                 modelContext.delete(record)
             }
         }
+    }
+
+    // MARK: - Dot Text API
+
+    private func scheduleDotTextQuotaPush() {
+        dotTextPushTask?.cancel()
+        dotTextPushTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled else { return }
+            await self?.pushDotTextQuotaSnapshot()
+        }
+    }
+
+    private func pushDotTextQuotaSnapshot() async {
+        let codexRaw = Tool.codex.rawValue
+        let claudeRaw = Tool.claudeCode.rawValue
+        let descriptor = FetchDescriptor<QuotaRecord>(
+            predicate: #Predicate { $0.toolRaw == codexRaw || $0.toolRaw == claudeRaw }
+        )
+        let fallbackQuotas = (try? modelContext.fetch(descriptor)) ?? []
+        await dotTextAPIService.pushQuotaSnapshot(
+            codexAccounts: latestCodexAccounts,
+            claudeUsage: latestClaudeUsage,
+            fallbackQuotas: fallbackQuotas
+        )
     }
 
     // MARK: - Quota notifications

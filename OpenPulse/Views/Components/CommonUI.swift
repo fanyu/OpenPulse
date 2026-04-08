@@ -429,9 +429,15 @@ enum QuotaRowStyle {
     case detailed // For Dashboard/Quota page
 }
 
+enum QuotaRowValuePlacement {
+    case trailing
+    case bottomLeading
+}
+
 struct UnifiedQuotaRow: View {
     var style: QuotaRowStyle = .detailed
     var showUsedAtTop: Bool = false
+    var valuePlacement: QuotaRowValuePlacement = .trailing
     let title: String
     let fraction: Double?
     let primaryValue: String?
@@ -445,45 +451,71 @@ struct UnifiedQuotaRow: View {
     private var spacing: CGFloat { style == .compact ? 4 : 8 }
 
     var body: some View {
-        VStack(spacing: spacing) {
-            HStack(alignment: .firstTextBaseline) {
+        VStack(alignment: .leading, spacing: spacing) {
+            if valuePlacement == .bottomLeading {
                 Text(title)
                     .font(titleFont)
                     .foregroundStyle(style == .compact ? .secondary : .primary)
                     .lineLimit(1)
-                
-                Spacer()
-                
-                HStack(spacing: 8) {
-                    if showUsedAtTop, let s = secondaryValue {
+
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    primaryValueView
+                    if let s = secondaryValue {
                         Text(s).font(secondaryFont).foregroundStyle(.secondary).lineLimit(1)
                     }
-                    if let p = primaryValue {
-                        if p == "∞" {
-                            Image(systemName: "infinity")
-                                .font(style == .compact ? .system(size: 10, weight: .bold) : .system(size: 14, weight: .black))
-                                .foregroundStyle(style == .compact ? .secondary : .primary)
-                        } else {
-                            Text(p).font(valueFont)
-                                .foregroundStyle(fraction.map { $0 < 0.15 ? Color.red : (style == .compact ? .primary : .primary) } ?? .primary)
+                    if let c = countdown {
+                        ResetCountdownLabel(countdown: c)
+                            .font(style == .compact ? nil : .system(size: 10, weight: .medium))
+                    }
+                    Spacer(minLength: 0)
+                }
+
+                QuotaProgressBar(fraction: fraction, color: quotaBarColor(fraction: fraction), height: barHeight)
+            } else {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(title)
+                        .font(titleFont)
+                        .foregroundStyle(style == .compact ? .secondary : .primary)
+                        .lineLimit(1)
+
+                    Spacer()
+
+                    HStack(spacing: 8) {
+                        if showUsedAtTop, let s = secondaryValue {
+                            Text(s).font(secondaryFont).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                        primaryValueView
+                    }
+                }
+
+                QuotaProgressBar(fraction: fraction, color: quotaBarColor(fraction: fraction), height: barHeight)
+
+                if (!showUsedAtTop && secondaryValue != nil) || countdown != nil {
+                    HStack(alignment: .firstTextBaseline) {
+                        if !showUsedAtTop, let s = secondaryValue {
+                            Text(s).font(secondaryFont).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                        Spacer()
+                        if let c = countdown {
+                            ResetCountdownLabel(countdown: c)
+                                .font(style == .compact ? nil : .system(size: 10, weight: .medium))
                         }
                     }
                 }
             }
+        }
+    }
 
-            QuotaProgressBar(fraction: fraction, color: quotaBarColor(fraction: fraction), height: barHeight)
-
-            if (!showUsedAtTop && secondaryValue != nil) || countdown != nil {
-                HStack(alignment: .firstTextBaseline) {
-                    if !showUsedAtTop, let s = secondaryValue {
-                        Text(s).font(secondaryFont).foregroundStyle(.secondary).lineLimit(1)
-                    }
-                    Spacer()
-                    if let c = countdown { 
-                        ResetCountdownLabel(countdown: c)
-                            .font(style == .compact ? nil : .system(size: 10, weight: .medium))
-                    }
-                }
+    @ViewBuilder
+    private var primaryValueView: some View {
+        if let p = primaryValue {
+            if p == "∞" {
+                Image(systemName: "infinity")
+                    .font(style == .compact ? .system(size: 10, weight: .bold) : .system(size: 14, weight: .black))
+                    .foregroundStyle(style == .compact ? .secondary : .primary)
+            } else {
+                Text(p).font(valueFont)
+                    .foregroundStyle(fraction.map { $0 < 0.15 ? Color.red : (style == .compact ? .primary : .primary) } ?? .primary)
             }
         }
     }

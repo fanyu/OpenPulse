@@ -100,6 +100,7 @@ enum KeychainService {
         static let githubToken = "github_copilot_token"
         static let anthropicKey = "anthropic_api_key"
         static let openAIKey = "openai_api_key"
+        static let dotAPIKey = "dot_api_key"
     }
 }
 

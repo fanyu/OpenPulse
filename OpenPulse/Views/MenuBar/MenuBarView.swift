@@ -695,8 +695,15 @@ struct AntigravityModelCell: View {
     var body: some View {
         let pct = model.remainingFraction.map { Int(($0 * 100).rounded()) }
         let usedPct = pct.map { max(0, 100 - $0) }
-                        UnifiedQuotaRow(style: .compact, title: 
- model.displayName, fraction: model.remainingFraction, primaryValue: pct.map { "\($0)%" }, secondaryValue: usedPct.map { "\($0)% used" }, countdown: model.resetCountdown)
+        UnifiedQuotaRow(
+            style: .compact,
+            valuePlacement: .bottomLeading,
+            title: model.displayName,
+            fraction: model.remainingFraction,
+            primaryValue: pct.map { "\($0)%" },
+            secondaryValue: usedPct.map { "\($0)% used" },
+            countdown: model.resetCountdown
+        )
             .padding(.horizontal, 8).padding(.vertical, 6)
             .background(Color.primary.opacity(0.04), in: .rect(cornerRadius: 7))
     }
@@ -707,8 +714,15 @@ struct AntigravityModelRow: View {
     var body: some View {
         let pct = model.remainingFraction.map { Int(($0 * 100).rounded()) }
         let usedPct = pct.map { max(0, 100 - $0) }
-                        UnifiedQuotaRow(style: .compact, title: 
- model.displayName, fraction: model.remainingFraction, primaryValue: pct.map { "\($0)%" }, secondaryValue: usedPct.map { "\($0)% used" }, countdown: model.resetCountdown)
+        UnifiedQuotaRow(
+            style: .compact,
+            valuePlacement: .bottomLeading,
+            title: model.displayName,
+            fraction: model.remainingFraction,
+            primaryValue: pct.map { "\($0)%" },
+            secondaryValue: usedPct.map { "\($0)% used" },
+            countdown: model.resetCountdown
+        )
     }
 }
 

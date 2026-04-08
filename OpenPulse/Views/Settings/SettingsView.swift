@@ -34,6 +34,13 @@ struct SettingsView: View {
     // MARK: - Codex
     @AppStorage("codex.smartSwitch.enabled") private var codexSmartSwitchEnabled = false
 
+    // MARK: - Dot Text API
+    @AppStorage("dot.textAPI.enabled") private var dotTextAPIEnabled = false
+    @AppStorage("dot.textAPI.deviceID") private var dotTextAPIDeviceID = ""
+    @AppStorage("dot.textAPI.taskKey") private var dotTextAPITaskKey = ""
+    @State private var dotTextAPIKey = ""
+    @State private var dotTextAPIStatus: String?
+
     // MARK: - Computed helpers
 
     private var orderedTools: [Tool] {
@@ -254,6 +261,52 @@ struct SettingsView: View {
                             .labelsHidden()
                     }
                 }
+
+                SettingsCard(title: "Dot Text API", icon: "display") {
+                    VStack(alignment: .leading, spacing: 16) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Auto push quota")
+                                    .font(.body)
+                                Text("Push only Codex and Claude quota from the menu bar snapshot after sync finishes.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Toggle("", isOn: $dotTextAPIEnabled)
+                                .toggleStyle(.switch)
+                                .labelsHidden()
+                        }
+
+                        if dotTextAPIEnabled {
+                            Divider()
+
+                            VStack(alignment: .leading, spacing: 10) {
+                                TextField("Device serial number", text: $dotTextAPIDeviceID)
+                                    .textFieldStyle(.roundedBorder)
+
+                                TextField("Task key (optional)", text: $dotTextAPITaskKey)
+                                    .textFieldStyle(.roundedBorder)
+
+                                SecureField("API key", text: $dotTextAPIKey)
+                                    .textFieldStyle(.roundedBorder)
+
+                                HStack {
+                                    if let dotTextAPIStatus {
+                                        Text(dotTextAPIStatus)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    Button("Save API Key") {
+                                        saveDotTextAPIKey()
+                                    }
+                                    .buttonStyle(.borderedProminent)
+                                }
+                            }
+                        }
+                    }
+                }
                 
                 // 通知
                 SettingsCard(title: "通知", icon: "bell.badge") {
@@ -341,6 +394,7 @@ struct SettingsView: View {
         .navigationTitle("设置")
         .onAppear {
             launchAtLogin = SMAppService.mainApp.status == .enabled
+            dotTextAPIKey = (try? KeychainService.retrieve(key: KeychainService.Keys.dotAPIKey)) ?? ""
         }
         .confirmationDialog("清除所有已缓存的会话和配额数据？此操作不可撤销。",
                             isPresented: $showingClearConfirm) {
@@ -355,6 +409,23 @@ struct SettingsView: View {
         quotaRecords.forEach { modelContext.delete($0) }
         sessionRecords.forEach { modelContext.delete($0) }
         try? modelContext.save()
+    }
+
+    private func saveDotTextAPIKey() {
+        let trimmedKey = dotTextAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        do {
+            if trimmedKey.isEmpty {
+                KeychainService.delete(key: KeychainService.Keys.dotAPIKey)
+                dotTextAPIKey = ""
+                dotTextAPIStatus = "API key removed"
+            } else {
+                try KeychainService.store(key: KeychainService.Keys.dotAPIKey, value: trimmedKey)
+                dotTextAPIKey = trimmedKey
+                dotTextAPIStatus = "API key saved"
+            }
+        } catch {
+            dotTextAPIStatus = error.localizedDescription
+        }
     }
 }
 

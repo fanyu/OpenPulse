@@ -47,6 +47,7 @@
 		DB9441BF2084C275703BE518 /* AppLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAE363D258692709B22F2620 /* AppLogger.swift */; };
 		E0B47DD84E5433B04F1E56C2 /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FD375993BBFCE958374B4F4 /* MenuBarView.swift */; };
 		E3D22434697CAD1DCBCD0436 /* SwiftZSTD in Frameworks */ = {isa = PBXBuildFile; productRef = A34676B78475615CA09E7538 /* SwiftZSTD */; };
+		E455166A3CA2CA28F1A6E1C2 /* DotTextAPIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C462CDABE8B53296DB5A87C1 /* DotTextAPIService.swift */; };
 		EE4954ADE342C53CAC9CC50E /* OpenPulseApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A9237E27AFD4475905CE152 /* OpenPulseApp.swift */; };
 		FC608AD2FF7457A67AB70153 /* ClaudeCodeParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1495475A35ED9D5528C01B35 /* ClaudeCodeParser.swift */; };
 /* End PBXBuildFile section */
@@ -89,6 +90,7 @@
 		B225807FEB6829DD500E63EB /* Provider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Provider.swift; sourceTree = "<group>"; };
 		BCCDA4DF0EC129A5D3945AA3 /* DailyStatsRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyStatsRecord.swift; sourceTree = "<group>"; };
 		C00887B511AFC8B11A0DCBC2 /* CodexAccount.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexAccount.swift; sourceTree = "<group>"; };
+		C462CDABE8B53296DB5A87C1 /* DotTextAPIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DotTextAPIService.swift; sourceTree = "<group>"; };
 		CDD4CF2C5EDE7491AE3E099C /* ClaudeCodeBridgeInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeCodeBridgeInstaller.swift; sourceTree = "<group>"; };
 		D05939178581C41AF8FC17BF /* CompareView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompareView.swift; sourceTree = "<group>"; };
 		D5CAC165D978D26D6B4C0AB6 /* OpenCodeParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenCodeParser.swift; sourceTree = "<group>"; };
@@ -170,6 +172,7 @@
 				CDD4CF2C5EDE7491AE3E099C /* ClaudeCodeBridgeInstaller.swift */,
 				70978988BAE12EE3FFBBB75A /* CodexAccountService.swift */,
 				89E51531D07B099F396C58D4 /* DataSyncService.swift */,
+				C462CDABE8B53296DB5A87C1 /* DotTextAPIService.swift */,
 				A3BA6F0CC3FDD8DFCCCF7CD5 /* KeychainService.swift */,
 				9AC7AD8BD5E6F4A728B429D9 /* NotificationService.swift */,
 			);
@@ -420,6 +423,7 @@
 				735412533A94EA74BB0EDD74 /* DailyStats.swift in Sources */,
 				120AD94708EC0E85F8D859AE /* DailyStatsRecord.swift in Sources */,
 				D814DB95A555D315E4E2F328 /* DataSyncService.swift in Sources */,
+				E455166A3CA2CA28F1A6E1C2 /* DotTextAPIService.swift in Sources */,
 				9237BBED7F7DEB34F008A597 /* GlobalHotkeyService.swift in Sources */,
 				DA3DEB8874BEACF4CF1A51F5 /* KeychainService.swift in Sources */,
 				301E60B6321C36303453A64E /* LogView.swift in Sources */,
