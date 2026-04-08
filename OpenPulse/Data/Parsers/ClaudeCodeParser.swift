@@ -2,12 +2,17 @@ import Foundation
 
 /// Parses Claude Code CLI data from ~/.claude/
 /// Token usage: projects/**/*.jsonl (per-message) + stats-cache.json (aggregated)
-/// Quota: ~/.claude/.credentials.json → api.anthropic.com/api/oauth/usage
+/// Quota: OpenPulse Claude Code bridge cache populated from Claude Code status JSON.
 actor ClaudeCodeParser {
     private let claudeDir: URL
+    private let statusCacheURL: URL
 
-    init(claudeDir: URL = .homeDirectory.appending(path: ".claude")) {
+    init(
+        claudeDir: URL = .homeDirectory.appending(path: ".claude"),
+        statusCacheURL: URL = ClaudeCodeBridgeInstaller.cacheURL
+    ) {
         self.claudeDir = claudeDir
+        self.statusCacheURL = statusCacheURL
     }
 
     // MARK: - Aggregated stats from stats-cache.json (fastest)
@@ -92,34 +97,26 @@ actor ClaudeCodeParser {
         return sessions.sorted { $0.startedAt < $1.startedAt }
     }
 
-    // MARK: - Subscription quota via OAuth API
+    // MARK: - Subscription quota from Claude Code bridge
 
-    func fetchSubscriptionQuota() async throws -> ToolQuota {
-        guard let token = try await resolveOAuthToken() else {
-            throw ClaudeError.noCredentials
+    func readSubscriptionQuotaFromBridge(maxAge: TimeInterval = 15 * 60) async throws -> ToolQuota {
+        guard FileManager.default.fileExists(atPath: statusCacheURL.path) else {
+            throw ClaudeError.bridgeDataUnavailable
         }
 
-        var request = URLRequest(url: URL(string: "https://api.anthropic.com/api/oauth/usage")!)
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
-        request.setValue("claude-code/2.0.76", forHTTPHeaderField: "User-Agent")
-        request.timeoutInterval = 10
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            let body = String(data: data, encoding: .utf8) ?? ""
-            throw ClaudeError.apiFailed("HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0): \(body.prefix(200))")
+        let data = try Data(contentsOf: statusCacheURL)
+        let payload = try JSONDecoder().decode(ClaudeStatusBridgePayload.self, from: data)
+        let capturedAt = Date(timeIntervalSince1970: TimeInterval(payload.capturedAt))
+        guard Date().timeIntervalSince(capturedAt) <= maxAge else {
+            throw ClaudeError.bridgeDataStale
         }
 
-        // Cache raw response bytes — DataSyncService restores this on next launch if API fails
-        UserDefaults.standard.set(data, forKey: "cached.claudeUsageData")
-
-        let usage = try JSONDecoder().decode(ClaudeUsageResponse.self, from: data)
-
-        // Use 5-hour session window as primary quota
-        let fiveHour = usage.fiveHour
-        let remaining = fiveHour.map { Int((1.0 - ($0.utilization ?? 0) / 100.0) * 100) }
-        let resetAt = fiveHour?.resetsAt.flatMap { ISO8601DateFormatter().date(from: $0) }
+        let usage = ClaudeUsageResponse(
+            fiveHour: payload.rateLimits.fiveHour,
+            sevenDay: payload.rateLimits.sevenDay,
+            contextWindow: payload.contextWindow
+        )
+        let remaining = usage.fiveHour?.utilization.map { Int((1.0 - $0 / 100.0) * 100) }
 
         return ToolQuota(
             id: Tool.claudeCode.rawValue,
@@ -129,43 +126,10 @@ actor ClaudeCodeParser {
             remaining: remaining,
             total: 100,
             unit: .messages,
-            resetAt: resetAt,
+            resetAt: usage.fiveHour?.resetDate,
             updatedAt: Date(),
             raw: usage
         )
-    }
-
-    // MARK: - OAuth token resolution
-
-    private func resolveOAuthToken() async throws -> String? {
-        // 1. Try ~/.claude/.credentials.json — always re-read so we pick up refreshed tokens.
-        let credFile = claudeDir.appending(path: ".credentials.json")
-        if FileManager.default.fileExists(atPath: credFile.path) {
-            guard let data = try? Data(contentsOf: credFile),
-                  let creds = try? JSONDecoder().decode(ClaudeCredentials.self, from: data),
-                  let oauth = creds.claudeAiOauth,
-                  let token = oauth.accessToken else {
-                return nil
-            }
-
-            // If the credentials file exists, trust it as the source of truth.
-            // Do not fall back to Keychain when the file is stale or malformed,
-            // otherwise an expired file token still triggers recurring Keychain prompts.
-            if let exp = oauth.expiresAt {
-                let expiresDate = Date(timeIntervalSince1970: Double(exp) / 1000)
-                return expiresDate > Date().addingTimeInterval(300) ? token : nil
-            }
-            return token
-        }
-
-        // 2. Keychain fallback only when the credentials file does not exist.
-        let rawToken = try? KeychainService.retrieveGenericPassword(service: "Claude Code-credentials")
-        return rawToken.flatMap { tokenStr in
-            guard let data = tokenStr.data(using: .utf8),
-                  let creds = try? JSONDecoder().decode(ClaudeCredentials.self, from: data),
-                  let accessToken = creds.claudeAiOauth?.accessToken else { return nil }
-            return accessToken
-        }
     }
 
     // MARK: - Private JSONL parsing
@@ -261,35 +225,28 @@ actor ClaudeCodeParser {
 // MARK: - Errors
 
 enum ClaudeError: Error, LocalizedError {
-    case noCredentials
-    case apiFailed(String)
+    case bridgeDataUnavailable
+    case bridgeDataStale
 
     var errorDescription: String? {
         switch self {
-        case .noCredentials: "No Claude OAuth credentials found. Log in via Claude Code CLI."
-        case .apiFailed(let msg): "Claude API error: \(msg)"
+        case .bridgeDataUnavailable:
+            "Claude Code bridge has not received rate limit data yet."
+        case .bridgeDataStale:
+            "Claude Code bridge rate limit data is stale."
         }
     }
 }
 
 // MARK: - JSON Models
 
-private struct ClaudeCredentials: Decodable {
-    let claudeAiOauth: OAuthCreds?
-    struct OAuthCreds: Decodable {
-        let accessToken: String?
-        let refreshToken: String?
-        let expiresAt: Int64?
-        let rateLimitTier: String?
-    }
-}
-
-struct ClaudeUsageResponse: Decodable, Sendable {
+struct ClaudeUsageResponse: Codable, Sendable {
     let fiveHour: UsageWindow?
     let sevenDay: UsageWindow?
     let sevenDaySonnet: UsageWindow?
     let sevenDayOpus: UsageWindow?
     let extraUsage: ExtraUsage?
+    let contextWindow: ClaudeContextWindow?
 
     enum CodingKeys: String, CodingKey {
         case fiveHour = "five_hour"
@@ -297,20 +254,72 @@ struct ClaudeUsageResponse: Decodable, Sendable {
         case sevenDaySonnet = "seven_day_sonnet"
         case sevenDayOpus = "seven_day_opus"
         case extraUsage = "extra_usage"
+        case contextWindow = "context_window"
+    }
+
+    init(
+        fiveHour: UsageWindow?,
+        sevenDay: UsageWindow?,
+        sevenDaySonnet: UsageWindow? = nil,
+        sevenDayOpus: UsageWindow? = nil,
+        extraUsage: ExtraUsage? = nil,
+        contextWindow: ClaudeContextWindow? = nil
+    ) {
+        self.fiveHour = fiveHour
+        self.sevenDay = sevenDay
+        self.sevenDaySonnet = sevenDaySonnet
+        self.sevenDayOpus = sevenDayOpus
+        self.extraUsage = extraUsage
+        self.contextWindow = contextWindow
     }
 }
 
-struct UsageWindow: Decodable, Sendable {
+struct UsageWindow: Codable, Sendable {
     let utilization: Double?    // 0–100
     let resetsAt: String?
 
     enum CodingKeys: String, CodingKey {
         case utilization
+        case usedPercentage = "used_percentage"
         case resetsAt = "resets_at"
+    }
+
+    init(utilization: Double?, resetsAt: String?) {
+        self.utilization = utilization
+        self.resetsAt = resetsAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        utilization = try container.decodeIfPresent(Double.self, forKey: .utilization)
+            ?? container.decodeIfPresent(Double.self, forKey: .usedPercentage)
+        if let stringValue = try? container.decodeIfPresent(String.self, forKey: .resetsAt) {
+            resetsAt = stringValue
+        } else if let doubleValue = try? container.decodeIfPresent(Double.self, forKey: .resetsAt) {
+            resetsAt = String(doubleValue)
+        } else if let intValue = try? container.decodeIfPresent(Int.self, forKey: .resetsAt) {
+            resetsAt = String(intValue)
+        } else {
+            resetsAt = nil
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(utilization, forKey: .utilization)
+        try container.encodeIfPresent(resetsAt, forKey: .resetsAt)
+    }
+
+    var resetDate: Date? {
+        guard let resetsAt else { return nil }
+        if let epochSeconds = Double(resetsAt) {
+            return Date(timeIntervalSince1970: epochSeconds)
+        }
+        return parseClaudeISO8601(resetsAt)
     }
 }
 
-struct ExtraUsage: Decodable, Sendable {
+struct ExtraUsage: Codable, Sendable {
     let isEnabled: Bool?
     let monthlyLimit: Double?   // cents
     let usedCredits: Double?    // cents
@@ -322,6 +331,50 @@ struct ExtraUsage: Decodable, Sendable {
         case usedCredits = "used_credits"
         case utilization
     }
+}
+
+struct ClaudeContextWindow: Codable, Sendable {
+    let usedPercentage: Double?
+    let remainingPercentage: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case usedPercentage = "used_percentage"
+        case remainingPercentage = "remaining_percentage"
+    }
+}
+
+private struct ClaudeStatusBridgePayload: Decodable {
+    let capturedAt: Int
+    let rateLimits: RateLimits
+    let contextWindow: ClaudeContextWindow?
+
+    enum CodingKeys: String, CodingKey {
+        case capturedAt = "captured_at"
+        case rateLimits = "rate_limits"
+        case contextWindow = "context_window"
+    }
+
+    struct RateLimits: Decodable {
+        let fiveHour: UsageWindow?
+        let sevenDay: UsageWindow?
+
+        enum CodingKeys: String, CodingKey {
+            case fiveHour = "five_hour"
+            case sevenDay = "seven_day"
+        }
+    }
+}
+
+private nonisolated(unsafe) let _claudeISO8601Frac: ISO8601DateFormatter = {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return formatter
+}()
+
+private nonisolated(unsafe) let _claudeISO8601Std = ISO8601DateFormatter()
+
+private func parseClaudeISO8601(_ raw: String) -> Date? {
+    _claudeISO8601Frac.date(from: raw) ?? _claudeISO8601Std.date(from: raw)
 }
 
 private struct StatsCache: Decodable {

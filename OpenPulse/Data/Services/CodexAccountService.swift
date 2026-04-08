@@ -242,6 +242,24 @@ actor CodexAccountService {
         return await listAccounts()
     }
 
+    func applyLocalRateLimitsToCurrentAccount(_ limits: CodexRateLimits) async -> [CodexAccountSnapshot] {
+        let now = Date()
+        var store = reconcileCurrentAuthIntoStore()
+        let currentAccountID = currentAccountID(from: store)
+
+        if let currentAccountID,
+           let index = store.accounts.firstIndex(where: { $0.accountID == currentAccountID }) {
+            store.accounts[index].lastUsage = limits
+            store.accounts[index].planType = limits.planType ?? store.accounts[index].planType
+            store.accounts[index].lastFetchedAt = now
+            store.accounts[index].updatedAt = now
+            store.accounts[index].usageError = nil
+            saveStore(store)
+        }
+
+        return await listAccounts()
+    }
+
     func syncCurrentSelectionFromAuthFile() async {
         let store = reconcileCurrentAuthIntoStore()
         saveStore(store)

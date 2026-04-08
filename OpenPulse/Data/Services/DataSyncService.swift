@@ -45,12 +45,8 @@ final class DataSyncService {
     /// 最新的 Codex 多账户额度列表
     private(set) var latestCodexAccounts: [CodexAccountSnapshot] = []
 
-    /// 最新的 Claude 订阅配额响应（含 fiveHour / sevenDay 窗口）；无订阅时为 nil
+    /// 最新的 Claude 订阅配额响应（来自 Claude Code bridge status JSON）；无订阅时为 nil
     private(set) var latestClaudeUsage: ClaudeUsageResponse?
-    /// Exponential-backoff state for Claude quota API calls.
-    /// After each failure the wait doubles: 5m → 10m → 20m → 40m → 80m → 120m (cap).
-    private var claudeQuotaNextAt: Date = .distantPast
-    private var claudeQuotaFailCount: Int = 0
 
     /// 最新的 Antigravity 账号配额列表（每个账号含所有模型，推荐模型优先）
     private(set) var latestAntigravityAccounts: [AGAccountQuota]?
@@ -272,7 +268,7 @@ final class DataSyncService {
         finishCurrentPhase()
     }
 
-    /// Full Claude sync: local files + subscription quota API.
+    /// Full Claude sync: local files + Claude Code bridge quota cache.
     private func syncClaudeCode() async throws {
         let since = lastSyncDate.map { Calendar.current.date(byAdding: .hour, value: -1, to: $0)! }
         try await parseClaudeFiles(since: since)
@@ -281,7 +277,7 @@ final class DataSyncService {
 
     private func syncClaudeQuota() async {
         startPhase("claude.quota")
-        // Restore last-known data from disk so the UI never shows "API Key mode" on launch.
+        // Restore last-known bridge data from disk so the UI can show the most recent Claude quota on launch.
         if latestClaudeUsage == nil,
            let cached = UserDefaults.standard.data(forKey: "cached.claudeUsageData"),
            let restored = try? JSONDecoder().decode(ClaudeUsageResponse.self, from: cached) {
@@ -292,33 +288,26 @@ final class DataSyncService {
             upsertQuota(toolQuota(from: restored))
         }
 
-        // Exponential backoff: don't fetch until the computed next-allowed time.
-        guard Date() >= claudeQuotaNextAt else { return }
-
         do {
-            let quota = try await claudeParser.fetchSubscriptionQuota()
+            let quota = try await claudeParser.readSubscriptionQuotaFromBridge()
             if let usage = quota.raw as? ClaudeUsageResponse {
                 latestClaudeUsage = usage
+                if let data = try? JSONEncoder().encode(usage) {
+                    UserDefaults.standard.set(data, forKey: "cached.claudeUsageData")
+                }
             }
-            claudeQuotaFailCount = 0
-            claudeQuotaNextAt = Date().addingTimeInterval(1800)          // 30 min on success
             upsertQuota(quota)
         } catch {
-            claudeQuotaFailCount += 1
-            let backoff = min(300.0 * pow(2.0, Double(claudeQuotaFailCount - 1)), 7200)  // 5m…120m
-            claudeQuotaNextAt = Date().addingTimeInterval(backoff)
-            AppLogger.shared.warning(
-                "Claude quota failed (\(claudeQuotaFailCount)x), retry in \(Int(backoff / 60))min: \(error.localizedDescription)"
-            )
+            AppLogger.shared.warning("Claude bridge quota unavailable: \(error.localizedDescription)")
         }
         finishCurrentPhase()
     }
 
-    /// Build a ToolQuota from a ClaudeUsageResponse (mirrors ClaudeCodeParser.fetchSubscriptionQuota).
+    /// Build a ToolQuota from a ClaudeUsageResponse.
     private func toolQuota(from usage: ClaudeUsageResponse) -> ToolQuota {
         let fiveHour = usage.fiveHour
         let remaining = fiveHour.map { Int((1.0 - ($0.utilization ?? 0) / 100.0) * 100) }
-        let resetAt = fiveHour?.resetsAt.flatMap { ISO8601DateFormatter().date(from: $0) }
+        let resetAt = fiveHour?.resetDate
         return ToolQuota(
             id: Tool.claudeCode.rawValue, tool: .claudeCode,
             accountKey: nil, accountLabel: nil,
@@ -331,10 +320,19 @@ final class DataSyncService {
     private func syncCodex() async throws {
         let since = lastSyncDate.map { Calendar.current.date(byAdding: .hour, value: -1, to: $0)! }
         try await parseCodexFiles(since: since)
+        let localLimits = await codexParser.parseLatestRateLimits()
+        let smartSwitchEnabled = UserDefaults.standard.bool(forKey: "codex.smartSwitch.enabled")
+
         startPhase("codex.accounts")
         await codexAccountService.syncCurrentSelectionFromAuthFile()
-        let accounts = await codexAccountService.refreshAllUsage()
-        let smartSwitchEnabled = UserDefaults.standard.bool(forKey: "codex.smartSwitch.enabled")
+        let accounts: [CodexAccountSnapshot]
+        if !smartSwitchEnabled, let localLimits, isUsableCodexLocalRateLimits(localLimits) {
+            accounts = await codexAccountService.applyLocalRateLimitsToCurrentAccount(localLimits)
+            AppLogger.shared.info("Codex: using local rate limits from session JSONL")
+        } else {
+            accounts = await codexAccountService.refreshAllUsage()
+        }
+
         if smartSwitchEnabled,
            let decision = try? await codexAccountService.autoSmartSwitchIfNeeded(accounts: accounts) {
             AppLogger.shared.warning(
@@ -348,7 +346,7 @@ final class DataSyncService {
         try await upsertQuotas(latestCodexAccounts.map(\.quota), label: "codex.quotas")
         finishCurrentPhase()
 
-        if latestCodexAccounts.isEmpty, let limits = await codexParser.parseLatestRateLimits() {
+        if latestCodexAccounts.isEmpty, let limits = localLimits, isUsableCodexLocalRateLimits(limits) {
             startPhase("codex.fallbackQuota")
             let quota = ToolQuota(
                 id: Tool.codex.rawValue,
@@ -365,6 +363,12 @@ final class DataSyncService {
             upsertQuota(quota)
             finishCurrentPhase()
         }
+    }
+
+    private func isUsableCodexLocalRateLimits(_ limits: CodexRateLimits) -> Bool {
+        [limits.fiveHourWindow, limits.oneWeekWindow]
+            .compactMap(\.?.resetDate)
+            .contains { $0 > Date() }
     }
 
     private func parseCodexFiles(since: Date?) async throws {
@@ -796,8 +800,7 @@ final class DataSyncService {
         if let usage = latestClaudeUsage,
            let window = usage.fiveHour,
            let util = window.utilization {
-            let resetAt = window.resetsAt.flatMap { parseISO8601Flexible($0) }
-            quotas[Tool.claudeCode.rawValue] = .init(fraction: max(0, (100 - util) / 100), resetAt: resetAt)
+            quotas[Tool.claudeCode.rawValue] = .init(fraction: max(0, (100 - util) / 100), resetAt: window.resetDate)
         }
         // Copilot and Antigravity: use stored QuotaRecord if available
         let descriptor = FetchDescriptor<QuotaRecord>()

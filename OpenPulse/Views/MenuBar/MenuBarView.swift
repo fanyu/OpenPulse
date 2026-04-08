@@ -288,7 +288,7 @@ struct ClaudeWindowRow: View {
         let usedPct = window?.utilization.map { Int($0.rounded()) }
         let remPct = usedPct.map { max(0, 100 - $0) }
         let isMultiDay = label.contains("7d") || label.contains("14d")
-        let countdown = window?.resetsAt.flatMap(parseISO8601Flexible).map { date in
+        let countdown = window?.resetDate.map { date in
             isMultiDay ? countdownString(to: date) : date.formatted(.dateTime.hour().minute())
         }
         UnifiedQuotaRow(style: .compact, showUsedAtTop: true, title: label, fraction: frac, primaryValue: remPct.map { "\($0)%" }, secondaryValue: usedPct.map { "\($0)% used" }, countdown: countdown)
@@ -504,13 +504,29 @@ struct CodexMultiAccountQuotaCard: View {
 struct CodexWindowRow: View {
     let label: String
     let window: CodexWindow?
+
+    private var isStale: Bool {
+        guard let resetDate = window?.resetDate else { return false }
+        return resetDate < Date()
+    }
+
     var body: some View {
-        let frac = window?.usedPercent.map { max(0, min(1, (100 - $0) / 100)) }
+        let frac = isStale ? nil : window?.usedPercent.map { max(0, min(1, (100 - $0) / 100)) }
         let pct = frac.map { Int(($0 * 100).rounded()) }
         let usedPct = pct.map { max(0, 100 - $0) }
         let isMultiDay = (window?.windowMinutes ?? 0) > 24 * 60
-        let countdown = window?.resetDate.map { isMultiDay ? $0.formatted(.dateTime.month(.twoDigits).day(.twoDigits).hour().minute()) : $0.formatted(.dateTime.hour().minute()) }
-        UnifiedQuotaRow(style: .compact, showUsedAtTop: true, title: label, fraction: frac, primaryValue: pct.map { "\($0)%" }, secondaryValue: usedPct.map { "\($0)% used" }, countdown: countdown)
+        let countdown = isStale
+            ? "已重置"
+            : window?.resetDate.map { isMultiDay ? $0.formatted(.dateTime.month(.twoDigits).day(.twoDigits).hour().minute()) : $0.formatted(.dateTime.hour().minute()) }
+        UnifiedQuotaRow(
+            style: .compact,
+            showUsedAtTop: true,
+            title: label,
+            fraction: frac,
+            primaryValue: isStale ? "—" : pct.map { "\($0)%" },
+            secondaryValue: isStale ? "数据已过期" : usedPct.map { "\($0)% used" },
+            countdown: countdown
+        )
     }
 }
 

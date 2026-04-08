@@ -21,6 +21,7 @@
 		43F0E34C09A23184A9BF94FE /* CodexParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C9B26FE7E06E64EC6892CF3 /* CodexParser.swift */; };
 		4B5F4624D23EE82803A69FE6 /* MainWindowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A6B0992BD6928565C0BFBA4 /* MainWindowView.swift */; };
 		5E5248E69F836344E19E268A /* ToolAnalysisViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8918557F1ECC6689CA035E80 /* ToolAnalysisViews.swift */; };
+		62576FBA949602EE4F6F0B8F /* ClaudeCodeBridgeInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDD4CF2C5EDE7491AE3E099C /* ClaudeCodeBridgeInstaller.swift */; };
 		668A3DB6EA2D53B5ED39F244 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 286B3F5BD5A8E159BD60C5BC /* Assets.xcassets */; };
 		68569C07EF283F7824CE98F3 /* OpenCodeParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5CAC165D978D26D6B4C0AB6 /* OpenCodeParser.swift */; };
 		699729054FEE00973226B4D7 /* ToolSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 291DCA8660FE30EBF6BCD172 /* ToolSession.swift */; };
@@ -88,6 +89,7 @@
 		B225807FEB6829DD500E63EB /* Provider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Provider.swift; sourceTree = "<group>"; };
 		BCCDA4DF0EC129A5D3945AA3 /* DailyStatsRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyStatsRecord.swift; sourceTree = "<group>"; };
 		C00887B511AFC8B11A0DCBC2 /* CodexAccount.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexAccount.swift; sourceTree = "<group>"; };
+		CDD4CF2C5EDE7491AE3E099C /* ClaudeCodeBridgeInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeCodeBridgeInstaller.swift; sourceTree = "<group>"; };
 		D05939178581C41AF8FC17BF /* CompareView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompareView.swift; sourceTree = "<group>"; };
 		D5CAC165D978D26D6B4C0AB6 /* OpenCodeParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenCodeParser.swift; sourceTree = "<group>"; };
 		E44DFE8B1FF414DC177BEF99 /* CommonUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommonUI.swift; sourceTree = "<group>"; };
@@ -165,6 +167,7 @@
 			isa = PBXGroup;
 			children = (
 				AAE363D258692709B22F2620 /* AppLogger.swift */,
+				CDD4CF2C5EDE7491AE3E099C /* ClaudeCodeBridgeInstaller.swift */,
 				70978988BAE12EE3FFBBB75A /* CodexAccountService.swift */,
 				89E51531D07B099F396C58D4 /* DataSyncService.swift */,
 				A3BA6F0CC3FDD8DFCCCF7CD5 /* KeychainService.swift */,
@@ -405,6 +408,7 @@
 				A7F5BB96B28B86404C636C2C /* AntigravityParser.swift in Sources */,
 				DB9441BF2084C275703BE518 /* AppLogger.swift in Sources */,
 				8A245E69560FCDDB793578B1 /* AppStore.swift in Sources */,
+				62576FBA949602EE4F6F0B8F /* ClaudeCodeBridgeInstaller.swift in Sources */,
 				FC608AD2FF7457A67AB70153 /* ClaudeCodeParser.swift in Sources */,
 				96950433BB59A1B34ED7AF1B /* CodexAccount.swift in Sources */,
 				8DCA34358535ACF567C1B86B /* CodexAccountService.swift in Sources */,

@@ -296,7 +296,7 @@ struct ClaudeDetailRow: View {
         let used = window?.utilization.map { Int($0.rounded()) }
         let rem = used.map { max(0, 100 - $0) }
         let isWeekly = label.contains("7d")
-        let date = window?.resetsAt.flatMap(parseISO8601Flexible)
+        let date = window?.resetDate
         let footer = date.map { isWeekly ? countdownString(to: $0) : $0.formatted(.dateTime.hour().minute()) }
         
         UnifiedQuotaRow(

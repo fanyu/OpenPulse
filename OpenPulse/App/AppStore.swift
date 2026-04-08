@@ -29,6 +29,7 @@ final class AppStore {
 
     func startSync() {
         guard syncService == nil else { return }
+        ClaudeCodeBridgeInstaller.installIfNeeded()
         // Use the container's main context so @Query views see writes immediately
         let context = modelContainer.mainContext
         // DataSyncService already performs explicit saves after each sync cycle.

@@ -202,7 +202,11 @@ actor CodexParser {
     // MARK: - Rate limits from latest JSONL session event
 
     func parseLatestRateLimits() async -> CodexRateLimits? {
-        // Scan today → yesterday → archived, newest file first
+        if let limits = scanRecentlyModifiedFilesForRateLimits() {
+            return limits
+        }
+
+        // Fallback to date buckets for older Codex layouts or files without mtime metadata.
         let calendar = Calendar.current
         let today = Date()
 
@@ -221,11 +225,53 @@ actor CodexParser {
         return await scanDirForRateLimits(archivedDir)
     }
 
+    private func scanRecentlyModifiedFilesForRateLimits() -> CodexRateLimits? {
+        for file in recentlyModifiedJSONLFiles(in: [sessionsDir, archivedDir], limit: 200) {
+            if let limits = parseRateLimitsFromFile(file) {
+                return limits
+            }
+        }
+        return nil
+    }
+
+    private func recentlyModifiedJSONLFiles(in roots: [URL], limit: Int) -> [URL] {
+        let fm = FileManager.default
+        let keys: Set<URLResourceKey> = [.isRegularFileKey, .contentModificationDateKey]
+        let cutoff = Date().addingTimeInterval(-14 * 24 * 60 * 60)
+        var candidates: [(url: URL, modifiedAt: Date)] = []
+
+        for root in roots where fm.fileExists(atPath: root.path) {
+            guard let enumerator = fm.enumerator(
+                at: root,
+                includingPropertiesForKeys: Array(keys),
+                options: [.skipsHiddenFiles]
+            ) else { continue }
+
+            for case let url as URL in enumerator {
+                guard url.pathExtension == "jsonl" else { continue }
+                guard let values = try? url.resourceValues(forKeys: keys),
+                      values.isRegularFile == true,
+                      let modifiedAt = values.contentModificationDate,
+                      modifiedAt >= cutoff else { continue }
+                candidates.append((url, modifiedAt))
+            }
+        }
+
+        return candidates
+            .sorted { $0.modifiedAt > $1.modifiedAt }
+            .prefix(limit)
+            .map(\.url)
+    }
+
     private func scanDirForRateLimits(_ dir: URL) async -> CodexRateLimits? {
         guard FileManager.default.fileExists(atPath: dir.path) else { return nil }
-        let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
+        let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey])
             .filter { $0.pathExtension == "jsonl" }
-            .sorted { $0.lastPathComponent > $1.lastPathComponent }) ?? []
+            .sorted {
+                let lhs = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                let rhs = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                return lhs > rhs
+            }) ?? []
 
         for file in files {
             if let limits = parseRateLimitsFromFile(file) { return limits }
