@@ -620,8 +620,7 @@ struct CopilotQuotaCard: View {
 title: "Copilot", fraction: frac, primaryValue: "\(pct)%", secondaryValue: "\(used)/\(t)", countdown: q.toModel().resetCountdown)
             }
         }
-        .padding(12)
-        .glassEffect(.regular, in: .rect(cornerRadius: 14))
+        .menuBarCardSurface()
     }
 }
 
@@ -692,8 +691,7 @@ struct AntigravityAccountCard: View {
                     }
                 }
             }
-            .padding(12)
-            .glassEffect(.regular, in: .rect(cornerRadius: 14))
+            .menuBarCardSurface()
         }
     }
 }
@@ -712,12 +710,11 @@ struct AntigravityFallbackCard: View {
                 let frac = Double(r) / Double(t)
                 let pct = Int((frac * 100).rounded())
                 UnifiedQuotaRow(style: .compact, showUsedAtTop: true, 
-title: "Total Quota", fraction: frac, primaryValue: "\(pct)%", secondaryValue: "\(max(0, 100 - pct))% used", countdown: quota.toModel().resetCountdown)
+title: "Total Quota", fraction: frac, primaryValue: "\(pct)%", secondaryValue: nil, countdown: quota.toModel().resetCountdown)
             }
 
         }
-        .padding(12)
-        .glassEffect(.regular, in: .rect(cornerRadius: 14))
+        .menuBarCardSurface()
     }
 }
 
@@ -725,14 +722,13 @@ struct AntigravityModelCell: View {
     let model: AGModelQuota
     var body: some View {
         let pct = model.remainingFraction.map { Int(($0 * 100).rounded()) }
-        let usedPct = pct.map { max(0, 100 - $0) }
         UnifiedQuotaRow(
             style: .compact,
             valuePlacement: .bottomLeading,
             title: model.displayName,
             fraction: model.remainingFraction,
             primaryValue: pct.map { "\($0)%" },
-            secondaryValue: usedPct.map { "\($0)% used" },
+            secondaryValue: nil,
             countdown: model.resetCountdown
         )
             .padding(.horizontal, 8).padding(.vertical, 6)
@@ -744,16 +740,23 @@ struct AntigravityModelRow: View {
     let model: AGModelQuota
     var body: some View {
         let pct = model.remainingFraction.map { Int(($0 * 100).rounded()) }
-        let usedPct = pct.map { max(0, 100 - $0) }
         UnifiedQuotaRow(
             style: .compact,
             valuePlacement: .bottomLeading,
             title: model.displayName,
             fraction: model.remainingFraction,
             primaryValue: pct.map { "\($0)%" },
-            secondaryValue: usedPct.map { "\($0)% used" },
+            secondaryValue: nil,
             countdown: model.resetCountdown
         )
+    }
+}
+
+private extension View {
+    func menuBarCardSurface() -> some View {
+        padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .glassEffect(.regular, in: .rect(cornerRadius: 14))
     }
 }
 
