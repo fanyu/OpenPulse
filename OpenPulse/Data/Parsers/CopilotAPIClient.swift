@@ -11,7 +11,7 @@ actor CopilotAPIClient {
         proxyDir = URL.homeDirectory.appending(path: ".cli-proxy-api")
     }
 
-    func fetchQuota() async throws -> (quota: ToolQuota, snapshots: [String: CopilotSnapshot]) {
+    func fetchQuota() async throws -> (quota: ToolQuota, snapshots: [String: CopilotSnapshot], plan: String?) {
         let token = try resolveAccessToken()
         return try await fetchUserQuota(token: token)
     }
@@ -40,7 +40,7 @@ actor CopilotAPIClient {
 
     // MARK: - API call
 
-    private func fetchUserQuota(token: String) async throws -> (ToolQuota, [String: CopilotSnapshot]) {
+    private func fetchUserQuota(token: String) async throws -> (ToolQuota, [String: CopilotSnapshot], String?) {
         var request = URLRequest(url: URL(string: "https://api.github.com/copilot_internal/user")!)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -79,7 +79,7 @@ actor CopilotAPIClient {
                 unit: .requests, resetAt: resetAt, updatedAt: Date(),
                 raw: snapshots as (any Sendable)
             )
-            return (quota, snapshots)
+            return (quota, snapshots, user.copilotPlan)
         }
 
         // All unlimited — store nil so UI shows "unlimited"
@@ -90,7 +90,7 @@ actor CopilotAPIClient {
             unit: .requests, resetAt: resetAt, updatedAt: Date(),
             raw: snapshots as (any Sendable)
         )
-        return (quota, snapshots)
+        return (quota, snapshots, user.copilotPlan)
     }
 }
 

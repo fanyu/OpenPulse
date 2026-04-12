@@ -2,7 +2,7 @@ import Foundation
 
 /// Parses Claude Code CLI data from ~/.claude/
 /// Token usage: projects/**/*.jsonl (per-message) + stats-cache.json (aggregated)
-/// Quota: OpenPulse Claude Code bridge cache populated from Claude Code status JSON.
+/// Quota: prefer OpenPulse Claude Code bridge cache, fallback to Anthropic OAuth usage API.
 actor ClaudeCodeParser {
     private let claudeDir: URL
     private let statusCacheURL: URL
@@ -97,7 +97,7 @@ actor ClaudeCodeParser {
         return sessions.sorted { $0.startedAt < $1.startedAt }
     }
 
-    // MARK: - Subscription quota from Claude Code bridge
+    // MARK: - Subscription quota
 
     func readSubscriptionQuotaFromBridge(maxAge: TimeInterval = 15 * 60) async throws -> ToolQuota {
         guard FileManager.default.fileExists(atPath: statusCacheURL.path) else {
@@ -130,6 +130,119 @@ actor ClaudeCodeParser {
             updatedAt: Date(),
             raw: usage
         )
+    }
+
+    func fetchSubscriptionQuota() async throws -> ToolQuota {
+        guard let token = try await resolveOAuthToken() else {
+            throw ClaudeError.noCredentials
+        }
+
+        var request = URLRequest(url: URL(string: "https://api.anthropic.com/api/oauth/usage")!)
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
+        request.setValue("claude-code/2.0.76", forHTTPHeaderField: "User-Agent")
+        request.timeoutInterval = 10
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            let body = String(data: data, encoding: .utf8) ?? ""
+            throw ClaudeError.apiFailed("HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0): \(body.prefix(200))")
+        }
+
+        let usage = try JSONDecoder().decode(ClaudeUsageResponse.self, from: data)
+        let remaining = usage.fiveHour?.utilization.map { Int((1.0 - $0 / 100.0) * 100) }
+
+        return ToolQuota(
+            id: Tool.claudeCode.rawValue,
+            tool: .claudeCode,
+            accountKey: nil,
+            accountLabel: nil,
+            remaining: remaining,
+            total: 100,
+            unit: .messages,
+            resetAt: usage.fiveHour?.resetDate,
+            updatedAt: Date(),
+            raw: usage
+        )
+    }
+
+    func readAccountInfo() async -> ClaudeAccountInfo? {
+        guard let source = try? resolveCredentialsSource() else { return nil }
+        let decoder = JSONDecoder()
+        let credentials = try? decoder.decode(ClaudeCredentials.self, from: source.data)
+        let jsonObject = try? JSONSerialization.jsonObject(with: source.data)
+
+        let accountLabel = extractPreferredAccountLabel(from: jsonObject) ?? source.accountLabel
+        let subscriptionTier =
+            credentials?.claudeAiOauth?.subscriptionType ??
+            credentials?.claudeAiOauth?.rateLimitTier
+
+        guard accountLabel != nil || subscriptionTier != nil else { return nil }
+        return ClaudeAccountInfo(
+            accountLabel: accountLabel,
+            subscriptionTier: subscriptionTier
+        )
+    }
+
+    // MARK: - OAuth token resolution
+
+    private func resolveOAuthToken() async throws -> String? {
+        guard let source = try? resolveCredentialsSource(),
+              let creds = try? JSONDecoder().decode(ClaudeCredentials.self, from: source.data),
+              let oauth = creds.claudeAiOauth,
+              let token = oauth.accessToken else { return nil }
+
+        if let exp = oauth.expiresAt {
+            let expiresDate = Date(timeIntervalSince1970: Double(exp) / 1000)
+            return expiresDate > Date().addingTimeInterval(300) ? token : nil
+        }
+        return token
+    }
+
+    private func resolveCredentialsSource() throws -> ClaudeCredentialSource? {
+        let credFile = claudeDir.appending(path: ".credentials.json")
+        if FileManager.default.fileExists(atPath: credFile.path),
+           let data = try? Data(contentsOf: credFile) {
+            return ClaudeCredentialSource(data: data, accountLabel: nil)
+        }
+
+        guard let record = try KeychainService.retrieveGenericPasswordRecord(service: "Claude Code-credentials"),
+              let data = record.value.data(using: .utf8) else {
+            return nil
+        }
+
+        return ClaudeCredentialSource(data: data, accountLabel: record.account)
+    }
+
+    private func extractPreferredAccountLabel(from object: Any?) -> String? {
+        guard let object else { return nil }
+        if let email = firstMatchingString(in: object, preferredKeys: ["email", "account_email"]) {
+            return email
+        }
+        return firstMatchingString(in: object, preferredKeys: ["username", "login", "name"])
+    }
+
+    private func firstMatchingString(in object: Any, preferredKeys: [String]) -> String? {
+        if let dictionary = object as? [String: Any] {
+            for key in preferredKeys {
+                if let value = dictionary.first(where: { $0.key.caseInsensitiveCompare(key) == .orderedSame })?.value as? String {
+                    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty { return trimmed }
+                }
+            }
+            for value in dictionary.values {
+                if let match = firstMatchingString(in: value, preferredKeys: preferredKeys) {
+                    return match
+                }
+            }
+        } else if let array = object as? [Any] {
+            for value in array {
+                if let match = firstMatchingString(in: value, preferredKeys: preferredKeys) {
+                    return match
+                }
+            }
+        }
+        return nil
     }
 
     // MARK: - Private JSONL parsing
@@ -225,11 +338,17 @@ actor ClaudeCodeParser {
 // MARK: - Errors
 
 enum ClaudeError: Error, LocalizedError {
+    case noCredentials
+    case apiFailed(String)
     case bridgeDataUnavailable
     case bridgeDataStale
 
     var errorDescription: String? {
         switch self {
+        case .noCredentials:
+            "No Claude OAuth credentials found. Log in via Claude Code CLI."
+        case .apiFailed(let msg):
+            "Claude API error: \(msg)"
         case .bridgeDataUnavailable:
             "Claude Code bridge has not received rate limit data yet."
         case .bridgeDataStale:
@@ -239,6 +358,36 @@ enum ClaudeError: Error, LocalizedError {
 }
 
 // MARK: - JSON Models
+
+private struct ClaudeCredentials: Decodable {
+    let claudeAiOauth: OAuthCreds?
+
+    struct OAuthCreds: Decodable {
+        let accessToken: String?
+        let refreshToken: String?
+        let expiresAt: Int64?
+        let subscriptionType: String?
+        let rateLimitTier: String?
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case claudeAiOauth = "claudeAiOauth"
+    }
+}
+
+struct ClaudeAccountInfo: Sendable {
+    let accountLabel: String?
+    let subscriptionTier: String?
+
+    var displaySubscriptionName: String? {
+        normalizedSubscriptionDisplayName(subscriptionTier)
+    }
+}
+
+private struct ClaudeCredentialSource {
+    let data: Data
+    let accountLabel: String?
+}
 
 struct ClaudeUsageResponse: Codable, Sendable {
     let fiveHour: UsageWindow?

@@ -54,10 +54,11 @@ struct CodexAccountSnapshot: Identifiable, Sendable {
         if let normalizedTeamName, !normalizedTeamName.isEmpty {
             return normalizedTeamName
         }
-        if let planType, !planType.isEmpty {
-            return planType
-        }
         return nil
+    }
+
+    var displaySubscriptionName: String? {
+        normalizedSubscriptionDisplayName(planType ?? limits?.planType)
     }
 
     var displayName: String {

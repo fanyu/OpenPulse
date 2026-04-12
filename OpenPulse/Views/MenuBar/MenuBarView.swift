@@ -77,6 +77,7 @@ struct MenuBarView: View {
             ClaudeQuotaCard(
                 usage: appStore.syncService?.latestClaudeUsage,
                 quota: quotas.first(where: { $0.tool == .claudeCode }),
+                accountInfo: appStore.syncService?.latestClaudeAccountInfo,
                 todayTokens: todaySessionTokens(for: .claudeCode),
                 weeklyTokens: []
             )
@@ -97,6 +98,7 @@ struct MenuBarView: View {
             CopilotQuotaCard(
                 snapshots: appStore.syncService?.latestCopilotSnapshots,
                 resetAt: appStore.syncService?.latestCopilotResetAt,
+                plan: appStore.syncService?.latestCopilotPlan,
                 fallbackQuota: quotas.first(where: { $0.tool == .copilot }),
                 todayTokens: todaySessionTokens(for: .copilot)
             )
@@ -235,13 +237,25 @@ struct MenuBarView: View {
 struct ClaudeQuotaCard: View {
     let usage: ClaudeUsageResponse?
     let quota: QuotaRecord?
+    let accountInfo: ClaudeAccountInfo?
     let todayTokens: Int
     let weeklyTokens: [Int]
 
     var body: some View {
         VStack(spacing: 10) {
-            HStack {
-                ToolIconLabel(tool: .claudeCode)
+            HStack(alignment: .center) {
+                ToolLogoImage(tool: .claudeCode, size: 18)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 8) {
+                        Text(Tool.claudeCode.displayName)
+                            .font(.system(size: 13, weight: .bold, design: .rounded))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        if let subscriptionName = accountInfo?.displaySubscriptionName {
+                            SubscriptionTag(text: subscriptionName)
+                        }
+                    }
+                }
                 Spacer()
                 if todayTokens > 0 { TodayTokenBadge(tokens: todayTokens) }
             }
@@ -254,7 +268,10 @@ struct ClaudeQuotaCard: View {
                 let frac = Double(r) / Double(t)
                 let pct = Int((frac * 100).rounded())
                 UnifiedQuotaRow(style: .compact, showUsedAtTop: true, title: "5h Session", fraction: frac, primaryValue: "\(pct)%", secondaryValue: "\(max(0, 100 - pct))% used", countdown: q.toModel().resetCountdown)
-
+            } else {
+                Text("Quota data unavailable")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .padding(12)
@@ -333,8 +350,11 @@ struct CodexQuotaCard: View {
     let todayTokens: Int
     var body: some View {
         VStack(spacing: 10) {
-            HStack {
+            HStack(alignment: .center) {
                 ToolIconLabel(tool: .codex)
+                if let subscriptionName = normalizedSubscriptionDisplayName(limits?.planType) {
+                    SubscriptionTag(text: subscriptionName)
+                }
                 Spacer()
                 if todayTokens > 0 { TodayTokenBadge(tokens: todayTokens) }
             }
@@ -366,9 +386,14 @@ struct CodexAccountQuotaCard: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            HStack(alignment: .top, spacing: 8) {
+            HStack(alignment: .center, spacing: 8) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(account.titleText).font(.system(size: 11, weight: .semibold))
+                    HStack(spacing: 8) {
+                        Text(account.titleText).font(.system(size: 11, weight: .semibold))
+                        if let displaySubscriptionName = account.displaySubscriptionName {
+                            SubscriptionTag(text: displaySubscriptionName)
+                        }
+                    }
                     if let subtitleText = account.subtitleText {
                         Text(subtitleText).font(.system(size: 9)).foregroundStyle(.tertiary)
                     } else if let metaText = account.metaText {
@@ -416,7 +441,7 @@ struct CodexMultiAccountQuotaCard: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            HStack(alignment: .top) {
+            HStack(alignment: .center) {
                 ToolIconLabel(tool: .codex)
                 Spacer()
                 if codexSmartSwitchEnabled {
@@ -547,6 +572,7 @@ struct ToolIconLabel: View {
 struct CopilotQuotaCard: View {
     let snapshots: [String: CopilotSnapshot]?
     let resetAt: Date?
+    let plan: String?
     let fallbackQuota: QuotaRecord?
     let todayTokens: Int
     private var ordered: [(key: String, value: CopilotSnapshot)] {
@@ -564,7 +590,12 @@ struct CopilotQuotaCard: View {
     var body: some View {
         VStack(spacing: 10) {
             HStack {
-                ToolIconLabel(tool: .copilot)
+                HStack(spacing: 8) {
+                    ToolIconLabel(tool: .copilot)
+                    if let displayPlan = normalizedCopilotPlanDisplayName(plan) {
+                        SubscriptionTag(text: displayPlan)
+                    }
+                }
                 Spacer()
                 if todayTokens > 0 { TodayTokenBadge(tokens: todayTokens) }
             }

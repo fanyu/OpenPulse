@@ -29,6 +29,19 @@ final class DataSyncService {
     private static let localFileMinimumInterval: TimeInterval = 10
     private static let localFileFailureBackoff: TimeInterval = 30
     private static let localFilePathSilenceDuration: TimeInterval = 300
+    private static let claudeLocalRoots = [
+        URL.homeDirectory.appending(path: ".claude/projects").path,
+        URL.homeDirectory.appending(path: ".config/claude/projects").path,
+    ]
+    private static let codexLocalRoots = [
+        URL.homeDirectory.appending(path: ".codex/sessions").path,
+    ]
+    private static let antigravityLocalRoots = [
+        URL.homeDirectory.appending(path: ".gemini/antigravity/brain").path,
+    ]
+    private static let openCodeLocalRoots = [
+        URL.homeDirectory.appending(path: ".local/share/opencode").path,
+    ]
 
     private(set) var isSyncing = false
     private(set) var lastSyncDate: Date?
@@ -47,6 +60,8 @@ final class DataSyncService {
 
     /// 最新的 Claude 订阅配额响应（来自 Claude Code bridge status JSON）；无订阅时为 nil
     private(set) var latestClaudeUsage: ClaudeUsageResponse?
+    private(set) var latestClaudeAccountInfo: ClaudeAccountInfo?
+    private var lastClaudeAPIFetchAt: Date?
 
     /// 最新的 Antigravity 账号配额列表（每个账号含所有模型，推荐模型优先）
     private(set) var latestAntigravityAccounts: [AGAccountQuota]?
@@ -56,6 +71,7 @@ final class DataSyncService {
 
     /// Copilot 账号配额重置日期（来自 quota_reset_date_utc）
     private(set) var latestCopilotResetAt: Date?
+    private(set) var latestCopilotPlan: String?
 
     private let claudeParser = ClaudeCodeParser()
     private let codexParser = CodexParser()
@@ -75,7 +91,8 @@ final class DataSyncService {
     /// every FSEvents trigger when some sessions permanently lack JSONL model data.
     private var codexBackfillDone: Bool = false
 
-    private let modelContext: ModelContext
+    private let modelContainer: ModelContainer
+    private var modelContext: ModelContext
 
     /// UserDefaults key for per-tool sync interval
     static func intervalKey(for tool: Tool) -> String { "syncInterval.\(tool.rawValue)" }
@@ -91,8 +108,9 @@ final class DataSyncService {
         }
     }
 
-    init(modelContext: ModelContext, codexAccountService: CodexAccountService) {
-        self.modelContext = modelContext
+    init(modelContainer: ModelContainer, codexAccountService: CodexAccountService) {
+        self.modelContainer = modelContainer
+        self.modelContext = DataSyncService.makeWriteContext(container: modelContainer)
         self.codexAccountService = codexAccountService
     }
 
@@ -116,6 +134,7 @@ final class DataSyncService {
             modelContext.delete(record)
         }
         try? modelContext.save()
+        rebuildWriteContext()
     }
 
     func stop() {
@@ -305,6 +324,9 @@ final class DataSyncService {
     private func syncClaudeCode() async throws {
         let since = lastSyncDate.map { Calendar.current.date(byAdding: .hour, value: -1, to: $0)! }
         try await parseClaudeFiles(since: since)
+        if latestClaudeAccountInfo == nil {
+            latestClaudeAccountInfo = await claudeParser.readAccountInfo()
+        }
         await syncClaudeQuota()
     }
 
@@ -332,8 +354,39 @@ final class DataSyncService {
             upsertQuota(quota)
         } catch {
             AppLogger.shared.warning("Claude bridge quota unavailable: \(error.localizedDescription)")
+            await syncClaudeQuotaFromAPIIfNeeded()
         }
         finishCurrentPhase()
+    }
+
+    private func syncClaudeQuotaFromAPIIfNeeded() async {
+        let now = Date()
+        let minimumInterval = effectiveSyncInterval(for: .claudeCode)
+        if let lastClaudeAPIFetchAt,
+           now.timeIntervalSince(lastClaudeAPIFetchAt) < minimumInterval {
+            AppLogger.shared.recordDiagnostic(
+                level: .info,
+                scope: "claude.quota.api.skip",
+                message: "Claude API fallback throttled for \(Int((minimumInterval - now.timeIntervalSince(lastClaudeAPIFetchAt)).rounded()))s"
+            )
+            return
+        }
+
+        do {
+            let quota = try await claudeParser.fetchSubscriptionQuota()
+            lastClaudeAPIFetchAt = now
+            if let usage = quota.raw as? ClaudeUsageResponse {
+                latestClaudeUsage = usage
+                if let data = try? JSONEncoder().encode(usage) {
+                    UserDefaults.standard.set(data, forKey: "cached.claudeUsageData")
+                }
+            }
+            upsertQuota(quota)
+            AppLogger.shared.info("Claude quota refreshed via API fallback")
+        } catch {
+            lastClaudeAPIFetchAt = now
+            AppLogger.shared.warning("Claude API quota fallback failed: \(error.localizedDescription)")
+        }
     }
 
     /// Build a ToolQuota from a ClaudeUsageResponse.
@@ -527,12 +580,24 @@ final class DataSyncService {
         )
         defer { endSyncRun(runID) }
         let since = lastSyncDate.map { Calendar.current.date(byAdding: .hour, value: -1, to: $0)! }
+        let shouldSyncClaude = activeTriggeredPaths.isEmpty || shouldSyncLocalTool(paths: activeTriggeredPaths, roots: Self.claudeLocalRoots)
+        let shouldSyncCodex = activeTriggeredPaths.isEmpty || shouldSyncLocalTool(paths: activeTriggeredPaths, roots: Self.codexLocalRoots)
+        let shouldSyncAntigravity = activeTriggeredPaths.isEmpty || shouldSyncLocalTool(paths: activeTriggeredPaths, roots: Self.antigravityLocalRoots)
+        let shouldSyncOpenCode = activeTriggeredPaths.isEmpty || shouldSyncLocalTool(paths: activeTriggeredPaths, roots: Self.openCodeLocalRoots)
         do {
-            try await parseClaudeFiles(since: since)
-            try await parseCodexFiles(since: since)
+            if shouldSyncClaude {
+                try await parseClaudeFiles(since: since)
+            }
+            if shouldSyncCodex {
+                try await parseCodexFiles(since: since)
+            }
             try await syncCodexLocalQuotaIfNeeded(triggeredPaths: activeTriggeredPaths)
-            try await parseAntigravityFiles(since: since)
-            try await syncOpenCode()
+            if shouldSyncAntigravity {
+                try await parseAntigravityFiles(since: since)
+            }
+            if shouldSyncOpenCode {
+                try await syncOpenCode()
+            }
             try persistModelContext(scope: "local-files", tool: nil)
             syncError = nil
             lastSyncDate = Date()
@@ -586,9 +651,10 @@ final class DataSyncService {
     private func syncCopilot() async {
         do {
             startPhase("copilot.quota")
-            let (quota, snapshots) = try await copilotClient.fetchQuota()
+            let (quota, snapshots, plan) = try await copilotClient.fetchQuota()
             latestCopilotSnapshots = snapshots
             latestCopilotResetAt = quota.resetAt
+            latestCopilotPlan = plan
             upsertQuota(quota)
             finishCurrentPhase()
         } catch {
@@ -783,6 +849,7 @@ final class DataSyncService {
         startPhase("model-save")
         do {
             try modelContext.save()
+            rebuildWriteContext()
             finishCurrentPhase()
         } catch {
             let wrapped = SyncSourceError(source: "model-save", path: nil, underlying: error)
@@ -798,6 +865,16 @@ final class DataSyncService {
             }
             throw wrapped
         }
+    }
+
+    private static func makeWriteContext(container: ModelContainer) -> ModelContext {
+        let context = ModelContext(container)
+        context.autosaveEnabled = false
+        return context
+    }
+
+    private func rebuildWriteContext() {
+        modelContext = Self.makeWriteContext(container: modelContainer)
     }
 
     private func isTransientFileAccessError(_ error: Error) -> Bool {
@@ -816,6 +893,14 @@ final class DataSyncService {
             return true
         }
         return false
+    }
+
+    private func shouldSyncLocalTool(paths: [String], roots: [String]) -> Bool {
+        paths.contains { path in
+            roots.contains { root in
+                path.hasPrefix(root)
+            }
+        }
     }
 
     private func syncErrorSource(_ error: Error) -> String {
@@ -936,14 +1021,16 @@ final class DataSyncService {
     // MARK: - Timer
 
     private func scheduleTimer(for tool: Tool, override: Double? = nil) {
-        // Global interval takes precedence when set (> 0)
-        let global = UserDefaults.standard.double(forKey: "menubar.syncIntervalGlobal")
-        let stored = UserDefaults.standard.double(forKey: Self.intervalKey(for: tool))
-        let interval = override ?? (global > 0 ? global : (stored > 0 ? stored : Self.defaultInterval(for: tool)))
-        let clamped = max(30, interval)
+        let clamped = max(30, override ?? effectiveSyncInterval(for: tool))
         timers[tool] = Timer.scheduledTimer(withTimeInterval: clamped, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in await self?.sync(tool: tool) }
         }
+    }
+
+    private func effectiveSyncInterval(for tool: Tool) -> Double {
+        let global = UserDefaults.standard.double(forKey: "menubar.syncIntervalGlobal")
+        let stored = UserDefaults.standard.double(forKey: Self.intervalKey(for: tool))
+        return global > 0 ? global : (stored > 0 ? stored : Self.defaultInterval(for: tool))
     }
 
     // Legacy: reschedule all tools at once (used nowhere but kept for safety)

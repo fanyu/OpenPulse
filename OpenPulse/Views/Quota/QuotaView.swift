@@ -16,6 +16,7 @@ struct QuotaView: View {
     @State private var cachedWeekTokens: Int = 0
     @State private var cachedTotalTokens: Int = 0
     @State private var cachedTodayByTool: [Tool: Int] = [:]
+    @State private var refreshingTools: Set<Tool> = []
 
     private func rebuildTokenCache() {
         let today = Calendar.current.startOfDay(for: Date())
@@ -46,6 +47,19 @@ struct QuotaView: View {
     }
 
     private var isSyncing: Bool { appStore.syncService?.isSyncingActive ?? false }
+
+    private func isRefreshing(_ tool: Tool) -> Bool {
+        refreshingTools.contains(tool)
+    }
+
+    private func refresh(tool: Tool) {
+        guard !refreshingTools.contains(tool), appStore.syncService != nil else { return }
+        refreshingTools.insert(tool)
+        Task {
+            await appStore.syncService?.sync(tool: tool)
+            refreshingTools.remove(tool)
+        }
+    }
 
     // MARK: - Aggregated stats (served from cache)
 
@@ -167,7 +181,12 @@ struct QuotaView: View {
         switch item {
         case .tool(let tool): toolCard(for: tool)
         case .antigravityAccount(let account):
-            AntigravityDetailCard(account: account, todayTokens: toolTodayTokens(for: .antigravity))
+            AntigravityDetailCard(
+                account: account,
+                todayTokens: toolTodayTokens(for: .antigravity),
+                isRefreshing: isRefreshing(.antigravity),
+                onRefresh: { refresh(tool: .antigravity) }
+            )
         }
     }
 
@@ -179,44 +198,62 @@ struct QuotaView: View {
                 ClaudeDetailCard(
                     usage: appStore.syncService?.latestClaudeUsage,
                     quota: quotas.first(where: { $0.tool == .claudeCode }),
-                    todayTokens: toolTodayTokens(for: .claudeCode)
+                    accountInfo: appStore.syncService?.latestClaudeAccountInfo,
+                    todayTokens: toolTodayTokens(for: .claudeCode),
+                    isRefreshing: isRefreshing(.claudeCode),
+                    onRefresh: { refresh(tool: .claudeCode) }
                 )
             case .codex:
                 if let accounts = appStore.syncService?.latestCodexAccounts, !accounts.isEmpty {
                     CodexAccountsDetailCard(
                         accounts: accounts,
-                        todayTokens: toolTodayTokens(for: .codex)
+                        todayTokens: toolTodayTokens(for: .codex),
+                        isRefreshing: isRefreshing(.codex),
+                        onRefresh: { refresh(tool: .codex) }
                     )
                 } else {
                     CodexDetailCard(
                         limits: nil,
                         fallbackQuota: quotas.first(where: { $0.tool == .codex && $0.accountKey == nil }),
-                        todayTokens: toolTodayTokens(for: .codex)
+                        todayTokens: toolTodayTokens(for: .codex),
+                        isRefreshing: isRefreshing(.codex),
+                        onRefresh: { refresh(tool: .codex) }
                     )
                 }
             case .copilot:
                 CopilotDetailCard(
                     snapshots: appStore.syncService?.latestCopilotSnapshots,
                     resetAt: appStore.syncService?.latestCopilotResetAt,
+                    plan: appStore.syncService?.latestCopilotPlan,
                     fallbackQuota: quotas.first(where: { $0.tool == .copilot }),
-                    todayTokens: toolTodayTokens(for: .copilot)
+                    todayTokens: toolTodayTokens(for: .copilot),
+                    isRefreshing: isRefreshing(.copilot),
+                    onRefresh: { refresh(tool: .copilot) }
                 )
             case .antigravity:
                 if let accounts = appStore.syncService?.latestAntigravityAccounts {
                     ForEach(accounts) { account in
                         AntigravityDetailCard(
                             account: account,
-                            todayTokens: toolTodayTokens(for: .antigravity)
+                            todayTokens: toolTodayTokens(for: .antigravity),
+                            isRefreshing: isRefreshing(.antigravity),
+                            onRefresh: { refresh(tool: .antigravity) }
                         )
                     }
                 } else if let fallback = quotas.first(where: { $0.tool == .antigravity }) {
                     AntigravityDetailFallbackCard(
                         quota: fallback,
-                        todayTokens: toolTodayTokens(for: .antigravity)
+                        todayTokens: toolTodayTokens(for: .antigravity),
+                        isRefreshing: isRefreshing(.antigravity),
+                        onRefresh: { refresh(tool: .antigravity) }
                     )
                 }
             case .opencode:
-                OpenCodeDetailCard(todayTokens: toolTodayTokens(for: .opencode))
+                OpenCodeDetailCard(
+                    todayTokens: toolTodayTokens(for: .opencode),
+                    isRefreshing: isRefreshing(.opencode),
+                    onRefresh: { refresh(tool: .opencode) }
+                )
             }
     }
 }
@@ -263,20 +300,41 @@ struct QuotaDashboardHeader: View {
 struct ClaudeDetailCard: View {
     let usage: ClaudeUsageResponse?
     let quota: QuotaRecord?
+    let accountInfo: ClaudeAccountInfo?
     let todayTokens: Int
+    let isRefreshing: Bool
+    let onRefresh: () -> Void
 
     var body: some View {
-        DetailCardContainer(tool: .claudeCode, todayTokens: todayTokens) {
+        DetailCardContainer(
+            tool: .claudeCode,
+            todayTokens: todayTokens,
+            title: Tool.claudeCode.displayName,
+            subtitle: nil,
+            tagText: accountInfo?.displaySubscriptionName,
+            isRefreshing: isRefreshing,
+            onRefresh: onRefresh
+        ) {
             if let usage {
                 VStack(spacing: 12) {
                     ClaudeDetailRow(label: "5h Session", window: usage.fiveHour)
                     Divider().opacity(0.5)
                     ClaudeDetailRow(label: "7d Weekly", window: usage.sevenDay)
                 }
+            } else if let q = quota, let r = q.remaining, let t = q.total, t > 0 {
+                let frac = Double(r) / Double(t)
+                let pct = Int((frac * 100).rounded())
+                UnifiedQuotaRow(
+                    title: "5h Session",
+                    fraction: frac,
+                    primaryValue: "\(pct)%",
+                    secondaryValue: "\(max(0, 100 - pct))% used",
+                    countdown: q.toModel().resetCountdown
+                )
             } else {
                 HStack(spacing: 8) {
-                    Image(systemName: "key.horizontal").foregroundStyle(.secondary)
-                    Text("API Key 模式 · 无配额限制").font(.callout).foregroundStyle(.secondary)
+                    Image(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90").foregroundStyle(.secondary)
+                    Text("Quota data unavailable").font(.callout).foregroundStyle(.secondary)
                 }
             }
         }
@@ -313,9 +371,17 @@ struct CodexDetailCard: View {
     let limits: CodexRateLimits?
     let fallbackQuota: QuotaRecord?
     let todayTokens: Int
+    let isRefreshing: Bool
+    let onRefresh: () -> Void
 
     var body: some View {
-        DetailCardContainer(tool: .codex, todayTokens: todayTokens) {
+        DetailCardContainer(
+            tool: .codex,
+            todayTokens: todayTokens,
+            tagText: normalizedSubscriptionDisplayName(limits?.planType),
+            isRefreshing: isRefreshing,
+            onRefresh: onRefresh
+        ) {
             if let limits {
                 VStack(spacing: 12) {
                     CodexDetailRow(label: "5h Session", window: limits.fiveHourWindow)
@@ -342,9 +408,11 @@ struct CodexDetailCard: View {
 struct CodexAccountsDetailCard: View {
     let accounts: [CodexAccountSnapshot]
     let todayTokens: Int
+    let isRefreshing: Bool
+    let onRefresh: () -> Void
 
     var body: some View {
-        DetailCardContainer(tool: .codex, todayTokens: todayTokens) {
+        DetailCardContainer(tool: .codex, todayTokens: todayTokens, isRefreshing: isRefreshing, onRefresh: onRefresh) {
             VStack(alignment: .leading, spacing: 14) {
                 ForEach(accounts) { account in
                     CodexAccountDetailRow(account: account)
@@ -364,7 +432,12 @@ struct CodexAccountDetailRow: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(account.titleText).font(.headline)
+                    HStack(spacing: 8) {
+                        Text(account.titleText).font(.headline)
+                        if let displaySubscriptionName = account.displaySubscriptionName {
+                            SubscriptionTag(text: displaySubscriptionName)
+                        }
+                    }
                     if let subtitleText = account.subtitleText {
                         Text(subtitleText).font(.caption).foregroundStyle(.secondary)
                     }
@@ -433,8 +506,11 @@ struct CodexDetailRow: View {
 struct CopilotDetailCard: View {
     let snapshots: [String: CopilotSnapshot]?
     let resetAt: Date?
+    let plan: String?
     let fallbackQuota: QuotaRecord?
     let todayTokens: Int
+    let isRefreshing: Bool
+    let onRefresh: () -> Void
 
     private var ordered: [(key: String, value: CopilotSnapshot)] {
         guard let s = snapshots else { return [] }
@@ -446,7 +522,13 @@ struct CopilotDetailCard: View {
     }
 
     var body: some View {
-        DetailCardContainer(tool: .copilot, todayTokens: todayTokens) {
+        DetailCardContainer(
+            tool: .copilot,
+            todayTokens: todayTokens,
+            tagText: normalizedCopilotPlanDisplayName(plan),
+            isRefreshing: isRefreshing,
+            onRefresh: onRefresh
+        ) {
             if !ordered.isEmpty {
                 VStack(spacing: 12) {
                     let orderedArray = ordered
@@ -503,9 +585,11 @@ struct CopilotDetailRow: View {
 struct AntigravityDetailCard: View {
     let account: AGAccountQuota
     let todayTokens: Int
+    let isRefreshing: Bool
+    let onRefresh: () -> Void
 
     var body: some View {
-        DetailCardContainer(tool: .antigravity, todayTokens: todayTokens) {
+        DetailCardContainer(tool: .antigravity, todayTokens: todayTokens, isRefreshing: isRefreshing, onRefresh: onRefresh) {
             VStack(alignment: .leading, spacing: 12) {
                 Text(account.email).font(.caption).foregroundStyle(.secondary)
                 
@@ -547,8 +631,10 @@ struct AntigravityModelGridCell: View {
 struct AntigravityDetailFallbackCard: View {
     let quota: QuotaRecord
     let todayTokens: Int
+    let isRefreshing: Bool
+    let onRefresh: () -> Void
     var body: some View {
-        DetailCardContainer(tool: .antigravity, todayTokens: todayTokens) {
+        DetailCardContainer(tool: .antigravity, todayTokens: todayTokens, isRefreshing: isRefreshing, onRefresh: onRefresh) {
             Text("尚未获取数据").foregroundStyle(.secondary)
         }
     }
@@ -556,8 +642,10 @@ struct AntigravityDetailFallbackCard: View {
 
 struct OpenCodeDetailCard: View {
     let todayTokens: Int
+    let isRefreshing: Bool
+    let onRefresh: () -> Void
     var body: some View {
-        DetailCardContainer(tool: .opencode, todayTokens: todayTokens) {
+        DetailCardContainer(tool: .opencode, todayTokens: todayTokens, isRefreshing: isRefreshing, onRefresh: onRefresh) {
             if todayTokens == 0 {
                 Text("暂无数据").foregroundStyle(.secondary)
             }

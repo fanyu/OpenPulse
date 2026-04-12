@@ -621,13 +621,33 @@ struct UnifiedSessionRow: View {
 struct DetailCardContainer<Content: View>: View {
     let tool: Tool
     let todayTokens: Int
+    var title: String? = nil
+    var subtitle: String? = nil
+    var tagText: String? = nil
+    var isRefreshing: Bool = false
+    var onRefresh: (() -> Void)? = nil
     @ViewBuilder let content: () -> Content
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack {
+            HStack(alignment: .center) {
                 ToolLogoImage(tool: tool, size: 24)
-                Text(tool.displayName).font(.headline)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 8) {
+                        Text(title ?? tool.displayName)
+                            .font(.headline)
+                        if let tagText {
+                            SubscriptionTag(text: tagText)
+                        }
+                    }
+                    if let subtitle {
+                        Text(subtitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                }
                 Spacer()
                 if todayTokens > 0 {
                     HStack(spacing: 3) {
@@ -639,6 +659,24 @@ struct DetailCardContainer<Content: View>: View {
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
                     .background(Color.primary.opacity(0.05), in: Capsule())
+                }
+                if let onRefresh {
+                    Button(action: onRefresh) {
+                        Group {
+                            if isRefreshing {
+                                ProgressView()
+                                    .controlSize(.small)
+                            } else {
+                                Image(systemName: "arrow.clockwise")
+                                    .font(.system(size: 12, weight: .semibold))
+                            }
+                        }
+                        .frame(width: 28, height: 28)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isRefreshing)
+                    .help(isRefreshing ? "Refreshing..." : "Refresh")
+                    .background(Color.primary.opacity(0.05), in: Circle())
                 }
             }
             
@@ -668,6 +706,19 @@ struct TodayTokenBadge: View {
         .padding(.horizontal, 5)
         .padding(.vertical, 2)
         .background(Color.primary.opacity(0.06), in: Capsule())
+    }
+}
+
+struct SubscriptionTag: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 9, weight: .semibold))
+            .foregroundStyle(Color.accentColor)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(Color.accentColor.opacity(0.12), in: Capsule())
     }
 }
 
@@ -743,5 +794,51 @@ extension Int {
         if self >= 1_000_000 { return String(format: "%.1fM", Double(self) / 1_000_000) }
         if self >= 1_000 { return String(format: "%.1fK", Double(self) / 1_000) }
         return "\(self)"
+    }
+}
+
+func normalizedSubscriptionDisplayName(_ rawValue: String?) -> String? {
+    guard let rawValue else { return nil }
+    let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return nil }
+
+    let normalized = trimmed
+        .replacingOccurrences(of: "-", with: "_")
+        .lowercased()
+
+    switch normalized {
+    case "pro", "chatgpt_pro", "claude_pro":
+        return "Pro"
+    case "plus", "chatgpt_plus":
+        return "Plus"
+    case "max", "chatgpt_max", "claude_max":
+        return "Max"
+    case "team", "business", "chatgpt_team", "claude_team":
+        return "Team"
+    case "free":
+        return "Free"
+    case "enterprise", "enterprise_plus":
+        return "Enterprise"
+    default:
+        return nil
+    }
+}
+
+func normalizedCopilotPlanDisplayName(_ rawValue: String?) -> String? {
+    guard let rawValue else { return nil }
+    let normalized = rawValue
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .replacingOccurrences(of: "-", with: "_")
+        .lowercased()
+
+    switch normalized {
+    case "individual":
+        return "Individual"
+    case "business":
+        return "Business"
+    case "enterprise":
+        return "Enterprise"
+    default:
+        return nil
     }
 }

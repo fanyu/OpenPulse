@@ -3,6 +3,11 @@ import Security
 
 /// Thread-safe Keychain wrapper for storing API tokens.
 enum KeychainService {
+    struct GenericPasswordRecord: Sendable {
+        let account: String?
+        let value: String
+    }
+
     private static let service = "com.fanyu.openpulse"
 
     static func store(key: String, value: String) throws {
@@ -70,20 +75,30 @@ enum KeychainService {
     /// Retrieve a generic password from any service (used to read tokens stored by other apps).
     /// Optionally filter by account; pass nil to return the first match for the service.
     static func retrieveGenericPassword(service: String, account: String? = nil) throws -> String? {
+        try retrieveGenericPasswordRecord(service: service, account: account)?.value
+    }
+
+    static func retrieveGenericPasswordRecord(service: String, account: String? = nil) throws -> GenericPasswordRecord? {
         var query: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
             kSecAttrService: service,
             kSecReturnData: true,
+            kSecReturnAttributes: true,
             kSecMatchLimit: kSecMatchLimitOne,
         ]
         if let account { query[kSecAttrAccount] = account }
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         if status == errSecItemNotFound { return nil }
-        guard status == errSecSuccess, let data = result as? Data else {
+        guard status == errSecSuccess,
+              let item = result as? [CFString: Any],
+              let data = item[kSecValueData] as? Data else {
             throw KeychainError.retrieveFailed(status)
         }
-        return String(decoding: data, as: UTF8.self)
+        return GenericPasswordRecord(
+            account: item[kSecAttrAccount] as? String,
+            value: String(decoding: data, as: UTF8.self)
+        )
     }
 
     static func delete(key: String) {
