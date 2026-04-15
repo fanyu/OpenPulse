@@ -190,30 +190,42 @@ struct MenuBarView: View {
             }
             Spacer()
             HStack(spacing: 8) {
-                Button(action: { Task { await appStore.syncService?.sync() } }) {
+                Button(action: {
+                    performMenuBarAction {
+                        await appStore.syncService?.sync()
+                    }
+                }) {
                     Image(systemName: "arrow.clockwise")
                 }
                 .keyboardShortcut("r", modifiers: .command)
                 .help("刷新同步 (⌘R)")
                 .disabled(isSyncing)
                 Button(action: {
-                    NSApp.activate(ignoringOtherApps: true)
-                    openWindow(id: "main")
+                    performMenuBarAction {
+                        NSApp.activate(ignoringOtherApps: true)
+                        openWindow(id: "main")
+                    }
                 }) {
                     Image(systemName: "macwindow")
                 }
                 .keyboardShortcut("m", modifiers: .command)
                 .help("打开主窗口 (⌘M)")
                 Button(action: {
-                    appStore.selectedTab = .settings
-                    NSApp.activate(ignoringOtherApps: true)
-                    openWindow(id: "main")
+                    performMenuBarAction {
+                        appStore.selectedTab = .settings
+                        NSApp.activate(ignoringOtherApps: true)
+                        openWindow(id: "main")
+                    }
                 }) {
                     Image(systemName: "gearshape")
                 }
                 .keyboardShortcut(",", modifiers: .command)
                 .help("设置 (⌘,)")
-                Button(action: { NSApp.terminate(nil) }) {
+                Button(action: {
+                    performMenuBarAction {
+                        NSApp.terminate(nil)
+                    }
+                }) {
                     Image(systemName: "power")
                 }
                 .keyboardShortcut("q", modifiers: .command)
@@ -229,6 +241,13 @@ struct MenuBarView: View {
 
     private func syncErrorHelpText(fallback: String) -> String {
         logger.latestPersistentSyncError?.summary ?? fallback
+    }
+
+    private func performMenuBarAction(_ action: @escaping @MainActor () async -> Void) {
+        Task { @MainActor in
+            GlobalHotkeyService.shared.closeMenuBar()
+            await action()
+        }
     }
 }
 

@@ -19,12 +19,35 @@ final class DotTextAPIService {
     private struct APIResponse: Decodable {
         let code: Int
         let message: String
+
+        private enum CodingKeys: String, CodingKey {
+            case code
+            case message
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            if let intCode = try? container.decode(Int.self, forKey: .code) {
+                code = intCode
+            } else if let stringCode = try? container.decode(String.self, forKey: .code),
+                      let intCode = Int(stringCode) {
+                code = intCode
+            } else {
+                code = 200
+            }
+            message = (try? container.decode(String.self, forKey: .message)) ?? ""
+        }
     }
 
     private let baseURL = URL(string: "https://dot.mindreset.tech")!
     private var lastSentFingerprint: String?
 
-    func pushQuotaSnapshot(codexAccounts: [CodexAccountSnapshot], claudeUsage: ClaudeUsageResponse?, fallbackQuotas: [QuotaRecord]) async {
+    func pushQuotaSnapshot(
+        codexAccounts: [CodexAccountSnapshot],
+        claudeUsage: ClaudeUsageResponse?,
+        fallbackQuotas: [QuotaRecord],
+        force: Bool = false
+    ) async {
         let defaults = UserDefaults.standard
         guard defaults.bool(forKey: DefaultsKey.isEnabled) else { return }
 
@@ -44,13 +67,13 @@ final class DotTextAPIService {
         let taskKey = defaults.string(forKey: DefaultsKey.taskKey)?.trimmingCharacters(in: .whitespacesAndNewlines)
         let snapshot = makeQuotaMessage(codexAccounts: codexAccounts, claudeUsage: claudeUsage, fallbackQuotas: fallbackQuotas)
         let fingerprint = [deviceID, taskKey ?? "", snapshot].joined(separator: "\u{1F}")
-        guard lastSentFingerprint != fingerprint else { return }
+        guard force || lastSentFingerprint != fingerprint else { return }
 
         let body = RequestBody(
             refreshNow: true,
-            title: "AI Quota",
+            title: makeTitle(updatedAt: Date()),
             message: snapshot,
-            signature: "Updated \(Date().formatted(.dateTime.hour().minute()))",
+            signature: "",
             taskKey: taskKey?.isEmpty == false ? taskKey : nil
         )
 
@@ -81,7 +104,8 @@ final class DotTextAPIService {
         let (data, response) = try await URLSession.shared.data(for: request)
         let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
         let apiResponse = try? JSONDecoder().decode(APIResponse.self, from: data)
-        guard statusCode == 200, apiResponse?.code == 200 else {
+        guard (200..<300).contains(statusCode),
+              apiResponse?.code ?? 200 == 200 else {
             throw DotTextAPIError.requestFailed(statusCode: statusCode, code: apiResponse?.code, message: apiResponse?.message)
         }
     }
@@ -92,47 +116,88 @@ final class DotTextAPIService {
         fallbackQuotas: [QuotaRecord]
     ) -> String {
         [
+            "Codex:",
             makeCodexLine(accounts: codexAccounts, fallbackQuotas: fallbackQuotas),
+            "Claude:",
             makeClaudeLine(usage: claudeUsage, fallbackQuotas: fallbackQuotas),
         ].joined(separator: "\n")
+    }
+
+    private func makeTitle(updatedAt: Date) -> String {
+        let time = updatedAt.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
+        return "AI Quota     \(time)"
     }
 
     private func makeCodexLine(accounts: [CodexAccountSnapshot], fallbackQuotas: [QuotaRecord]) -> String {
         if let account = accounts.first(where: \.isCurrent) ?? accounts.first {
             guard let limits = account.limits else { return "Codex --" }
-            return "Codex 5h \(formatCodexPercent(limits.fiveHourWindow)) 7d \(formatCodexPercent(limits.oneWeekWindow))"
+            return "5h \(formatCodexFiveHourWindow(limits.fiveHourWindow)) | 7d \(formatCodexSevenDayWindow(limits.oneWeekWindow))"
         }
 
         if let quota = fallbackQuotas.first(where: { $0.tool == .codex && $0.accountKey == nil }) {
-            return "Codex 5h \(formatQuotaPercent(remaining: quota.remaining, total: quota.total))"
+            return "5h \(formatFiveHourWindow(percent: formatQuotaPercent(remaining: quota.remaining, total: quota.total), resetAt: quota.resetAt)) | 7d --"
         }
-        return "Codex --"
+        return "5h -- | 7d --"
     }
 
     private func makeClaudeLine(usage: ClaudeUsageResponse?, fallbackQuotas: [QuotaRecord]) -> String {
         if let usage {
-            return "Claude 5h \(formatClaudePercent(usage.fiveHour)) 7d \(formatClaudePercent(usage.sevenDay))"
+            return "5h \(formatClaudeFiveHourWindow(usage.fiveHour)) | 7d \(formatClaudeSevenDayWindow(usage.sevenDay))"
         }
 
         if let quota = fallbackQuotas.first(where: { $0.tool == .claudeCode }) {
-            return "Claude 5h \(formatQuotaPercent(remaining: quota.remaining, total: quota.total))"
+            return "5h \(formatFiveHourWindow(percent: formatQuotaPercent(remaining: quota.remaining, total: quota.total), resetAt: quota.resetAt)) | 7d --"
         }
-        return "Claude --"
+        return "5h -- | 7d --"
+    }
+
+    private func formatCodexFiveHourWindow(_ window: CodexWindow?) -> String {
+        formatFiveHourWindow(percent: formatCodexPercent(window), resetAt: window?.resetDate)
+    }
+
+    private func formatCodexSevenDayWindow(_ window: CodexWindow?) -> String {
+        formatSevenDayWindow(percent: formatCodexPercent(window), resetAt: window?.resetDate)
+    }
+
+    private func formatClaudeFiveHourWindow(_ window: UsageWindow?) -> String {
+        formatFiveHourWindow(percent: formatClaudePercent(window), resetAt: window?.resetDate)
+    }
+
+    private func formatClaudeSevenDayWindow(_ window: UsageWindow?) -> String {
+        formatSevenDayWindow(percent: formatClaudePercent(window), resetAt: window?.resetDate)
+    }
+
+    private func formatFiveHourWindow(percent: String, resetAt: Date?) -> String {
+        let value = formatPercentValue(percent)
+        guard let resetAt else { return value }
+        let time = resetAt.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
+        return "\(value) @\(time)"
+    }
+
+    private func formatSevenDayWindow(percent: String, resetAt: Date?) -> String {
+        let value = formatPercentValue(percent)
+        guard let resetAt else { return value }
+        let date = resetAt.formatted(.dateTime.month(.twoDigits).day(.twoDigits))
+        return "\(value) at \(date)"
+    }
+
+    private func formatPercentValue(_ percent: String) -> String {
+        percent == "--" ? percent : "\(percent)%"
     }
 
     private func formatCodexPercent(_ window: CodexWindow?) -> String {
         guard let usedPercent = window?.usedPercent else { return "--" }
-        return "\(max(0, 100 - Int(usedPercent.rounded())))%"
+        return "\(max(0, 100 - Int(usedPercent.rounded())))"
     }
 
     private func formatClaudePercent(_ window: UsageWindow?) -> String {
         guard let utilization = window?.utilization else { return "--" }
-        return "\(max(0, 100 - Int(utilization.rounded())))%"
+        return "\(max(0, 100 - Int(utilization.rounded())))"
     }
 
     private func formatQuotaPercent(remaining: Int?, total: Int?) -> String {
         guard let remaining, let total, total > 0 else { return "--" }
-        return "\(Int((Double(remaining) / Double(total) * 100).rounded()))%"
+        return "\(Int((Double(remaining) / Double(total) * 100).rounded()))"
     }
 }
 

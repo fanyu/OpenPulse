@@ -222,7 +222,7 @@ final class DataSyncService {
                 AppLogger.shared.recordDiagnostic(scope: "sync.finish", message: "full sync finished in \(Int(elapsed.rounded()))s, sessions=\(count)")
             }
             checkQuotaNotifications()
-            scheduleDotTextQuotaPush()
+            scheduleDotTextQuotaPush(force: true)
         } catch {
             syncError = error
             AppLogger.shared.error("Sync error: \(error)")
@@ -261,7 +261,7 @@ final class DataSyncService {
             lastSyncDate = Date()
             AppLogger.shared.recordDiagnostic(scope: "sync.tool.finish", message: "\(tool.rawValue) sync finished")
             if tool == .codex || tool == .claudeCode {
-                scheduleDotTextQuotaPush()
+                scheduleDotTextQuotaPush(force: true)
             }
         } catch {
             syncError = error
@@ -602,7 +602,7 @@ final class DataSyncService {
             syncError = nil
             lastSyncDate = Date()
             AppLogger.shared.recordDiagnostic(scope: "sync.local.finish", message: "local file sync finished")
-            scheduleDotTextQuotaPush()
+            scheduleDotTextQuotaPush(force: false)
         } catch {
             localFileSyncBlockedUntil = Date().addingTimeInterval(Self.localFileFailureBackoff)
             let silencedKey = localFailureSilenceKey(error: error, triggeredPaths: activeTriggeredPaths)
@@ -967,16 +967,16 @@ final class DataSyncService {
 
     // MARK: - Dot Text API
 
-    private func scheduleDotTextQuotaPush() {
+    private func scheduleDotTextQuotaPush(force: Bool) {
         dotTextPushTask?.cancel()
         dotTextPushTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(1))
             guard !Task.isCancelled else { return }
-            await self?.pushDotTextQuotaSnapshot()
+            await self?.pushDotTextQuotaSnapshot(force: force)
         }
     }
 
-    private func pushDotTextQuotaSnapshot() async {
+    private func pushDotTextQuotaSnapshot(force: Bool) async {
         let codexRaw = Tool.codex.rawValue
         let claudeRaw = Tool.claudeCode.rawValue
         let descriptor = FetchDescriptor<QuotaRecord>(
@@ -986,7 +986,8 @@ final class DataSyncService {
         await dotTextAPIService.pushQuotaSnapshot(
             codexAccounts: latestCodexAccounts,
             claudeUsage: latestClaudeUsage,
-            fallbackQuotas: fallbackQuotas
+            fallbackQuotas: fallbackQuotas,
+            force: force
         )
     }
 
