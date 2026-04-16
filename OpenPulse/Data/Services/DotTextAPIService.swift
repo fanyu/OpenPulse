@@ -71,7 +71,7 @@ final class DotTextAPIService {
 
         let body = RequestBody(
             refreshNow: true,
-            title: makeTitle(updatedAt: Date()),
+            title: "",
             message: snapshot,
             signature: "",
             taskKey: taskKey?.isEmpty == false ? taskKey : nil
@@ -116,21 +116,31 @@ final class DotTextAPIService {
         fallbackQuotas: [QuotaRecord]
     ) -> String {
         [
-            "Codex:",
+            makeCodexLabel(accounts: codexAccounts),
             makeCodexLine(accounts: codexAccounts, fallbackQuotas: fallbackQuotas),
-            "Claude:",
+            makeClaudeLabel(usage: claudeUsage),
             makeClaudeLine(usage: claudeUsage, fallbackQuotas: fallbackQuotas),
         ].joined(separator: "\n")
     }
 
-    private func makeTitle(updatedAt: Date) -> String {
-        let time = updatedAt.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
-        return "AI Quota     \(time)"
+    private func makeCodexLabel(accounts: [CodexAccountSnapshot]) -> String {
+        guard let account = accounts.first(where: \.isCurrent) ?? accounts.first,
+              let resetAt = account.limits?.oneWeekWindow?.resetDate else {
+            return "Codex:"
+        }
+        return "Codex 7d \(formatSevenDayReset(resetAt))"
+    }
+
+    private func makeClaudeLabel(usage: ClaudeUsageResponse?) -> String {
+        guard let resetAt = usage?.sevenDay?.resetDate else {
+            return "Claude:"
+        }
+        return "Claude 7d \(formatSevenDayReset(resetAt))"
     }
 
     private func makeCodexLine(accounts: [CodexAccountSnapshot], fallbackQuotas: [QuotaRecord]) -> String {
         if let account = accounts.first(where: \.isCurrent) ?? accounts.first {
-            guard let limits = account.limits else { return "Codex --" }
+            guard let limits = account.limits else { return "--" }
             return "5h \(formatCodexFiveHourWindow(limits.fiveHourWindow)) | 7d \(formatCodexSevenDayWindow(limits.oneWeekWindow))"
         }
 
@@ -156,7 +166,7 @@ final class DotTextAPIService {
     }
 
     private func formatCodexSevenDayWindow(_ window: CodexWindow?) -> String {
-        formatSevenDayWindow(percent: formatCodexPercent(window), resetAt: window?.resetDate)
+        formatPercentValue(formatCodexPercent(window))
     }
 
     private func formatClaudeFiveHourWindow(_ window: UsageWindow?) -> String {
@@ -164,7 +174,7 @@ final class DotTextAPIService {
     }
 
     private func formatClaudeSevenDayWindow(_ window: UsageWindow?) -> String {
-        formatSevenDayWindow(percent: formatClaudePercent(window), resetAt: window?.resetDate)
+        formatPercentValue(formatClaudePercent(window))
     }
 
     private func formatFiveHourWindow(percent: String, resetAt: Date?) -> String {
@@ -174,11 +184,8 @@ final class DotTextAPIService {
         return "\(value) @\(time)"
     }
 
-    private func formatSevenDayWindow(percent: String, resetAt: Date?) -> String {
-        let value = formatPercentValue(percent)
-        guard let resetAt else { return value }
-        let date = resetAt.formatted(.dateTime.month(.twoDigits).day(.twoDigits))
-        return "\(value) at \(date)"
+    private func formatSevenDayReset(_ resetAt: Date) -> String {
+        resetAt.formatted(.dateTime.month(.twoDigits).day(.twoDigits).hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
     }
 
     private func formatPercentValue(_ percent: String) -> String {
