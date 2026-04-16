@@ -16,6 +16,16 @@ final class DotTextAPIService {
         let taskKey: String?
     }
 
+    private struct QuotaContent {
+        let title: String
+        let message: String
+        let signature: String
+
+        var fingerprint: String {
+            [title, message, signature].joined(separator: "\u{1E}")
+        }
+    }
+
     private struct APIResponse: Decodable {
         let code: Int
         let message: String
@@ -65,15 +75,15 @@ final class DotTextAPIService {
         }
 
         let taskKey = defaults.string(forKey: DefaultsKey.taskKey)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let snapshot = makeQuotaMessage(codexAccounts: codexAccounts, claudeUsage: claudeUsage, fallbackQuotas: fallbackQuotas)
-        let fingerprint = [deviceID, taskKey ?? "", snapshot].joined(separator: "\u{1F}")
+        let content = makeQuotaContent(codexAccounts: codexAccounts, claudeUsage: claudeUsage, fallbackQuotas: fallbackQuotas)
+        let fingerprint = [deviceID, taskKey ?? "", content.fingerprint].joined(separator: "\u{1F}")
         guard force || lastSentFingerprint != fingerprint else { return }
 
         let body = RequestBody(
             refreshNow: true,
-            title: "",
-            message: snapshot,
-            signature: "",
+            title: content.title,
+            message: content.message,
+            signature: content.signature,
             taskKey: taskKey?.isEmpty == false ? taskKey : nil
         )
 
@@ -110,55 +120,50 @@ final class DotTextAPIService {
         }
     }
 
-    private func makeQuotaMessage(
+    private func makeQuotaContent(
         codexAccounts: [CodexAccountSnapshot],
         claudeUsage: ClaudeUsageResponse?,
         fallbackQuotas: [QuotaRecord]
-    ) -> String {
-        [
-            makeCodexLabel(accounts: codexAccounts),
-            makeCodexLine(accounts: codexAccounts, fallbackQuotas: fallbackQuotas),
-            makeClaudeLabel(usage: claudeUsage),
-            makeClaudeLine(usage: claudeUsage, fallbackQuotas: fallbackQuotas),
-        ].joined(separator: "\n")
-    }
-
-    private func makeCodexLabel(accounts: [CodexAccountSnapshot]) -> String {
-        guard let account = accounts.first(where: \.isCurrent) ?? accounts.first,
-              let resetAt = account.limits?.oneWeekWindow?.resetDate else {
-            return "Codex:"
-        }
-        return "Codex 7d \(formatSevenDayReset(resetAt))"
-    }
-
-    private func makeClaudeLabel(usage: ClaudeUsageResponse?) -> String {
-        guard let resetAt = usage?.sevenDay?.resetDate else {
-            return "Claude:"
-        }
-        return "Claude 7d \(formatSevenDayReset(resetAt))"
+    ) -> QuotaContent {
+        QuotaContent(
+            title: "Sync \(formatSyncTime(Date()))",
+            message: [
+                makeCodexLine(accounts: codexAccounts, fallbackQuotas: fallbackQuotas),
+                makeClaudeLine(usage: claudeUsage, fallbackQuotas: fallbackQuotas),
+            ].joined(separator: "\n"),
+            signature: makeSevenDayResetLine(codexAccounts: codexAccounts, claudeUsage: claudeUsage)
+        )
     }
 
     private func makeCodexLine(accounts: [CodexAccountSnapshot], fallbackQuotas: [QuotaRecord]) -> String {
         if let account = accounts.first(where: \.isCurrent) ?? accounts.first {
             guard let limits = account.limits else { return "--" }
-            return "5h \(formatCodexFiveHourWindow(limits.fiveHourWindow)) | 7d \(formatCodexSevenDayWindow(limits.oneWeekWindow))"
+            return "Codex 5h \(formatCodexFiveHourWindow(limits.fiveHourWindow)) | 7d \(formatCodexSevenDayWindow(limits.oneWeekWindow))"
         }
 
         if let quota = fallbackQuotas.first(where: { $0.tool == .codex && $0.accountKey == nil }) {
-            return "5h \(formatFiveHourWindow(percent: formatQuotaPercent(remaining: quota.remaining, total: quota.total), resetAt: quota.resetAt)) | 7d --"
+            return "Codex 5h \(formatFiveHourWindow(percent: formatQuotaPercent(remaining: quota.remaining, total: quota.total), resetAt: quota.resetAt)) | 7d --"
         }
-        return "5h -- | 7d --"
+        return "Codex 5h -- | 7d --"
     }
 
     private func makeClaudeLine(usage: ClaudeUsageResponse?, fallbackQuotas: [QuotaRecord]) -> String {
         if let usage {
-            return "5h \(formatClaudeFiveHourWindow(usage.fiveHour)) | 7d \(formatClaudeSevenDayWindow(usage.sevenDay))"
+            return "Claude 5h \(formatClaudeFiveHourWindow(usage.fiveHour)) | 7d \(formatClaudeSevenDayWindow(usage.sevenDay))"
         }
 
         if let quota = fallbackQuotas.first(where: { $0.tool == .claudeCode }) {
-            return "5h \(formatFiveHourWindow(percent: formatQuotaPercent(remaining: quota.remaining, total: quota.total), resetAt: quota.resetAt)) | 7d --"
+            return "Claude 5h \(formatFiveHourWindow(percent: formatQuotaPercent(remaining: quota.remaining, total: quota.total), resetAt: quota.resetAt)) | 7d --"
         }
-        return "5h -- | 7d --"
+        return "Claude 5h -- | 7d --"
+    }
+
+    private func makeSevenDayResetLine(codexAccounts: [CodexAccountSnapshot], claudeUsage: ClaudeUsageResponse?) -> String {
+        let codexReset = (codexAccounts.first(where: \.isCurrent) ?? codexAccounts.first)?.limits?.oneWeekWindow?.resetDate
+            .map { formatSevenDayReset($0) } ?? "--"
+        let claudeReset = claudeUsage?.sevenDay?.resetDate
+            .map { formatSevenDayReset($0) } ?? "--"
+        return "7d Cx \(codexReset)  Cl \(claudeReset)"
     }
 
     private func formatCodexFiveHourWindow(_ window: CodexWindow?) -> String {
@@ -181,11 +186,15 @@ final class DotTextAPIService {
         let value = formatPercentValue(percent)
         guard let resetAt else { return value }
         let time = resetAt.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
-        return "\(value) @\(time)"
+        return "\(value)@\(time)"
     }
 
     private func formatSevenDayReset(_ resetAt: Date) -> String {
         resetAt.formatted(.dateTime.month(.twoDigits).day(.twoDigits).hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
+    }
+
+    private func formatSyncTime(_ date: Date) -> String {
+        date.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
     }
 
     private func formatPercentValue(_ percent: String) -> String {
