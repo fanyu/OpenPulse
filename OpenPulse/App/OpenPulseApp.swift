@@ -39,11 +39,43 @@ struct OpenPulseApp: App {
     }
 }
 
-/// Menubar icon: shows a waveform symbol normally; switches to warning style
-/// and adds a badge when any tool's remaining quota drops below 15%.
+/// Menu bar title: falls back to the app icon by default, or renders the
+/// user-selected 5-hour quota items as tool logo + remaining percentage.
 private struct MenuBarIcon: View {
     @Query private var quotas: [QuotaRecord]
     @Environment(AppStore.self) private var appStore
+    @AppStorage("menubar.titleQuotaTools") private var titleQuotaToolsRaw = ""
+
+    private var orderedTitleQuotaTools: [Tool] {
+        let selected = Set(titleQuotaToolsRaw.components(separatedBy: ",").filter { !$0.isEmpty })
+        let order = UserDefaults.standard.string(forKey: "menubar.toolOrder") ?? Tool.defaultOrderRaw
+        let orderedTools = order.components(separatedBy: ",").compactMap { Tool(rawValue: $0) }
+        let tools = orderedTools + Tool.allCases.filter { !orderedTools.contains($0) }
+        return tools.filter { selected.contains($0.rawValue) && $0.supportsMenuBarFiveHourDisplay }
+    }
+
+    private var titleQuotaItems: [MenuBarQuotaItem] {
+        orderedTitleQuotaTools.map { tool in
+            switch tool {
+            case .codex:
+                let remaining = appStore.syncService?.latestCodexAccounts
+                    .first(where: \.isCurrent)?
+                    .limits?
+                    .fiveHourWindow?
+                    .usedPercent
+                    .map { max(0, 100 - Int($0.rounded())) }
+                return MenuBarQuotaItem(tool: .codex, remainingPercent: remaining)
+            case .claudeCode:
+                let remaining = appStore.syncService?.latestClaudeUsage?
+                    .fiveHour?
+                    .utilization
+                    .map { max(0, 100 - Int($0.rounded())) }
+                return MenuBarQuotaItem(tool: .claudeCode, remainingPercent: remaining)
+            case .copilot, .antigravity, .opencode:
+                return MenuBarQuotaItem(tool: tool, remainingPercent: nil)
+            }
+        }
+    }
 
     private var isWarning: Bool {
         var fractions: [Double] = []
@@ -68,9 +100,52 @@ private struct MenuBarIcon: View {
     }
 
     var body: some View {
-        Image(systemName: "aqi.medium.gauge.open")
-            .symbolRenderingMode(isWarning ? .multicolor : .monochrome)
-            .background(MenuBarButtonCapture())
+        HStack(spacing: 3) {
+            if titleQuotaItems.isEmpty {
+                Image(systemName: "aqi.medium.gauge.open")
+                    .symbolRenderingMode(isWarning ? .multicolor : .monochrome)
+            } else {
+                ForEach(titleQuotaItems) { item in
+                    Text("\(item.label)\(item.displayText)")
+                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(item.isWarning ? .orange : .primary)
+                    .fixedSize(horizontal: true, vertical: false)
+                }
+            }
+        }
+        .lineLimit(1)
+        .fixedSize(horizontal: true, vertical: false)
+        .background(MenuBarButtonCapture())
+    }
+}
+
+private struct MenuBarQuotaItem: Identifiable {
+    let tool: Tool
+    let remainingPercent: Int?
+
+    var id: Tool { tool }
+
+    var label: String {
+        switch tool {
+        case .codex:
+            "O"
+        case .claudeCode:
+            "C"
+        case .copilot, .antigravity, .opencode:
+            tool.displayName.prefix(1).uppercased()
+        }
+    }
+
+    var displayText: String {
+        if let remainingPercent {
+            return "\(remainingPercent)%"
+        }
+        return "--"
+    }
+
+    var isWarning: Bool {
+        guard let remainingPercent else { return false }
+        return remainingPercent < 15
     }
 }
 

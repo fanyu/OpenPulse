@@ -55,6 +55,17 @@ enum Tool: String, Codable, CaseIterable, Sendable {
         false
     }
 
+    /// Tools whose 5-hour quota is backed by a real data source and can be shown
+    /// directly in the menu bar title.
+    var supportsMenuBarFiveHourDisplay: Bool {
+        switch self {
+        case .claudeCode, .codex:
+            true
+        case .copilot, .antigravity, .opencode:
+            false
+        }
+    }
+
     /// 默认排列顺序（逗号分隔的 rawValue），用于 menubar.toolOrder AppStorage 初始值
     static var defaultOrderRaw: String {
         allCases.map(\.rawValue).joined(separator: ",")

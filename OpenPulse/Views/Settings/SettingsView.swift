@@ -14,6 +14,7 @@ struct SettingsView: View {
     // MARK: - Menubar display
     @AppStorage("menubar.toolOrder")        private var toolOrderRaw = Tool.defaultOrderRaw
     @AppStorage("menubar.hiddenTools")      private var hiddenToolsRaw = ""
+    @AppStorage("menubar.titleQuotaTools")  private var titleQuotaToolsRaw = ""
     @AppStorage("menubar.syncIntervalGlobal") private var globalInterval: Double = 0
 
     // MARK: - Hotkey
@@ -52,6 +53,14 @@ struct SettingsView: View {
         Set(hiddenToolsRaw.components(separatedBy: ",").filter { !$0.isEmpty })
     }
 
+    private var selectedTitleQuotaTools: Set<String> {
+        Set(titleQuotaToolsRaw.components(separatedBy: ",").filter { !$0.isEmpty })
+    }
+
+    private var menuBarTitleQuotaTools: [Tool] {
+        orderedTools.filter(\.supportsMenuBarFiveHourDisplay)
+    }
+
     private var isGlobalMode: Bool { globalInterval > 0 }
 
     private func syncInterval(for tool: Tool) -> Double {
@@ -78,6 +87,19 @@ struct SettingsView: View {
         var set = hiddenTools
         if hidden { set.insert(tool.rawValue) } else { set.remove(tool.rawValue) }
         hiddenToolsRaw = set.joined(separator: ",")
+    }
+
+    private func setTitleQuotaToolEnabled(_ tool: Tool, _ enabled: Bool) {
+        var selected = selectedTitleQuotaTools
+        if enabled {
+            selected.insert(tool.rawValue)
+        } else {
+            selected.remove(tool.rawValue)
+        }
+        titleQuotaToolsRaw = orderedTools
+            .map(\.rawValue)
+            .filter { selected.contains($0) }
+            .joined(separator: ",")
     }
 
     // MARK: - View Layout
@@ -127,6 +149,32 @@ struct SettingsView: View {
                             }
                         }
                         
+                        Divider()
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("菜单栏标题额度")
+                                .font(.subheadline.weight(.medium))
+                            Text("选择后会在菜单栏直接显示该 Agent 的图标和 5 小时余量。")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+
+                            ForEach(menuBarTitleQuotaTools, id: \.self) { tool in
+                                HStack(spacing: 12) {
+                                    ToolLogoImage(tool: tool, size: 20)
+                                    Text(tool.displayName)
+                                        .font(.body)
+                                    Spacer()
+                                    Toggle("", isOn: Binding(
+                                        get: { selectedTitleQuotaTools.contains(tool.rawValue) },
+                                        set: { setTitleQuotaToolEnabled(tool, $0) }
+                                    ))
+                                    .toggleStyle(.switch)
+                                    .labelsHidden()
+                                }
+                                .padding(.vertical, 2)
+                            }
+                        }
+
                         Divider()
                         
                         VStack(alignment: .leading, spacing: 8) {

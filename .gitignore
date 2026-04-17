@@ -20,6 +20,9 @@ build/
 .claude/
 .codex/
 
-# Env / secrets
-*.env
-secrets.json
+# Python / Local Agent Environment
+.venv/
+logo_presentation.html
+logo_showcase.html
+scripts/compose_showcase.py
+

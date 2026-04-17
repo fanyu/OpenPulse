@@ -126,7 +126,7 @@ final class DotTextAPIService {
         fallbackQuotas: [QuotaRecord]
     ) -> QuotaContent {
         QuotaContent(
-            title: "Sync \(formatSyncTime(Date()))",
+            title: "AI Quota Sync \(formatSyncTime(Date()))",
             message: [
                 makeCodexLine(accounts: codexAccounts, fallbackQuotas: fallbackQuotas),
                 makeClaudeLine(usage: claudeUsage, fallbackQuotas: fallbackQuotas),
@@ -138,24 +138,24 @@ final class DotTextAPIService {
     private func makeCodexLine(accounts: [CodexAccountSnapshot], fallbackQuotas: [QuotaRecord]) -> String {
         if let account = accounts.first(where: \.isCurrent) ?? accounts.first {
             guard let limits = account.limits else { return "--" }
-            return "Codex 5h \(formatCodexFiveHourWindow(limits.fiveHourWindow)) | 7d \(formatCodexSevenDayWindow(limits.oneWeekWindow))"
+            return "Cdx 5h \(formatCodexFiveHourWindow(limits.fiveHourWindow)) | 7d \(formatCodexSevenDayWindow(limits.oneWeekWindow))"
         }
 
         if let quota = fallbackQuotas.first(where: { $0.tool == .codex && $0.accountKey == nil }) {
-            return "Codex 5h \(formatFiveHourWindow(percent: formatQuotaPercent(remaining: quota.remaining, total: quota.total), resetAt: quota.resetAt)) | 7d --"
+            return "Cdx 5h \(formatFiveHourWindow(percent: formatQuotaPercent(remaining: quota.remaining, total: quota.total), resetAt: quota.resetAt)) | 7d --"
         }
-        return "Codex 5h -- | 7d --"
+        return "Cdx 5h -- | 7d --"
     }
 
     private func makeClaudeLine(usage: ClaudeUsageResponse?, fallbackQuotas: [QuotaRecord]) -> String {
         if let usage {
-            return "Claude 5h \(formatClaudeFiveHourWindow(usage.fiveHour)) | 7d \(formatClaudeSevenDayWindow(usage.sevenDay))"
+            return "Cld 5h \(formatClaudeFiveHourWindow(usage.fiveHour)) | 7d \(formatClaudeSevenDayWindow(usage.sevenDay))"
         }
 
         if let quota = fallbackQuotas.first(where: { $0.tool == .claudeCode }) {
-            return "Claude 5h \(formatFiveHourWindow(percent: formatQuotaPercent(remaining: quota.remaining, total: quota.total), resetAt: quota.resetAt)) | 7d --"
+            return "Cld 5h \(formatFiveHourWindow(percent: formatQuotaPercent(remaining: quota.remaining, total: quota.total), resetAt: quota.resetAt)) | 7d --"
         }
-        return "Claude 5h -- | 7d --"
+        return "Cld 5h -- | 7d --"
     }
 
     private func makeSevenDayResetLine(codexAccounts: [CodexAccountSnapshot], claudeUsage: ClaudeUsageResponse?) -> String {
