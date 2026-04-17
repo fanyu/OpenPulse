@@ -36,6 +36,7 @@ final class DataSyncService {
     private static let codexLocalRoots = [
         URL.homeDirectory.appending(path: ".codex/sessions").path,
     ]
+    private static let codexAuthURL = URL.homeDirectory.appending(path: ".codex/auth.json")
     private static let antigravityLocalRoots = [
         URL.homeDirectory.appending(path: ".gemini/antigravity/brain").path,
     ]
@@ -406,14 +407,18 @@ final class DataSyncService {
     private func syncCodex() async throws {
         let since = lastSyncDate.map { Calendar.current.date(byAdding: .hour, value: -1, to: $0)! }
         try await parseCodexFiles(since: since)
-        let localLimits = await codexParser.parseLatestRateLimits()
+        let localRateLimitSnapshot = await codexParser.parseLatestRateLimitsSnapshot()
+        let localLimits = localRateLimitSnapshot?.limits
         let smartSwitchEnabled = UserDefaults.standard.bool(forKey: "codex.smartSwitch.enabled")
 
         startPhase("codex.accounts")
         await codexAccountService.syncCurrentSelectionFromAuthFile()
+        let knownCodexAccountCount = await codexAccountService.listAccounts().count
         let accounts: [CodexAccountSnapshot]
-        if !smartSwitchEnabled, let localLimits, isUsableCodexLocalRateLimits(localLimits) {
-            _ = await codexAccountService.applyLocalRateLimitsToCurrentAccount(localLimits)
+        if !smartSwitchEnabled,
+           let localRateLimitSnapshot,
+           shouldApplyLocalCodexRateLimits(localRateLimitSnapshot, accountCount: knownCodexAccountCount) {
+            _ = await codexAccountService.applyLocalRateLimitsToCurrentAccount(localRateLimitSnapshot.limits)
             accounts = await codexAccountService.refreshStaleUsage(excludingCurrentAccount: true)
             AppLogger.shared.info("Codex: using local rate limits from session JSONL")
         } else {
@@ -427,7 +432,17 @@ final class DataSyncService {
             )
             latestCodexAccounts = await codexAccountService.listAccounts()
         } else {
-            latestCodexAccounts = accounts
+            if !smartSwitchEnabled,
+               let localRateLimitSnapshot,
+               shouldApplyLocalCodexRateLimits(localRateLimitSnapshot, accountCount: accounts.count) {
+                latestCodexAccounts = await codexAccountService.applyLocalRateLimitsToCurrentAccount(localRateLimitSnapshot.limits)
+                AppLogger.shared.recordDiagnostic(
+                    scope: "codex.localQuota.preferred",
+                    message: "preferred local current-account rate limits after account refresh"
+                )
+            } else {
+                latestCodexAccounts = accounts
+            }
         }
         removeStaleCodexQuotas(validAccountKeys: Set(latestCodexAccounts.map(\.accountID)))
         try await upsertQuotas(latestCodexAccounts.map(\.quota), label: "codex.quotas")
@@ -465,14 +480,18 @@ final class DataSyncService {
             return
         }
 
-        guard let localLimits = await codexParser.parseLatestRateLimits(),
-              isUsableCodexLocalRateLimits(localLimits) else {
+        guard let localRateLimitSnapshot = await codexParser.parseLatestRateLimitsSnapshot(),
+              shouldApplyLocalCodexRateLimits(
+                localRateLimitSnapshot,
+                accountCount: await codexAccountService.listAccounts().count
+              ) else {
             AppLogger.shared.recordDiagnostic(
                 scope: "codex.localQuota.skip",
-                message: "no usable local Codex rate limits after file event"
+                message: "local Codex rate limits skipped because source did not match current account selection"
             )
             return
         }
+        let localLimits = localRateLimitSnapshot.limits
 
         startPhase("codex.localQuota")
         await codexAccountService.syncCurrentSelectionFromAuthFile()
@@ -490,6 +509,19 @@ final class DataSyncService {
         [limits.fiveHourWindow, limits.oneWeekWindow]
             .compactMap(\.?.resetDate)
             .contains { $0 > Date() }
+    }
+
+    private func shouldApplyLocalCodexRateLimits(
+        _ snapshot: CodexParser.LocalRateLimitSnapshot,
+        accountCount: Int
+    ) -> Bool {
+        guard isUsableCodexLocalRateLimits(snapshot.limits) else { return false }
+        guard accountCount > 1 else { return true }
+        guard let authModifiedAt = try? Self.codexAuthURL.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
+              let sourceModifiedAt = snapshot.modifiedAt else {
+            return false
+        }
+        return sourceModifiedAt >= authModifiedAt
     }
 
     private func parseCodexFiles(since: Date?) async throws {

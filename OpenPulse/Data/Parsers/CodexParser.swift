@@ -5,6 +5,12 @@ import SQLite
 /// - Token usage: state_5.sqlite threads table (created_at is Unix seconds)
 /// - Rate limits: latest token_count event from session JSONL files
 actor CodexParser {
+    struct LocalRateLimitSnapshot: Sendable {
+        let limits: CodexRateLimits
+        let sourceURL: URL
+        let modifiedAt: Date?
+    }
+
     private enum ParserError: LocalizedError {
         case transientDatabaseUnavailable(String)
 
@@ -201,9 +207,9 @@ actor CodexParser {
 
     // MARK: - Rate limits from latest JSONL session event
 
-    func parseLatestRateLimits() async -> CodexRateLimits? {
-        if let limits = scanRecentlyModifiedFilesForRateLimits() {
-            return limits
+    func parseLatestRateLimitsSnapshot() async -> LocalRateLimitSnapshot? {
+        if let snapshot = scanRecentlyModifiedFilesForRateLimits() {
+            return snapshot
         }
 
         // Fallback to date buckets for older Codex layouts or files without mtime metadata.
@@ -218,17 +224,21 @@ actor CodexParser {
                 .appending(path: String(format: "%02d", comp.month!))
                 .appending(path: String(format: "%02d", comp.day!))
 
-            if let limits = await scanDirForRateLimits(dirPath) { return limits }
+            if let snapshot = await scanDirForRateLimits(dirPath) { return snapshot }
         }
 
         // Try archived
         return await scanDirForRateLimits(archivedDir)
     }
 
-    private func scanRecentlyModifiedFilesForRateLimits() -> CodexRateLimits? {
+    func parseLatestRateLimits() async -> CodexRateLimits? {
+        await parseLatestRateLimitsSnapshot()?.limits
+    }
+
+    private func scanRecentlyModifiedFilesForRateLimits() -> LocalRateLimitSnapshot? {
         for file in recentlyModifiedJSONLFiles(in: [sessionsDir, archivedDir], limit: 200) {
-            if let limits = parseRateLimitsFromFile(file) {
-                return limits
+            if let snapshot = parseRateLimitsFromFile(file) {
+                return snapshot
             }
         }
         return nil
@@ -263,7 +273,7 @@ actor CodexParser {
             .map(\.url)
     }
 
-    private func scanDirForRateLimits(_ dir: URL) async -> CodexRateLimits? {
+    private func scanDirForRateLimits(_ dir: URL) async -> LocalRateLimitSnapshot? {
         guard FileManager.default.fileExists(atPath: dir.path) else { return nil }
         let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey])
             .filter { $0.pathExtension == "jsonl" }
@@ -274,16 +284,17 @@ actor CodexParser {
             }) ?? []
 
         for file in files {
-            if let limits = parseRateLimitsFromFile(file) { return limits }
+            if let snapshot = parseRateLimitsFromFile(file) { return snapshot }
         }
         return nil
     }
 
-    private func parseRateLimitsFromFile(_ url: URL) -> CodexRateLimits? {
+    private func parseRateLimitsFromFile(_ url: URL) -> LocalRateLimitSnapshot? {
         guard let data = try? Data(contentsOf: url),
               let content = String(data: data, encoding: .utf8) else { return nil }
         let lines = content.components(separatedBy: "\n").reversed()
         let decoder = JSONDecoder()
+        let modifiedAt = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
 
         for line in lines {
             guard let lineData = line.data(using: .utf8),
@@ -292,7 +303,7 @@ actor CodexParser {
                   let payload = event.payload,
                   payload.type == "token_count",
                   let limits = payload.rateLimits else { continue }
-            return limits
+            return LocalRateLimitSnapshot(limits: limits, sourceURL: url, modifiedAt: modifiedAt)
         }
         return nil
     }
