@@ -212,7 +212,7 @@ final class DotTextAPIService {
     }
 
     private func formatPercentValue(_ percent: String) -> String {
-        percent == "--" ? percent : "\(percent)%"
+        percent
     }
 
     private func formatCodexPercent(_ window: CodexWindow?) -> String {
