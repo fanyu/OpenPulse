@@ -126,7 +126,7 @@ final class DotTextAPIService {
         fallbackQuotas: [QuotaRecord]
     ) -> QuotaContent {
         QuotaContent(
-            title: "AI Quota Sync \(formatSyncTime(Date()))",
+            title: "Quota Sync at \(formatSyncTime(Date()))",
             message: [
                 makeCodexLine(accounts: codexAccounts, fallbackQuotas: fallbackQuotas),
                 makeClaudeLine(usage: claudeUsage, fallbackQuotas: fallbackQuotas),
@@ -137,64 +137,57 @@ final class DotTextAPIService {
 
     private func makeCodexLine(accounts: [CodexAccountSnapshot], fallbackQuotas: [QuotaRecord]) -> String {
         if let account = accounts.first(where: \.isCurrent) ?? accounts.first {
-            guard let limits = account.limits else { return "--" }
-            return "Cdx 5h \(formatCodexFiveHourWindow(limits.fiveHourWindow)) | 7d \(formatCodexSevenDayWindow(limits.oneWeekWindow))"
+            guard let limits = account.limits else { return "CX: -- | --" }
+            return "CX: \(formatFiveHourSummary(percent: formatCodexPercent(limits.fiveHourWindow), resetAt: limits.fiveHourWindow?.resetDate)) | \(formatSevenDaySummary(percent: formatCodexPercent(limits.oneWeekWindow), resetAt: limits.oneWeekWindow?.resetDate))"
         }
 
         if let quota = fallbackQuotas.first(where: { $0.tool == .codex && $0.accountKey == nil }) {
-            return "Cdx 5h \(formatFiveHourWindow(percent: formatQuotaPercent(remaining: quota.remaining, total: quota.total), resetAt: quota.resetAt)) | 7d --"
+            return "CX: \(formatFiveHourSummary(percent: formatQuotaPercent(remaining: quota.remaining, total: quota.total), resetAt: quota.resetAt)) | --"
         }
-        return "Cdx 5h -- | 7d --"
+        return "CX: -- | --"
     }
 
     private func makeClaudeLine(usage: ClaudeUsageResponse?, fallbackQuotas: [QuotaRecord]) -> String {
         if let usage {
-            return "Cld 5h \(formatClaudeFiveHourWindow(usage.fiveHour)) | 7d \(formatClaudeSevenDayWindow(usage.sevenDay))"
+            return "CC: \(formatFiveHourSummary(percent: formatClaudePercent(usage.fiveHour), resetAt: usage.fiveHour?.resetDate)) | \(formatSevenDaySummary(percent: formatClaudePercent(usage.sevenDay), resetAt: usage.sevenDay?.resetDate))"
         }
 
         if let quota = fallbackQuotas.first(where: { $0.tool == .claudeCode }) {
-            return "Cld 5h \(formatFiveHourWindow(percent: formatQuotaPercent(remaining: quota.remaining, total: quota.total), resetAt: quota.resetAt)) | 7d --"
+            return "CC: \(formatFiveHourSummary(percent: formatQuotaPercent(remaining: quota.remaining, total: quota.total), resetAt: quota.resetAt)) | --"
         }
-        return "Cld 5h -- | 7d --"
+        return "CC: -- | --"
     }
 
     private func makeSevenDayResetLine(codexAccounts: [CodexAccountSnapshot], claudeUsage: ClaudeUsageResponse?) -> String {
         let codexReset = (codexAccounts.first(where: \.isCurrent) ?? codexAccounts.first)?.limits?.oneWeekWindow?.resetDate
-            .map { formatSevenDayReset($0) } ?? "--"
+            .map { formatTimeOnly($0) } ?? "--"
         let claudeReset = claudeUsage?.sevenDay?.resetDate
-            .map { formatSevenDayReset($0) } ?? "--"
-        return "7d Cx \(codexReset)  Cl \(claudeReset)"
+            .map { formatTimeOnly($0) } ?? "--"
+        return "7D: CX @\(codexReset) | CC @\(claudeReset)"
     }
 
-    private func formatCodexFiveHourWindow(_ window: CodexWindow?) -> String {
-        formatFiveHourWindow(percent: formatCodexPercent(window), resetAt: window?.resetDate)
-    }
-
-    private func formatCodexSevenDayWindow(_ window: CodexWindow?) -> String {
-        formatPercentValue(formatCodexPercent(window))
-    }
-
-    private func formatClaudeFiveHourWindow(_ window: UsageWindow?) -> String {
-        formatFiveHourWindow(percent: formatClaudePercent(window), resetAt: window?.resetDate)
-    }
-
-    private func formatClaudeSevenDayWindow(_ window: UsageWindow?) -> String {
-        formatPercentValue(formatClaudePercent(window))
-    }
-
-    private func formatFiveHourWindow(percent: String, resetAt: Date?) -> String {
+    private func formatFiveHourSummary(percent: String, resetAt: Date?) -> String {
         let value = formatPercentValue(percent)
         guard let resetAt else { return value }
-        let time = resetAt.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
-        return "\(value)@\(time)"
+        return "\(value) @\(formatTimeOnly(resetAt))"
     }
 
-    private func formatSevenDayReset(_ resetAt: Date) -> String {
-        resetAt.formatted(.dateTime.month(.twoDigits).day(.twoDigits).hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
+    private func formatSevenDaySummary(percent: String, resetAt: Date?) -> String {
+        let value = formatPercentValue(percent)
+        guard let resetAt else { return value }
+        return "\(value) @\(formatMonthDay(resetAt))"
     }
 
     private func formatSyncTime(_ date: Date) -> String {
         date.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
+    }
+
+    private func formatTimeOnly(_ date: Date) -> String {
+        date.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
+    }
+
+    private func formatMonthDay(_ date: Date) -> String {
+        date.formatted(.dateTime.month(.twoDigits).day(.twoDigits))
     }
 
     private func formatPercentValue(_ percent: String) -> String {
