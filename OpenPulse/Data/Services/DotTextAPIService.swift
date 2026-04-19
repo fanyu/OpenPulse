@@ -138,22 +138,22 @@ final class DotTextAPIService {
     private func makeCodexLine(accounts: [CodexAccountSnapshot], fallbackQuotas: [QuotaRecord]) -> String {
         if let account = accounts.first(where: \.isCurrent) ?? accounts.first {
             guard let limits = account.limits else { return "CX: -- | --" }
-            return "CX: \(formatFiveHourSummary(percent: formatCodexPercent(limits.fiveHourWindow), resetAt: limits.fiveHourWindow?.resetDate)) | \(formatSevenDaySummary(percent: formatCodexPercent(limits.oneWeekWindow), resetAt: limits.oneWeekWindow?.resetDate))"
+            return "CX:\(formatCompactQuotaSummary(fiveHourPercent: formatCodexPercent(limits.fiveHourWindow), fiveHourResetAt: limits.fiveHourWindow?.resetDate, sevenDayPercent: formatCodexPercent(limits.oneWeekWindow), sevenDayResetAt: limits.oneWeekWindow?.resetDate))"
         }
 
         if let quota = fallbackQuotas.first(where: { $0.tool == .codex && $0.accountKey == nil }) {
-            return "CX: \(formatFiveHourSummary(percent: formatQuotaPercent(remaining: quota.remaining, total: quota.total), resetAt: quota.resetAt)) | --"
+            return "CX:\(formatCompactQuotaSummary(fiveHourPercent: formatQuotaPercent(remaining: quota.remaining, total: quota.total), fiveHourResetAt: quota.resetAt, sevenDayPercent: "--", sevenDayResetAt: nil))"
         }
         return "CX: -- | --"
     }
 
     private func makeClaudeLine(usage: ClaudeUsageResponse?, fallbackQuotas: [QuotaRecord]) -> String {
         if let usage {
-            return "CC: \(formatFiveHourSummary(percent: formatClaudePercent(usage.fiveHour), resetAt: usage.fiveHour?.resetDate)) | \(formatSevenDaySummary(percent: formatClaudePercent(usage.sevenDay), resetAt: usage.sevenDay?.resetDate))"
+            return "CC:\(formatCompactQuotaSummary(fiveHourPercent: formatClaudePercent(usage.fiveHour), fiveHourResetAt: usage.fiveHour?.resetDate, sevenDayPercent: formatClaudePercent(usage.sevenDay), sevenDayResetAt: usage.sevenDay?.resetDate))"
         }
 
         if let quota = fallbackQuotas.first(where: { $0.tool == .claudeCode }) {
-            return "CC: \(formatFiveHourSummary(percent: formatQuotaPercent(remaining: quota.remaining, total: quota.total), resetAt: quota.resetAt)) | --"
+            return "CC:\(formatCompactQuotaSummary(fiveHourPercent: formatQuotaPercent(remaining: quota.remaining, total: quota.total), fiveHourResetAt: quota.resetAt, sevenDayPercent: "--", sevenDayResetAt: nil))"
         }
         return "CC: -- | --"
     }
@@ -176,6 +176,27 @@ final class DotTextAPIService {
         let value = formatPercentValue(percent)
         guard let resetAt else { return value }
         return "\(value) @\(formatMonthDay(resetAt))"
+    }
+
+    private func formatCompactQuotaSummary(
+        fiveHourPercent: String,
+        fiveHourResetAt: Date?,
+        sevenDayPercent: String,
+        sevenDayResetAt: Date?
+    ) -> String {
+        "\(formatCompactFiveHourSummary(percent: fiveHourPercent, resetAt: fiveHourResetAt))-\(formatCompactSevenDaySummary(percent: sevenDayPercent, resetAt: sevenDayResetAt))"
+    }
+
+    private func formatCompactFiveHourSummary(percent: String, resetAt: Date?) -> String {
+        let value = formatPercentValue(percent)
+        guard let resetAt else { return value }
+        return "\(value)@\(formatTimeOnly(resetAt))"
+    }
+
+    private func formatCompactSevenDaySummary(percent: String, resetAt: Date?) -> String {
+        let value = formatPercentValue(percent)
+        guard let resetAt else { return value }
+        return "\(value)@\(formatMonthDay(resetAt))"
     }
 
     private func formatSyncTime(_ date: Date) -> String {
