@@ -13,6 +13,8 @@ struct MainWindowView: View {
                 .environment(appStore)
         }
         .navigationSplitViewStyle(.balanced)
+        .background(OpenWindowActionCapture())
+        .background(MainWindowCapture())
     }
 
     @ViewBuilder

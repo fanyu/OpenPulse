@@ -3,7 +3,6 @@ import SwiftData
 
 struct MenuBarView: View {
     @Environment(AppStore.self) private var appStore
-    @Environment(\.openWindow) private var openWindow
     @Query private var dailyStats: [DailyStatsRecord]
     @Query private var quotas: [QuotaRecord]
     @State private var logger = AppLogger.shared
@@ -202,8 +201,7 @@ struct MenuBarView: View {
                 .disabled(isSyncing)
                 Button(action: {
                     performMenuBarAction {
-                        NSApp.activate(ignoringOtherApps: true)
-                        openWindow(id: "main")
+                        WindowCoordinator.shared.showMainWindow()
                     }
                 }) {
                     Image(systemName: "macwindow")
@@ -212,9 +210,7 @@ struct MenuBarView: View {
                 .help("打开主窗口 (⌘M)")
                 Button(action: {
                     performMenuBarAction {
-                        appStore.selectedTab = .settings
-                        NSApp.activate(ignoringOtherApps: true)
-                        openWindow(id: "main")
+                        WindowCoordinator.shared.showMainWindow(select: .settings)
                     }
                 }) {
                     Image(systemName: "gearshape")
@@ -522,7 +518,7 @@ struct CodexMultiAccountQuotaCard: View {
             do {
                 let decision = try await action()
                 if decision != nil || closeWhenNoDecision {
-                    await GlobalHotkeyService.shared.closeMenuBar()
+                    GlobalHotkeyService.shared.closeMenuBar()
                 }
                 await appStore.syncService?.sync(tool: .codex)
                 await MainActor.run {

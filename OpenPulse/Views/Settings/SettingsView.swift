@@ -154,7 +154,7 @@ struct SettingsView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("菜单栏标题额度")
                                 .font(.subheadline.weight(.medium))
-                            Text("选择后会在菜单栏直接显示该 Agent 的图标和 5 小时余量。")
+                            Text("选择后会在菜单栏直接显示该 Agent 的余量摘要；单个工具显示 5H/7D，两项工具时每行显示一个工具。")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
 

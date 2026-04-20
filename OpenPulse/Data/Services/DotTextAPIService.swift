@@ -188,13 +188,13 @@ final class DotTextAPIService {
     }
 
     private func formatCompactFiveHourSummary(percent: String, resetAt: Date?) -> String {
-        let value = formatPercentValue(percent)
+        let value = formatPercentValue(percent, includeSymbol: true)
         guard let resetAt else { return value }
         return "\(value)@\(formatTimeOnly(resetAt))"
     }
 
     private func formatCompactSevenDaySummary(percent: String, resetAt: Date?) -> String {
-        let value = formatPercentValue(percent)
+        let value = formatPercentValue(percent, includeSymbol: false)
         guard let resetAt else { return value }
         return "\(value)@\(formatMonthDay(resetAt))"
     }
@@ -211,8 +211,9 @@ final class DotTextAPIService {
         date.formatted(.dateTime.month(.twoDigits).day(.twoDigits))
     }
 
-    private func formatPercentValue(_ percent: String) -> String {
-        percent
+    private func formatPercentValue(_ percent: String, includeSymbol: Bool = true) -> String {
+        guard percent != "--" else { return percent }
+        return includeSymbol ? "\(percent)%" : percent
     }
 
     private func formatCodexPercent(_ window: CodexWindow?) -> String {

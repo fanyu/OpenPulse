@@ -50,6 +50,7 @@
 		E455166A3CA2CA28F1A6E1C2 /* DotTextAPIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C462CDABE8B53296DB5A87C1 /* DotTextAPIService.swift */; };
 		EE4954ADE342C53CAC9CC50E /* OpenPulseApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A9237E27AFD4475905CE152 /* OpenPulseApp.swift */; };
 		FC608AD2FF7457A67AB70153 /* ClaudeCodeParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1495475A35ED9D5528C01B35 /* ClaudeCodeParser.swift */; };
+		FE99542E14E79742B1569A6B /* WindowCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D300FEA511990F4AFED88925 /* WindowCoordinator.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -93,6 +94,7 @@
 		C462CDABE8B53296DB5A87C1 /* DotTextAPIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DotTextAPIService.swift; sourceTree = "<group>"; };
 		CDD4CF2C5EDE7491AE3E099C /* ClaudeCodeBridgeInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeCodeBridgeInstaller.swift; sourceTree = "<group>"; };
 		D05939178581C41AF8FC17BF /* CompareView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompareView.swift; sourceTree = "<group>"; };
+		D300FEA511990F4AFED88925 /* WindowCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowCoordinator.swift; sourceTree = "<group>"; };
 		D5CAC165D978D26D6B4C0AB6 /* OpenCodeParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenCodeParser.swift; sourceTree = "<group>"; };
 		E44DFE8B1FF414DC177BEF99 /* CommonUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommonUI.swift; sourceTree = "<group>"; };
 		F1E0BA47A399C82114B0BE45 /* ConfigsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigsView.swift; sourceTree = "<group>"; };
@@ -161,6 +163,7 @@
 				A494FF8BD7215CF0925772F8 /* AppStore.swift */,
 				342E886F9BF540A62FBE8BC7 /* GlobalHotkeyService.swift */,
 				1A9237E27AFD4475905CE152 /* OpenPulseApp.swift */,
+				D300FEA511990F4AFED88925 /* WindowCoordinator.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -448,6 +451,7 @@
 				DB62A1FBBA9C5A8155DCE4F5 /* ToolQuota.swift in Sources */,
 				699729054FEE00973226B4D7 /* ToolSession.swift in Sources */,
 				0FDD15454877FF1BB808BA5E /* TrendsView.swift in Sources */,
+				FE99542E14E79742B1569A6B /* WindowCoordinator.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

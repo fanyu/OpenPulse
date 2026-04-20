@@ -516,12 +516,13 @@ final class DataSyncService {
         accountCount: Int
     ) -> Bool {
         guard isUsableCodexLocalRateLimits(snapshot.limits) else { return false }
-        guard accountCount > 1 else { return true }
-        guard let authModifiedAt = try? Self.codexAuthURL.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
-              let sourceModifiedAt = snapshot.modifiedAt else {
-            return false
-        }
-        return sourceModifiedAt >= authModifiedAt
+        // Local session JSONL files do not carry a stable account identifier, so
+        // "most recently modified file" becomes ambiguous once multiple Codex
+        // accounts have been used on the same machine. In that case we only trust
+        // per-account API refresh results and never let local rate limits override
+        // the selected account.
+        guard accountCount <= 1 else { return false }
+        return true
     }
 
     private func parseCodexFiles(since: Date?) async throws {
