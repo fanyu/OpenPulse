@@ -169,9 +169,8 @@ private final class StatusBarContentView: NSView {
         bottomLabel.attributedStringValue = lineString(bottomText)
         textStack.isHidden = topText.isEmpty && bottomText.isEmpty
 
-        if let symbolImage = NSImage(systemSymbolName: "aqi.medium.gauge.open", accessibilityDescription: "OpenPulse") {
-            let iconPointSize = min(14, NSStatusBar.system.thickness - 6)
-            iconView.image = symbolImage.withSymbolConfiguration(.init(pointSize: iconPointSize, weight: .medium))
+        if let image = NSImage(named: "MenuBarIcon") {
+            iconView.image = image
         } else {
             iconView.image = nil
         }
