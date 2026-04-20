@@ -19,7 +19,6 @@
 		3D2E1FCC20A790060EFF484B /* ConfigsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E0BA47A399C82114B0BE45 /* ConfigsView.swift */; };
 		3E86B004DEBEBA5D9B0AE530 /* Provider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B225807FEB6829DD500E63EB /* Provider.swift */; };
 		43F0E34C09A23184A9BF94FE /* CodexParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C9B26FE7E06E64EC6892CF3 /* CodexParser.swift */; };
-		486AC2112F19D9C742BB037C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 6774051C4343F80ABBA56370 /* Assets.xcassets */; };
 		4B5F4624D23EE82803A69FE6 /* MainWindowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A6B0992BD6928565C0BFBA4 /* MainWindowView.swift */; };
 		5E5248E69F836344E19E268A /* ToolAnalysisViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8918557F1ECC6689CA035E80 /* ToolAnalysisViews.swift */; };
 		62576FBA949602EE4F6F0B8F /* ClaudeCodeBridgeInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDD4CF2C5EDE7491AE3E099C /* ClaudeCodeBridgeInstaller.swift */; };
@@ -75,7 +74,6 @@
 		5E19C33043EDF71F1F02B80A /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		5FD375993BBFCE958374B4F4 /* MenuBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarView.swift; sourceTree = "<group>"; };
 		62113CA5D975C1A71899C037 /* QuotaRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuotaRecord.swift; sourceTree = "<group>"; };
-		6774051C4343F80ABBA56370 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		6D058DCA8091F77E73442094 /* LogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogView.swift; sourceTree = "<group>"; };
 		7086BEBA8F024D0188556DD4 /* SessionRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionRecord.swift; sourceTree = "<group>"; };
 		70978988BAE12EE3FFBBB75A /* CodexAccountService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexAccountService.swift; sourceTree = "<group>"; };
@@ -192,7 +190,6 @@
 				34D5D426FE780824DC68FA35 /* App */,
 				8093BAC98CB713748D175DB9 /* Data */,
 				ADC55ED6D79B662A4454414A /* Models */,
-				6FC4489925E2A8A4117E47DB /* OpenPulse */,
 				AB35F7FE3669503CF6A8B4A7 /* Resources */,
 				C9655C2ED82322239077A2D8 /* Views */,
 			);
@@ -221,22 +218,6 @@
 				002E5778BE7AC8F60942BA31 /* SessionHistoryView.swift */,
 			);
 			path = History;
-			sourceTree = "<group>";
-		};
-		6FC4489925E2A8A4117E47DB /* OpenPulse */ = {
-			isa = PBXGroup;
-			children = (
-				781CD03A59B9871CFB73430F /* Resources */,
-			);
-			path = OpenPulse;
-			sourceTree = "<group>";
-		};
-		781CD03A59B9871CFB73430F /* Resources */ = {
-			isa = PBXGroup;
-			children = (
-				6774051C4343F80ABBA56370 /* Assets.xcassets */,
-			);
-			path = Resources;
 			sourceTree = "<group>";
 		};
 		8093BAC98CB713748D175DB9 /* Data */ = {
@@ -420,7 +401,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				668A3DB6EA2D53B5ED39F244 /* Assets.xcassets in Resources */,
-				486AC2112F19D9C742BB037C /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
