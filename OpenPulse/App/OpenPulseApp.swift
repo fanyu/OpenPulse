@@ -136,6 +136,8 @@ private final class StatusBarContentView: NSView {
     private let bottomLabel = NSTextField(labelWithString: "")
     private let textStack = NSStackView()
     private let rootStack = NSStackView()
+    private weak var statusButton: NSStatusBarButton?
+    private var lastAppliedTextColor: NSColor?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -165,22 +167,35 @@ private final class StatusBarContentView: NSView {
         let bottomText = lines[safe: 1] ?? ""
         topLabel.attributedStringValue = lineString(topText)
         bottomLabel.attributedStringValue = lineString(bottomText)
-        let tintColor = NSColor.labelColor
-        topLabel.textColor = tintColor
-        bottomLabel.textColor = tintColor
         textStack.isHidden = topText.isEmpty && bottomText.isEmpty
 
         if let symbolImage = NSImage(systemSymbolName: "aqi.medium.gauge.open", accessibilityDescription: "OpenPulse") {
             let iconPointSize = min(14, NSStatusBar.system.thickness - 6)
             iconView.image = symbolImage.withSymbolConfiguration(.init(pointSize: iconPointSize, weight: .medium))
-            iconView.contentTintColor = tintColor
         } else {
             iconView.image = nil
         }
 
+        updateColorsIfNeeded()
         invalidateIntrinsicContentSize()
         needsLayout = true
         layoutSubtreeIfNeeded()
+    }
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        statusButton = superview as? NSStatusBarButton
+        updateColorsIfNeeded()
+    }
+
+    override func viewWillDraw() {
+        super.viewWillDraw()
+        updateColorsIfNeeded()
+    }
+
+    override func layout() {
+        super.layout()
+        updateColorsIfNeeded()
     }
 
     private func setup() {
@@ -240,6 +255,22 @@ private final class StatusBarContentView: NSView {
                 .font: NSFont.monospacedSystemFont(ofSize: 8, weight: .semibold),
             ]
         )
+    }
+
+    private func updateColorsIfNeeded() {
+        let color = currentSystemTintColor()
+        guard lastAppliedTextColor != color else { return }
+        lastAppliedTextColor = color
+        topLabel.textColor = color
+        bottomLabel.textColor = color
+        iconView.contentTintColor = color
+    }
+
+    private func currentSystemTintColor() -> NSColor {
+        if statusButton?.cell?.isHighlighted == true {
+            return NSColor.alternateSelectedControlTextColor
+        }
+        return NSColor.labelColor
     }
 }
 
