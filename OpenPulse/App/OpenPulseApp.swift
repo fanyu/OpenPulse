@@ -37,6 +37,9 @@ final class StatusBarAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
     private let popover = NSPopover()
     private var refreshTimer: Timer?
     private var userDefaultsObserver: NSObjectProtocol?
+    private var lastSnapshot: StatusBarSnapshot?
+    private var localClickMonitor: Any?
+    private var globalClickMonitor: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let controller = NSHostingController(
@@ -92,6 +95,7 @@ final class StatusBarAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
     func applicationWillTerminate(_ notification: Notification) {
         refreshTimer?.invalidate()
         refreshTimer = nil
+        removeClickMonitors()
         if let userDefaultsObserver {
             NotificationCenter.default.removeObserver(userDefaultsObserver)
             self.userDefaultsObserver = nil
@@ -107,7 +111,9 @@ final class StatusBarAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
         if popover.isShown {
             popover.performClose(sender)
         } else {
+            refreshStatusItem(force: true)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            installClickMonitors()
             if let window = popover.contentViewController?.view.window {
                 GlobalHotkeyService.shared.registerMenuBarWindow(window)
             }
@@ -115,17 +121,83 @@ final class StatusBarAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
     }
 
     func popoverDidClose(_ notification: Notification) {
-        refreshStatusItem()
+        removeClickMonitors()
+        refreshStatusItem(force: true)
     }
 
-    private func refreshStatusItem() {
+    private func refreshStatusItem(force: Bool = false) {
         guard let button = statusItem?.button, let statusContentView else { return }
+        if popover.isShown && !force {
+            return
+        }
+
         let snapshot = StatusBarSnapshot.build(appStore: appStore)
+        if !force, snapshot == lastSnapshot {
+            return
+        }
+
         statusContentView.apply(snapshot: snapshot)
         button.title = ""
         button.attributedTitle = NSAttributedString(string: "")
         statusItem?.length = statusContentView.fittingSize.width
         button.needsLayout = true
+        lastSnapshot = snapshot
+    }
+
+    private func installClickMonitors() {
+        removeClickMonitors()
+
+        let mask: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        localClickMonitor = NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] event in
+            self?.handleOutsideClick(event)
+            return event
+        }
+        globalClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] event in
+            Task { @MainActor [weak self] in
+                self?.handleOutsideClick(event)
+            }
+        }
+    }
+
+    private func removeClickMonitors() {
+        if let localClickMonitor {
+            NSEvent.removeMonitor(localClickMonitor)
+            self.localClickMonitor = nil
+        }
+        if let globalClickMonitor {
+            NSEvent.removeMonitor(globalClickMonitor)
+            self.globalClickMonitor = nil
+        }
+    }
+
+    private func handleOutsideClick(_ event: NSEvent) {
+        guard popover.isShown else { return }
+        guard let button = statusItem?.button else {
+            popover.performClose(nil)
+            return
+        }
+
+        if let popoverWindow = popover.contentViewController?.view.window,
+           event.window === popoverWindow {
+            return
+        }
+
+        if let eventWindow = event.window {
+            let locationInWindow = event.locationInWindow
+            let locationInButton = button.convert(locationInWindow, from: nil)
+            if button.bounds.contains(locationInButton) {
+                return
+            }
+
+            if let popoverWindow = popover.contentViewController?.view.window {
+                let locationOnScreen = eventWindow.convertPoint(toScreen: locationInWindow)
+                if popoverWindow.frame.contains(locationOnScreen) {
+                    return
+                }
+            }
+        }
+
+        popover.performClose(nil)
     }
 }
 
@@ -178,7 +250,6 @@ private final class StatusBarContentView: NSView {
         updateColorsIfNeeded()
         invalidateIntrinsicContentSize()
         needsLayout = true
-        layoutSubtreeIfNeeded()
     }
 
     override func viewDidMoveToSuperview() {
@@ -274,7 +345,7 @@ private final class StatusBarContentView: NSView {
 }
 
 @MainActor
-private struct StatusBarSnapshot {
+private struct StatusBarSnapshot: Equatable {
     let lines: [String]
 
     static func build(appStore: AppStore) -> StatusBarSnapshot {
@@ -303,7 +374,7 @@ private struct StatusBarSnapshot {
 }
 
 @MainActor
-private struct StatusBarQuotaItem {
+private struct StatusBarQuotaItem: Equatable {
     let shortLabel: String
     let fiveHourText: String
     let sevenDayText: String
