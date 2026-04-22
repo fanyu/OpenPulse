@@ -89,6 +89,21 @@ struct PersistentDiagnosticEvent: Codable, Identifiable, Sendable {
 @Observable
 final class AppLogger {
     static let shared = AppLogger()
+    private static let maxPersistentDiagnosticLogBytes = 2 * 1024 * 1024
+    private static let maxPersistentSyncErrorLogBytes = 512 * 1024
+    private static let noisyDiagnosticScopes: Set<String> = [
+        "sync.skip",
+        "sync.tool.retry",
+        "sync.local.skip",
+        "sync.local.retry",
+        "sync.local.start",
+        "sync.local.finish",
+        "sync.tool.start",
+        "sync.tool.finish",
+        "sync.start",
+        "sync.finish",
+        "dot.text.push",
+    ]
 
     private(set) var entries: [LogEntry] = []
     private(set) var latestPersistentSyncError: PersistentSyncErrorEvent?
@@ -100,6 +115,8 @@ final class AppLogger {
     private init() {
         persistentSyncErrorLogURL = Self.makePersistentSyncErrorLogURL()
         persistentDiagnosticLogURL = Self.makePersistentDiagnosticLogURL()
+        trimLogFileIfNeeded(at: persistentSyncErrorLogURL, maxBytes: Self.maxPersistentSyncErrorLogBytes)
+        trimLogFileIfNeeded(at: persistentDiagnosticLogURL, maxBytes: Self.maxPersistentDiagnosticLogBytes)
         latestPersistentSyncError = Self.loadLatestPersistentSyncError(from: persistentSyncErrorLogURL)
     }
 
@@ -138,6 +155,7 @@ final class AppLogger {
     }
 
     func recordDiagnostic(level: LogLevel = .info, scope: String, message: String) {
+        guard shouldPersistDiagnostic(level: level, scope: scope) else { return }
         appendPersistentDiagnostic(
             PersistentDiagnosticEvent(date: Date(), level: level, scope: scope, message: message)
         )
@@ -156,6 +174,12 @@ final class AppLogger {
     private func appendJSONLine<T: Encodable>(_ value: T, to url: URL, failureScope: String) {
         do {
             try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            trimLogFileIfNeeded(
+                at: url,
+                maxBytes: url == persistentDiagnosticLogURL
+                    ? Self.maxPersistentDiagnosticLogBytes
+                    : Self.maxPersistentSyncErrorLogBytes
+            )
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
             var data = try encoder.encode(value)
@@ -171,6 +195,18 @@ final class AppLogger {
         } catch {
             log(.error, "Failed to persist \(failureScope) log: \(error.localizedDescription)")
         }
+    }
+
+    private func shouldPersistDiagnostic(level: LogLevel, scope: String) -> Bool {
+        if level != .info { return true }
+        return !Self.noisyDiagnosticScopes.contains(scope)
+    }
+
+    private func trimLogFileIfNeeded(at url: URL, maxBytes: Int) {
+        guard let attributes = try? fileManager.attributesOfItem(atPath: url.path),
+              let size = attributes[.size] as? NSNumber,
+              size.intValue > maxBytes else { return }
+        try? fileManager.removeItem(at: url)
     }
 
     private static func makePersistentSyncErrorLogURL() -> URL {

@@ -43,6 +43,12 @@ final class DataSyncService {
     private static let openCodeLocalRoots = [
         URL.homeDirectory.appending(path: ".local/share/opencode").path,
     ]
+    private static let openCodeInterestingPathFragments = [
+        "/opencode.db",
+        "/opencode.db-wal",
+        "/log/",
+        "/storage/session_diff/",
+    ]
 
     private(set) var isSyncing = false
     private(set) var lastSyncDate: Date?
@@ -240,10 +246,7 @@ final class DataSyncService {
 
     /// Sync a single tool and save. Used by per-tool timers.
     func sync(tool: Tool) async {
-        guard let runID = beginSyncRun(scope: "tool-sync:\(tool.rawValue)", allowStaleRecovery: false) else {
-            scheduleToolSyncRetry(for: tool)
-            return
-        }
+        guard let runID = beginSyncRun(scope: "tool-sync:\(tool.rawValue)", allowStaleRecovery: false) else { return }
         toolSyncRetryTasks[tool]?.cancel()
         toolSyncRetryTasks[tool] = nil
         syncError = nil
@@ -275,20 +278,6 @@ final class DataSyncService {
                 path: syncErrorPath(error),
                 details: syncErrorDetails(error)
             )
-        }
-    }
-
-    private func scheduleToolSyncRetry(for tool: Tool) {
-        guard toolSyncRetryTasks[tool] == nil else { return }
-        toolSyncRetryTasks[tool] = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(10))
-            guard !Task.isCancelled else { return }
-            self?.toolSyncRetryTasks[tool] = nil
-            AppLogger.shared.recordDiagnostic(
-                scope: "sync.tool.retry",
-                message: "\(tool.rawValue) retrying after skipped timer sync"
-            )
-            await self?.sync(tool: tool)
         }
     }
 
@@ -1088,7 +1077,9 @@ final class DataSyncService {
             // Debounce rapid file-change bursts (e.g. JSONL appends during active use)
             // into a single syncLocalFiles() call after 500 ms of silence.
             Task { @MainActor [weak self] in
-                self?.pendingLocalFilePaths.formUnion(changedPaths)
+                let filteredPaths = self?.filteredLocalChangePaths(changedPaths) ?? []
+                guard !filteredPaths.isEmpty else { return }
+                self?.pendingLocalFilePaths.formUnion(filteredPaths)
                 self?.fsDebounceTask?.cancel()
                 self?.fsDebounceTask = Task { [weak self] in
                     try? await Task.sleep(for: .milliseconds(500))
@@ -1098,6 +1089,15 @@ final class DataSyncService {
             }
         }
         fsEventStream?.start()
+    }
+
+    private func filteredLocalChangePaths(_ changedPaths: [String]) -> [String] {
+        changedPaths.filter { path in
+            if path.hasPrefix(Self.openCodeLocalRoots[0]) {
+                return Self.openCodeInterestingPathFragments.contains { path.contains($0) }
+            }
+            return true
+        }
     }
 }
 
