@@ -33,13 +33,13 @@ struct OpenPulseApp: App {
 final class StatusBarAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private let appStore = AppStore.shared
     private var statusItem: NSStatusItem?
-    private var statusContentView: StatusBarContentView?
     private let popover = NSPopover()
     private var refreshTimer: Timer?
     private var userDefaultsObserver: NSObjectProtocol?
     private var lastSnapshot: StatusBarSnapshot?
     private var localClickMonitor: Any?
     private var globalClickMonitor: Any?
+    private let imageRenderer = StatusBarImageRenderer()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let controller = NSHostingController(
@@ -61,17 +61,7 @@ final class StatusBarAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
             button.image = nil
             button.title = ""
             button.attributedTitle = NSAttributedString(string: "")
-            button.imagePosition = .imageLeading
-            let contentView = StatusBarContentView()
-            contentView.translatesAutoresizingMaskIntoConstraints = false
-            button.addSubview(contentView)
-            NSLayoutConstraint.activate([
-                contentView.leadingAnchor.constraint(equalTo: button.leadingAnchor),
-                contentView.trailingAnchor.constraint(equalTo: button.trailingAnchor),
-                contentView.topAnchor.constraint(equalTo: button.topAnchor),
-                contentView.bottomAnchor.constraint(equalTo: button.bottomAnchor),
-            ])
-            statusContentView = contentView
+            button.imagePosition = .imageOnly
             GlobalHotkeyService.shared.registerStatusBarButton(button)
         }
 
@@ -126,7 +116,7 @@ final class StatusBarAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
     }
 
     private func refreshStatusItem(force: Bool = false) {
-        guard let button = statusItem?.button, let statusContentView else { return }
+        guard let button = statusItem?.button else { return }
         if popover.isShown && !force {
             return
         }
@@ -136,11 +126,14 @@ final class StatusBarAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
             return
         }
 
-        statusContentView.apply(snapshot: snapshot)
+        let rendered = imageRenderer.render(snapshot: snapshot)
+        button.image = rendered.image
         button.title = ""
         button.attributedTitle = NSAttributedString(string: "")
-        statusItem?.length = statusContentView.fittingSize.width
-        button.needsLayout = true
+        let targetWidth = ceil(rendered.size.width)
+        if let statusItem, abs(statusItem.length - targetWidth) > 0.5 {
+            statusItem.length = targetWidth
+        }
         lastSnapshot = snapshot
     }
 
@@ -202,145 +195,57 @@ final class StatusBarAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
 }
 
 @MainActor
-private final class StatusBarContentView: NSView {
-    private let iconView = NSImageView()
-    private let topLabel = NSTextField(labelWithString: "")
-    private let bottomLabel = NSTextField(labelWithString: "")
-    private let textStack = NSStackView()
-    private let rootStack = NSStackView()
-    private weak var statusButton: NSStatusBarButton?
-    private var lastAppliedTextColor: NSColor?
+private struct StatusBarRenderedImage {
+    let image: NSImage
+    let size: NSSize
+}
 
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        setup()
-    }
+@MainActor
+private final class StatusBarImageRenderer {
+    private let iconSize = NSSize(width: 16, height: 16)
+    private let horizontalPadding: CGFloat = 8
+    private let spacing: CGFloat = 5
+    private let topFont = NSFont.monospacedSystemFont(ofSize: 8, weight: .semibold)
+    private let bottomFont = NSFont.monospacedSystemFont(ofSize: 8, weight: .semibold)
 
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        setup()
-    }
-
-    override var intrinsicContentSize: NSSize {
-        let hasText = !topLabel.stringValue.isEmpty || !bottomLabel.stringValue.isEmpty
-        let textWidth = max(
-            topLabel.attributedStringValue.size().width,
-            bottomLabel.attributedStringValue.size().width
-        )
-        let iconWidth: CGFloat = 16
-        let spacing: CGFloat = hasText ? 5 : 0
-        let width = 8 + iconWidth + spacing + (hasText ? ceil(textWidth) : 0) + 8
-        return NSSize(width: max(28, width), height: NSStatusBar.system.thickness)
-    }
-
-    func apply(snapshot: StatusBarSnapshot) {
-        let lines = snapshot.lines.prefix(2)
+    func render(snapshot: StatusBarSnapshot) -> StatusBarRenderedImage {
+        let lines = Array(snapshot.lines.prefix(2))
         let topText = lines[safe: 0] ?? ""
         let bottomText = lines[safe: 1] ?? ""
-        topLabel.attributedStringValue = lineString(topText)
-        bottomLabel.attributedStringValue = lineString(bottomText)
-        textStack.isHidden = topText.isEmpty && bottomText.isEmpty
+        let hasText = !topText.isEmpty || !bottomText.isEmpty
 
-        if let image = NSImage(named: "MenuBarIcon") {
-            iconView.image = image
-        } else {
-            iconView.image = nil
+        let topAttributes: [NSAttributedString.Key: Any] = [.font: topFont, .foregroundColor: NSColor.black]
+        let bottomAttributes: [NSAttributedString.Key: Any] = [.font: bottomFont, .foregroundColor: NSColor.black]
+        let topSize = (topText as NSString).size(withAttributes: topAttributes)
+        let bottomSize = (bottomText as NSString).size(withAttributes: bottomAttributes)
+        let textWidth = ceil(max(topSize.width, bottomSize.width))
+
+        let width = max(28, horizontalPadding + iconSize.width + (hasText ? spacing + textWidth : 0) + horizontalPadding)
+        let height = NSStatusBar.system.thickness
+        let image = NSImage(size: NSSize(width: width, height: height))
+        image.lockFocus()
+        defer { image.unlockFocus() }
+
+        let rect = NSRect(origin: .zero, size: image.size)
+        NSColor.clear.set()
+        rect.fill()
+
+        let iconOrigin = NSPoint(x: horizontalPadding, y: floor((rect.height - iconSize.height) / 2))
+        if let icon = NSImage(named: "MenuBarIcon") {
+            let iconRect = NSRect(origin: iconOrigin, size: iconSize)
+            icon.draw(in: iconRect, from: .zero, operation: .sourceOver, fraction: 1)
         }
 
-        updateColorsIfNeeded()
-        invalidateIntrinsicContentSize()
-        needsLayout = true
-    }
-
-    override func viewDidMoveToSuperview() {
-        super.viewDidMoveToSuperview()
-        statusButton = superview as? NSStatusBarButton
-        updateColorsIfNeeded()
-    }
-
-    override func viewWillDraw() {
-        super.viewWillDraw()
-        updateColorsIfNeeded()
-    }
-
-    override func layout() {
-        super.layout()
-        updateColorsIfNeeded()
-    }
-
-    private func setup() {
-        translatesAutoresizingMaskIntoConstraints = false
-
-        iconView.translatesAutoresizingMaskIntoConstraints = false
-        iconView.imageScaling = .scaleProportionallyDown
-        iconView.setContentHuggingPriority(.required, for: .horizontal)
-
-        configureLabel(topLabel)
-        configureLabel(bottomLabel)
-
-        textStack.orientation = .vertical
-        textStack.alignment = .leading
-        textStack.spacing = -2
-        textStack.translatesAutoresizingMaskIntoConstraints = false
-        textStack.addArrangedSubview(topLabel)
-        textStack.addArrangedSubview(bottomLabel)
-
-        rootStack.orientation = .horizontal
-        rootStack.alignment = .centerY
-        rootStack.spacing = 5
-        rootStack.edgeInsets = NSEdgeInsets(top: 1, left: 8, bottom: 1, right: 8)
-        rootStack.translatesAutoresizingMaskIntoConstraints = false
-        rootStack.addArrangedSubview(iconView)
-        rootStack.addArrangedSubview(textStack)
-
-        addSubview(rootStack)
-        NSLayoutConstraint.activate([
-            iconView.widthAnchor.constraint(equalToConstant: 16),
-            iconView.heightAnchor.constraint(equalToConstant: 16),
-            rootStack.leadingAnchor.constraint(equalTo: leadingAnchor),
-            rootStack.trailingAnchor.constraint(equalTo: trailingAnchor),
-            rootStack.topAnchor.constraint(equalTo: topAnchor),
-            rootStack.bottomAnchor.constraint(equalTo: bottomAnchor),
-            heightAnchor.constraint(equalToConstant: NSStatusBar.system.thickness),
-        ])
-    }
-
-    private func configureLabel(_ label: NSTextField) {
-        label.translatesAutoresizingMaskIntoConstraints = false
-        label.isBezeled = false
-        label.isBordered = false
-        label.drawsBackground = false
-        label.lineBreakMode = .byClipping
-        label.maximumNumberOfLines = 1
-        label.font = NSFont.monospacedSystemFont(ofSize: 8, weight: .semibold)
-        label.alignment = .left
-        label.setContentCompressionResistancePriority(.required, for: .horizontal)
-        label.setContentHuggingPriority(.required, for: .horizontal)
-    }
-
-    private func lineString(_ text: String) -> NSAttributedString {
-        NSAttributedString(
-            string: text,
-            attributes: [
-                .font: NSFont.monospacedSystemFont(ofSize: 8, weight: .semibold),
-            ]
-        )
-    }
-
-    private func updateColorsIfNeeded() {
-        let color = currentSystemTintColor()
-        guard lastAppliedTextColor != color else { return }
-        lastAppliedTextColor = color
-        topLabel.textColor = color
-        bottomLabel.textColor = color
-        iconView.contentTintColor = color
-    }
-
-    private func currentSystemTintColor() -> NSColor {
-        if statusButton?.cell?.isHighlighted == true {
-            return NSColor.alternateSelectedControlTextColor
+        if hasText {
+            let textX = horizontalPadding + iconSize.width + spacing
+            let topY = floor(rect.midY + 1)
+            let bottomY = floor(rect.midY - bottomSize.height - 1)
+            (topText as NSString).draw(at: NSPoint(x: textX, y: topY), withAttributes: topAttributes)
+            (bottomText as NSString).draw(at: NSPoint(x: textX, y: bottomY), withAttributes: bottomAttributes)
         }
-        return NSColor.labelColor
+
+        image.isTemplate = true
+        return StatusBarRenderedImage(image: image, size: NSSize(width: width, height: height))
     }
 }
 

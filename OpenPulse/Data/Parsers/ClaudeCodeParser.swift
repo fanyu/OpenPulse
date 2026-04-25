@@ -99,6 +99,11 @@ actor ClaudeCodeParser {
 
     // MARK: - Subscription quota
 
+    func hasLocalCredentialFile() -> Bool {
+        let credFile = claudeDir.appending(path: ".credentials.json")
+        return FileManager.default.fileExists(atPath: credFile.path)
+    }
+
     func readSubscriptionQuotaFromBridge(maxAge: TimeInterval = 15 * 60) async throws -> ToolQuota {
         guard FileManager.default.fileExists(atPath: statusCacheURL.path) else {
             throw ClaudeError.bridgeDataUnavailable
@@ -112,10 +117,13 @@ actor ClaudeCodeParser {
         }
 
         let usage = ClaudeUsageResponse(
-            fiveHour: payload.rateLimits.fiveHour,
-            sevenDay: payload.rateLimits.sevenDay,
+            fiveHour: payload.rateLimits?.fiveHour,
+            sevenDay: payload.rateLimits?.sevenDay,
             contextWindow: payload.contextWindow
         )
+        guard usage.fiveHour != nil || usage.sevenDay != nil else {
+            throw ClaudeError.bridgeRateLimitsMissing
+        }
         let remaining = usage.fiveHour?.utilization.map { Int((1.0 - $0 / 100.0) * 100) }
 
         return ToolQuota(
@@ -342,6 +350,7 @@ enum ClaudeError: Error, LocalizedError {
     case apiFailed(String)
     case bridgeDataUnavailable
     case bridgeDataStale
+    case bridgeRateLimitsMissing
 
     var errorDescription: String? {
         switch self {
@@ -353,6 +362,8 @@ enum ClaudeError: Error, LocalizedError {
             "Claude Code bridge has not received rate limit data yet."
         case .bridgeDataStale:
             "Claude Code bridge rate limit data is stale."
+        case .bridgeRateLimitsMissing:
+            "Claude Code bridge payload updated without usable rate limit windows."
         }
     }
 }
@@ -494,7 +505,7 @@ struct ClaudeContextWindow: Codable, Sendable {
 
 private struct ClaudeStatusBridgePayload: Decodable {
     let capturedAt: Int
-    let rateLimits: RateLimits
+    let rateLimits: RateLimits?
     let contextWindow: ClaudeContextWindow?
 
     enum CodingKeys: String, CodingKey {

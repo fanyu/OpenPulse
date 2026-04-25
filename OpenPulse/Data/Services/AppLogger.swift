@@ -103,6 +103,8 @@ final class AppLogger {
         "sync.start",
         "sync.finish",
         "dot.text.push",
+        "claude.quota.api.skip",
+        "codex.localQuota.skip",
     ]
 
     private(set) var entries: [LogEntry] = []

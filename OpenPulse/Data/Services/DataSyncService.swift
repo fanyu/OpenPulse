@@ -33,6 +33,8 @@ final class DataSyncService {
         URL.homeDirectory.appending(path: ".claude/projects").path,
         URL.homeDirectory.appending(path: ".config/claude/projects").path,
     ]
+    private static let claudeBridgeRoot = ClaudeCodeBridgeInstaller.cacheURL.deletingLastPathComponent().path
+    private static let claudeBridgeCachePath = ClaudeCodeBridgeInstaller.cacheURL.path
     private static let codexLocalRoots = [
         URL.homeDirectory.appending(path: ".codex/sessions").path,
     ]
@@ -320,7 +322,7 @@ final class DataSyncService {
         await syncClaudeQuota()
     }
 
-    private func syncClaudeQuota() async {
+    private func syncClaudeQuota(preferImmediateFallback: Bool = false) async {
         startPhase("claude.quota")
         // Restore last-known bridge data from disk so the UI can show the most recent Claude quota on launch.
         if latestClaudeUsage == nil,
@@ -344,12 +346,12 @@ final class DataSyncService {
             upsertQuota(quota)
         } catch {
             AppLogger.shared.warning("Claude bridge quota unavailable: \(error.localizedDescription)")
-            await syncClaudeQuotaFromAPIIfNeeded()
+            await syncClaudeQuotaFromAPIIfNeeded(preferImmediateFallback: preferImmediateFallback)
         }
         finishCurrentPhase()
     }
 
-    private func syncClaudeQuotaFromAPIIfNeeded() async {
+    private func syncClaudeQuotaFromAPIIfNeeded(preferImmediateFallback: Bool = false) async {
         let now = Date()
         let minimumInterval = effectiveSyncInterval(for: .claudeCode)
         if let lastClaudeAPIFetchAt,
@@ -469,15 +471,26 @@ final class DataSyncService {
             return
         }
 
-        guard let localRateLimitSnapshot = await codexParser.parseLatestRateLimitsSnapshot(),
-              shouldApplyLocalCodexRateLimits(
-                localRateLimitSnapshot,
-                accountCount: await codexAccountService.listAccounts().count
-              ) else {
+        let accountCount = await codexAccountService.listAccounts().count
+        guard let localRateLimitSnapshot = await codexParser.parseLatestRateLimitsSnapshot() else {
             AppLogger.shared.recordDiagnostic(
                 scope: "codex.localQuota.skip",
-                message: "local Codex rate limits skipped because source did not match current account selection"
+                message: "local Codex rate limits unavailable from session JSONL"
             )
+            return
+        }
+
+        if !shouldApplyLocalCodexRateLimits(localRateLimitSnapshot, accountCount: accountCount) {
+            startPhase("codex.localQuota.apiRefresh")
+            await codexAccountService.syncCurrentSelectionFromAuthFile()
+            latestCodexAccounts = await codexAccountService.refreshAllUsage(force: true)
+            removeStaleCodexQuotas(validAccountKeys: Set(latestCodexAccounts.map(\.accountID)))
+            try await upsertQuotas(latestCodexAccounts.map(\.quota), label: "codex.localQuota.apiRefresh")
+            AppLogger.shared.recordDiagnostic(
+                scope: "codex.localQuota.skip",
+                message: "local Codex rate limits skipped because source did not match current account selection; refreshed via API instead"
+            )
+            finishCurrentPhase()
             return
         }
         let localLimits = localRateLimitSnapshot.limits
@@ -606,9 +619,13 @@ final class DataSyncService {
         let shouldSyncCodex = activeTriggeredPaths.isEmpty || shouldSyncLocalTool(paths: activeTriggeredPaths, roots: Self.codexLocalRoots)
         let shouldSyncAntigravity = activeTriggeredPaths.isEmpty || shouldSyncLocalTool(paths: activeTriggeredPaths, roots: Self.antigravityLocalRoots)
         let shouldSyncOpenCode = activeTriggeredPaths.isEmpty || shouldSyncLocalTool(paths: activeTriggeredPaths, roots: Self.openCodeLocalRoots)
+        let shouldRefreshClaudeQuota = activeTriggeredPaths.contains(Self.claudeBridgeCachePath)
         do {
             if shouldSyncClaude {
                 try await parseClaudeFiles(since: since)
+            }
+            if shouldRefreshClaudeQuota {
+                await syncClaudeQuota(preferImmediateFallback: true)
             }
             if shouldSyncCodex {
                 try await parseCodexFiles(since: since)
@@ -987,6 +1004,7 @@ final class DataSyncService {
         }
     }
 
+
     // MARK: - Dot Text API
 
     private func scheduleDotTextQuotaPush(force: Bool) {
@@ -1069,6 +1087,7 @@ final class DataSyncService {
             URL.homeDirectory.appending(path: ".codex/sessions").path,
             URL.homeDirectory.appending(path: ".gemini/antigravity/brain").path,
             URL.homeDirectory.appending(path: ".local/share/opencode").path,
+            Self.claudeBridgeRoot,
         ].filter { FileManager.default.fileExists(atPath: $0) }
 
         AppLogger.shared.info("Watching paths: \(paths)")
@@ -1093,6 +1112,9 @@ final class DataSyncService {
 
     private func filteredLocalChangePaths(_ changedPaths: [String]) -> [String] {
         changedPaths.filter { path in
+            if path.hasPrefix(Self.claudeBridgeRoot) {
+                return path == Self.claudeBridgeCachePath
+            }
             if path.hasPrefix(Self.openCodeLocalRoots[0]) {
                 return Self.openCodeInterestingPathFragments.contains { path.contains($0) }
             }
