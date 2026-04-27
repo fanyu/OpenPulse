@@ -112,6 +112,9 @@ final class DataSyncService {
     private var dotTextAPIService = DotTextAPIService()
 
     private let modelContainer: ModelContainer
+    /// Dedicated read-only context for cheap lookups (hasStoredData, notifications).
+    /// Reused across calls to avoid repeated context allocation overhead.
+    private let readContext: ModelContext
 
     // Per-tool failure gates
     private var failureGates: [Tool: ConsecutiveFailureGate] = {
@@ -141,6 +144,9 @@ final class DataSyncService {
     init(modelContainer: ModelContainer, codexAccountService: CodexAccountService) {
         self.modelContainer = modelContainer
         self.codexAccountService = codexAccountService
+        let ctx = ModelContext(modelContainer)
+        ctx.autosaveEnabled = false
+        self.readContext = ctx
     }
 
     func start() {
@@ -234,6 +240,7 @@ final class DataSyncService {
     private func refreshClaudeCode(context: ModelContext) async throws {
         // 1. Parse local files off main thread
         let since = incrementalCutoff(for: .claudeCode)
+        let todayStart = Calendar.current.startOfDay(for: Date())
         let (sessions, cacheStats) = try await Task.detached(priority: .utility) {
             let sessions  = try await self.claudeParser.parseSessions(since: since)
             let stats     = (try? await self.claudeParser.parseDailyStatsFromCache()) ?? []
@@ -244,7 +251,21 @@ final class DataSyncService {
 
         // Merge cache stats with session-derived stats so today's tokens are always present.
         // stats-cache.json may not cover today yet; sessions are always fresh.
-        let mergedStats = mergeDailyStats(cacheStats, sessions: sessions, tool: .claudeCode)
+        var mergedStats = mergeDailyStats(cacheStats, sessions: sessions, tool: .claudeCode)
+
+        // If today still has no tokens after the merge (incremental cutoff may have skipped
+        // earlier sessions), do a full scan of today's sessions to fill the gap.
+        let todayHasTokens = mergedStats.contains {
+            $0.date == todayStart && ($0.totalInputTokens + $0.totalOutputTokens) > 0
+        }
+        if !todayHasTokens {
+            let todaySessions = try await Task.detached(priority: .utility) {
+                try await self.claudeParser.parseSessions(since: todayStart)
+            }.value
+            upsertSessions(todaySessions, context: context)
+            mergedStats = mergeDailyStats(mergedStats, sessions: todaySessions, tool: .claudeCode)
+        }
+
         mergedStats.forEach { upsertDailyStats($0, context: context) }
 
         // 2. Account info (cheap local read, do once or on first miss)
@@ -685,8 +706,7 @@ final class DataSyncService {
     private func hasStoredData(for tool: Tool) -> Bool {
         let toolRaw = tool.rawValue
         let desc = FetchDescriptor<QuotaRecord>(predicate: #Predicate { $0.toolRaw == toolRaw })
-        let ctx  = ModelContext(modelContainer)
-        return ((try? ctx.fetchCount(desc)) ?? 0) > 0
+        return ((try? readContext.fetchCount(desc)) ?? 0) > 0
     }
 
     private func hasCodexPlaceholderModels(context: ModelContext) -> Bool {
@@ -793,7 +813,7 @@ final class DataSyncService {
     private func pushDotTextSnapshot(force: Bool) async {
         let codexRaw  = Tool.codex.rawValue
         let claudeRaw = Tool.claudeCode.rawValue
-        let ctx  = ModelContext(modelContainer)
+        let ctx  = readContext
         let desc = FetchDescriptor<QuotaRecord>(predicate: #Predicate { $0.toolRaw == codexRaw || $0.toolRaw == claudeRaw })
         let fallback = (try? ctx.fetch(desc)) ?? []
         await dotTextAPIService.pushQuotaSnapshot(
@@ -817,7 +837,7 @@ final class DataSyncService {
         if let usage = latestClaudeUsage, let win = usage.fiveHour, let util = win.utilization {
             infos[Tool.claudeCode.rawValue] = .init(fraction: max(0, (100 - util) / 100), resetAt: win.resetDate)
         }
-        let ctx  = ModelContext(modelContainer)
+        let ctx  = readContext
         let desc = FetchDescriptor<QuotaRecord>()
         if let records = try? ctx.fetch(desc) {
             for r in records {

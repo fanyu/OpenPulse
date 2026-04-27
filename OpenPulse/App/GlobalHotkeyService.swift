@@ -4,12 +4,9 @@ import Carbon.HIToolbox
 /// Manages the global keyboard shortcut that toggles the OpenPulse menu bar popover.
 /// Singleton — call `applyFromDefaults()` once at launch, then use `startRecording()`
 /// in Settings to let the user pick a new shortcut.
-// Weak reference to the MenuBarExtra window, set by MenuBarWindowCapture on each open.
-// nonisolated(unsafe): always written/read on main thread, bypasses actor checks.
-nonisolated(unsafe) private var _menuBarWindow: NSWindow?
 
-// NSStatusBarButton captured at launch from MenuBarIcon label view hierarchy.
-// Used as a reliable fallback before the popover has ever been opened.
+// NSStatusBarButton captured at launch. Used as fallback if toggleHandler is not set.
+// nonisolated(unsafe): always written/read on main thread, bypasses actor checks.
 nonisolated(unsafe) private var _statusBarButton: NSStatusBarButton?
 
 @MainActor
@@ -18,6 +15,11 @@ final class GlobalHotkeyService {
     static let shared = GlobalHotkeyService()
 
     private(set) var isRecording = false
+
+    /// Injected by StatusBarAppDelegate at launch. Handles open/close via NSPopover.show().
+    var toggleHandler: (@MainActor () -> Void)?
+    /// Injected by StatusBarAppDelegate. Closes the popover if it is shown.
+    var closeHandler: (@MainActor () -> Void)?
 
     private var hotKeyRef: EventHotKeyRef?
     private var recordingMonitor: Any?
@@ -34,29 +36,19 @@ final class GlobalHotkeyService {
         }, 1, &spec, nil, nil)
     }
 
-    /// Called by MenuBarWindowCapture whenever the popover window appears.
-    nonisolated func registerMenuBarWindow(_ window: NSWindow) {
-        _menuBarWindow = window
-    }
-
-    /// Called by MenuBarButtonCapture at launch from the label view's superview chain.
+    /// Called by StatusBarAppDelegate at launch from the status bar button.
     nonisolated func registerStatusBarButton(_ button: NSStatusBarButton) {
         _statusBarButton = button
     }
 
     @MainActor private func toggle() {
-        if let window = _menuBarWindow {
-            if window.isVisible {
-                window.orderOut(nil)
-            } else {
-                NSApp.activate(ignoringOtherApps: true)
-                window.orderFront(nil)
-            }
+        if let handler = toggleHandler {
+            handler()
             return
         }
-        // Fallback before popover has ever been opened.
-        // Do NOT call NSApp.activate here — activating the app before performClick
-        // can cause the non-activating panel to open then immediately close.
+        // Fallback: delegate not yet set, simulate a click on the status bar button.
+        // Do NOT call NSApp.activate here — activating before performClick can cause
+        // the non-activating panel to open then immediately close.
         if let button = _statusBarButton {
             button.performClick(nil)
             return
@@ -66,7 +58,7 @@ final class GlobalHotkeyService {
     }
 
     @MainActor func closeMenuBar() {
-        _menuBarWindow?.orderOut(nil)
+        closeHandler?()
     }
 
     // MARK: - Registration

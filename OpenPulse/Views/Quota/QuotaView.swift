@@ -4,14 +4,15 @@ import SwiftData
 /// 配额页：展示各工具当前配额卡片 + 今日/累计用量汇总
 struct QuotaView: View {
     @Environment(AppStore.self) private var appStore
-    @Query(sort: \SessionRecord.startedAt, order: .reverse) private var sessions: [SessionRecord]
+    // Use DailyStatsRecord for token aggregates — much smaller fetch than all SessionRecords.
+    @Query private var dailyStats: [DailyStatsRecord]
     @Query private var quotas: [QuotaRecord]
 
     @State private var selectedTool: Tool? = nil
     @AppStorage("menubar.toolOrder") private var toolOrderRaw = Tool.defaultOrderRaw
     @AppStorage("menubar.hiddenTools") private var hiddenToolsRaw = ""
 
-    // Cached token aggregates — one pass over sessions instead of 11+ separate filters.
+    // Cached token aggregates — one pass over daily stats instead of all sessions.
     @State private var cachedTodayTokens: Int = 0
     @State private var cachedWeekTokens: Int = 0
     @State private var cachedTotalTokens: Int = 0
@@ -23,13 +24,14 @@ struct QuotaView: View {
         let weekAgo = Calendar.current.date(byAdding: .day, value: -7, to: today)!
         var todayMap: [Tool: Int] = [:]
         var todayTotal = 0, weekTotal = 0, total = 0
-        for s in sessions {
-            total += s.totalTokens
-            if s.startedAt >= weekAgo {
-                weekTotal += s.totalTokens
-                if s.startedAt >= today {
-                    todayTotal += s.totalTokens
-                    todayMap[s.tool, default: 0] += s.totalTokens
+        for stat in dailyStats {
+            let tokens = stat.totalInputTokens + stat.totalOutputTokens
+            total += tokens
+            if stat.date >= weekAgo {
+                weekTotal += tokens
+                if stat.date >= today {
+                    todayTotal += tokens
+                    todayMap[stat.tool, default: 0] += tokens
                 }
             }
         }
@@ -116,7 +118,7 @@ struct QuotaView: View {
         }
         .background(Color(NSColor.windowBackgroundColor))
         .task { rebuildTokenCache() }
-        .onChange(of: sessions.count) { _, _ in rebuildTokenCache() }
+        .onChange(of: dailyStats.count) { _, _ in rebuildTokenCache() }
         .navigationTitle("配额仪表盘")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {

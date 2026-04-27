@@ -104,12 +104,10 @@ struct MenuBarView: View {
             )
         case .antigravity:
             if let accounts = appStore.syncService?.latestAntigravityAccounts {
-                ForEach(accounts) { account in
-                    AntigravityAccountCard(
-                        account: account,
-                        todayTokens: todaySessionTokens(for: .antigravity)
-                    )
-                }
+                AntigravityMultiAccountCard(
+                    accounts: accounts,
+                    todayTokens: todaySessionTokens(for: .antigravity)
+                )
             } else if let fallback = quotas.first(where: { $0.tool == .antigravity }) {
                 AntigravityFallbackCard(
                     quota: fallback,
@@ -674,41 +672,82 @@ struct CopilotSnapshotRow: View {
 
 // MARK: - Antigravity
 
-struct AntigravityAccountCard: View {
-    let account: AGAccountQuota
+/// Top-level card: shared header (logo + title + ConfigShortcut + TodayTokenBadge),
+/// then one section per account separated by dividers — mirrors CodexMultiAccountQuotaCard.
+struct AntigravityMultiAccountCard: View {
+    let accounts: [AGAccountQuota]
     let todayTokens: Int
+
+    var body: some View {
+        VStack(spacing: 10) {
+            // Shared header
+            HStack(alignment: .center) {
+                ToolIconLabel(tool: .antigravity)
+                Spacer()
+                HStack(spacing: 8) {
+                    if todayTokens > 0 { TodayTokenBadge(tokens: todayTokens) }
+                    ConfigShortcutButton(tool: .antigravity)
+                }
+            }
+
+            // Per-account sections
+            VStack(spacing: 10) {
+                ForEach(accounts) { account in
+                    AntigravityAccountSection(account: account)
+                    if account.id != accounts.last?.id {
+                        Divider().opacity(0.25)
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .glassEffect(.regular, in: .rect(cornerRadius: 14))
+    }
+}
+
+/// Content for a single Antigravity account (email + model quota grid).
+/// No outer card chrome — used inside AntigravityMultiAccountCard.
+struct AntigravityAccountSection: View {
+    let account: AGAccountQuota
     @AppStorage("ag.hiddenModelIds") private var globalHiddenModelIdsRaw = ""
     @AppStorage("ag.hiddenAccountEmails") private var hiddenAccountEmailsRaw = ""
     @AppStorage("ag.syncModelConfig") private var syncModelConfig = true
-    private var hiddenIds: Set<String> { Set(effectiveHiddenModelIdsRaw.components(separatedBy: ",").filter { !$0.isEmpty }) }
-    private var effectiveHiddenModelIdsRaw: String { syncModelConfig ? globalHiddenModelIdsRaw : (UserDefaults.standard.string(forKey: "ag.hiddenModelIds.\(account.email)") ?? "") }
-    private var isAccountHidden: Bool { Set(hiddenAccountEmailsRaw.components(separatedBy: ",").filter { !$0.isEmpty }).contains(account.email) }
+
+    private var hiddenIds: Set<String> {
+        Set(effectiveHiddenModelIdsRaw.components(separatedBy: ",").filter { !$0.isEmpty })
+    }
+    private var effectiveHiddenModelIdsRaw: String {
+        syncModelConfig
+            ? globalHiddenModelIdsRaw
+            : (UserDefaults.standard.string(forKey: "ag.hiddenModelIds.\(account.email)") ?? "")
+    }
+    private var isAccountHidden: Bool {
+        Set(hiddenAccountEmailsRaw.components(separatedBy: ",").filter { !$0.isEmpty }).contains(account.email)
+    }
     private var visibleModels: [AGModelQuota] { account.models.filter { !hiddenIds.contains($0.id) } }
 
     var body: some View {
-        if isAccountHidden || (visibleModels.isEmpty && account.models.isEmpty) {
-            EmptyView()
-        } else {
-            VStack(spacing: 8) {
-                HStack(spacing: 6) {
-                    ToolLogoImage(tool: .antigravity, size: 18)
-                    HStack(spacing: 4) {
-                        Text(Tool.antigravity.displayName).font(.system(size: 13, weight: .bold, design: .rounded))
-                        Text("·").font(.system(size: 11, weight: .medium)).foregroundStyle(.tertiary)
-                        Text(account.email).font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
-                    }
-                    Spacer()
-                    HStack(spacing: 8) {
-                        ConfigShortcutButton(tool: .antigravity)
-                        if todayTokens > 0 { TodayTokenBadge(tokens: todayTokens) }
-                    }
-                }
+        if isAccountHidden { EmptyView() } else {
+            VStack(alignment: .leading, spacing: 8) {
+                // Account email row
+                Text(account.email)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                // Model quota grid
                 if visibleModels.isEmpty {
-                    Text("全部模型已隐藏").font(.system(size: 9)).foregroundStyle(.quaternary).frame(maxWidth: .infinity, alignment: .leading)
+                    Text("全部模型已隐藏")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.quaternary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 } else if visibleModels.count == 1 {
                     AntigravityModelRow(model: visibleModels[0])
                 } else {
-                    let pairs = stride(from: 0, to: visibleModels.count, by: 2).map { Array(visibleModels[$0..<min($0 + 2, visibleModels.count)]) }
+                    let pairs = stride(from: 0, to: visibleModels.count, by: 2)
+                        .map { Array(visibleModels[$0..<min($0 + 2, visibleModels.count)]) }
                     VStack(spacing: 5) {
                         ForEach(pairs, id: \.first?.id) { pair in
                             HStack(alignment: .top, spacing: 6) {
@@ -721,7 +760,6 @@ struct AntigravityAccountCard: View {
                     }
                 }
             }
-            .menuBarCardSurface()
         }
     }
 }
@@ -735,17 +773,16 @@ struct AntigravityFallbackCard: View {
                 ToolIconLabel(tool: .antigravity)
                 Spacer()
                 HStack(spacing: 8) {
-                    ConfigShortcutButton(tool: .antigravity)
                     if todayTokens > 0 { TodayTokenBadge(tokens: todayTokens) }
+                    ConfigShortcutButton(tool: .antigravity)
                 }
             }
             if let r = quota.remaining, let t = quota.total, t > 0 {
                 let frac = Double(r) / Double(t)
                 let pct = Int((frac * 100).rounded())
-                UnifiedQuotaRow(style: .compact, showUsedAtTop: true, 
-title: "Total Quota", fraction: frac, primaryValue: "\(pct)%", secondaryValue: nil, countdown: quota.toModel().resetCountdown)
+                UnifiedQuotaRow(style: .compact, showUsedAtTop: true,
+                    title: "Total Quota", fraction: frac, primaryValue: "\(pct)%", secondaryValue: nil, countdown: quota.toModel().resetCountdown)
             }
-
         }
         .menuBarCardSurface()
     }
@@ -856,10 +893,9 @@ private struct MenuBarWindowCapture: NSViewRepresentable {
 final class _MenuBarCaptureView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        guard let w = window else { return }
+        guard window != nil else { return }
         Task { @MainActor in
             AppLogger.shared.recordDiagnostic(scope: "menubar.open", message: "menu bar window attached")
         }
-        Task { @MainActor in GlobalHotkeyService.shared.registerMenuBarWindow(w) }
     }
 }

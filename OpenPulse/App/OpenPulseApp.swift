@@ -40,6 +40,7 @@ final class StatusBarAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
     private var localClickMonitor: Any?
     private var globalClickMonitor: Any?
     private let imageRenderer = StatusBarImageRenderer()
+    private var userDefaultsDebounceTask: Task<Void, Never>?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let controller = NSHostingController(
@@ -65,6 +66,10 @@ final class StatusBarAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
             GlobalHotkeyService.shared.registerStatusBarButton(button)
         }
 
+        // Inject handlers so the global hotkey uses the same NSPopover.show() path as clicking the icon.
+        GlobalHotkeyService.shared.toggleHandler = { [weak self] in self?.togglePopover(nil) }
+        GlobalHotkeyService.shared.closeHandler  = { [weak self] in self?.popover.performClose(nil) }
+
         refreshStatusItem()
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
@@ -76,7 +81,11 @@ final class StatusBarAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor [weak self] in
+            // Debounce: UserDefaults fires on every @AppStorage write; batch into one refresh.
+            self?.userDefaultsDebounceTask?.cancel()
+            self?.userDefaultsDebounceTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(300))
+                guard !Task.isCancelled else { return }
                 self?.refreshStatusItem()
             }
         }
@@ -85,6 +94,8 @@ final class StatusBarAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
     func applicationWillTerminate(_ notification: Notification) {
         refreshTimer?.invalidate()
         refreshTimer = nil
+        userDefaultsDebounceTask?.cancel()
+        userDefaultsDebounceTask = nil
         removeClickMonitors()
         if let userDefaultsObserver {
             NotificationCenter.default.removeObserver(userDefaultsObserver)
@@ -104,9 +115,6 @@ final class StatusBarAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
             refreshStatusItem(force: true)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             installClickMonitors()
-            if let window = popover.contentViewController?.view.window {
-                GlobalHotkeyService.shared.registerMenuBarWindow(window)
-            }
         }
     }
 

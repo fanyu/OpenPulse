@@ -322,7 +322,10 @@ actor ClaudeCodeParser {
         }
 
         guard let startDate = firstTimestamp else { return nil }
-        if let cutoff, startDate < cutoff { return nil }
+        // Note: file-level cutoff (modification date) is already applied by the caller.
+        // Do NOT re-filter by session startDate here — a session may have started before
+        // the cutoff but received new tokens today (cross-day session), in which case
+        // skipping it would cause today's tokens to be missed.
         if totalInput + totalOutput == 0 { return nil }  // skip empty sessions
         if model == "<synthetic>" { return nil }  // skip internal Claude Code sub-agent sessions
 
