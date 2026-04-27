@@ -234,14 +234,18 @@ final class DataSyncService {
     private func refreshClaudeCode(context: ModelContext) async throws {
         // 1. Parse local files off main thread
         let since = incrementalCutoff(for: .claudeCode)
-        let (sessions, dailyStats) = try await Task.detached(priority: .utility) {
+        let (sessions, cacheStats) = try await Task.detached(priority: .utility) {
             let sessions  = try await self.claudeParser.parseSessions(since: since)
             let stats     = (try? await self.claudeParser.parseDailyStatsFromCache()) ?? []
             return (sessions, stats)
         }.value
 
         upsertSessions(sessions, context: context)
-        dailyStats.forEach { upsertDailyStats($0, context: context) }
+
+        // Merge cache stats with session-derived stats so today's tokens are always present.
+        // stats-cache.json may not cover today yet; sessions are always fresh.
+        let mergedStats = mergeDailyStats(cacheStats, sessions: sessions, tool: .claudeCode)
+        mergedStats.forEach { upsertDailyStats($0, context: context) }
 
         // 2. Account info (cheap local read, do once or on first miss)
         if latestClaudeAccountInfo == nil {
@@ -596,8 +600,42 @@ final class DataSyncService {
         }
     }
 
-    private func upsertDailyStats(_ stats: DailyStats, context: ModelContext) {
-        let date    = stats.date
+    /// Merges cache-based daily stats with session-derived stats.
+    /// Cache stats are preferred for historical days; sessions fill gaps (especially today).
+    private func mergeDailyStats(_ cacheStats: [DailyStats], sessions: [ToolSession], tool: Tool) -> [DailyStats] {
+        let calendar = Calendar.current
+        // Aggregate sessions by day
+        var sessionMap: [Date: (input: Int, output: Int, cacheRead: Int, count: Int)] = [:]
+        for s in sessions {
+            let day = calendar.startOfDay(for: s.startedAt)
+            var entry = sessionMap[day] ?? (0, 0, 0, 0)
+            entry.input     += s.inputTokens
+            entry.output    += s.outputTokens
+            entry.cacheRead += s.cacheReadTokens
+            entry.count     += 1
+            sessionMap[day] = entry
+        }
+        // Start from cache stats
+        var resultMap: [Date: DailyStats] = Dictionary(uniqueKeysWithValues: cacheStats.map { ($0.date, $0) })
+        // Fill in / overwrite with session data for days where sessions have more tokens
+        for (day, agg) in sessionMap {
+            let existing = resultMap[day]
+            let existingTotal = (existing?.totalInputTokens ?? 0) + (existing?.totalOutputTokens ?? 0)
+            let sessionTotal  = agg.input + agg.output
+            if sessionTotal > existingTotal {
+                resultMap[day] = DailyStats(
+                    date: day, tool: tool,
+                    totalInputTokens: agg.input,
+                    totalOutputTokens: agg.output,
+                    totalCacheReadTokens: agg.cacheRead,
+                    sessionCount: agg.count
+                )
+            }
+        }
+        return resultMap.values.sorted { $0.date < $1.date }
+    }
+
+    private func upsertDailyStats(_ stats: DailyStats, context: ModelContext) {        let date    = stats.date
         let toolRaw = stats.tool.rawValue
         var desc = FetchDescriptor<DailyStatsRecord>(predicate: #Predicate { $0.date == date && $0.toolRaw == toolRaw })
         desc.fetchLimit = 1

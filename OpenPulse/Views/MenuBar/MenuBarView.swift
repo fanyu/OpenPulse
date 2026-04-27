@@ -322,6 +322,7 @@ struct ClaudeQuotaCard: View {
         .glassEffect(.regular, in: .rect(cornerRadius: 14))
     }
 
+    // TODO: surface off-peak multiplier badge in UI when ClaudeOffPeakBadge is re-added
     private var claudeOffPeakBadgeText: String? {
         var calendar = Calendar(identifier: .gregorian)
         guard let pacificTimeZone = TimeZone(identifier: "America/Los_Angeles") else { return nil }
@@ -353,36 +354,6 @@ struct ClaudeWindowRow: View {
             isMultiDay ? countdownString(to: date) : date.formatted(.dateTime.hour().minute())
         }
         UnifiedQuotaRow(style: .compact, showUsedAtTop: true, title: label, fraction: frac, primaryValue: remPct.map { "\($0)%" }, secondaryValue: usedPct.map { "\($0)% used" }, countdown: countdown)
-    }
-}
-
-private struct ClaudeOffPeakBadge: View {
-    let text: String
-
-    var body: some View {
-        Text(text)
-            .font(.system(size: 9, weight: .bold, design: .monospaced))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(
-                Capsule()
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color(red: 0.99, green: 0.56, blue: 0.16),
-                                Color(red: 0.93, green: 0.36, blue: 0.13),
-                            ],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-            )
-            .overlay(
-                Capsule()
-                    .stroke(Color.white.opacity(0.18), lineWidth: 0.6)
-            )
-            .shadow(color: Color.orange.opacity(0.22), radius: 6, y: 2)
     }
 }
 
@@ -449,7 +420,6 @@ struct CodexAccountQuotaCard: View {
                 }
                 Spacer(minLength: 8)
                 HStack(spacing: 6) {
-                    ConfigShortcutButton(tool: .codex)
                     if account.isCurrent {
                         Text("当前")
                             .font(.system(size: 9, weight: .bold))
@@ -494,26 +464,28 @@ struct CodexMultiAccountQuotaCard: View {
             HStack(alignment: .center) {
                 ToolIconLabel(tool: .codex)
                 Spacer()
-                ConfigShortcutButton(tool: .codex)
-                if codexSmartSwitchEnabled {
-                    Button("智能切换") {
-                        runSwitch(closeWhenNoDecision: false) {
-                            try await appStore.codexAccountService.smartSwitch()
+                HStack(spacing: 8) {
+                    if codexSmartSwitchEnabled {
+                        Button("智能切换") {
+                            runSwitch(closeWhenNoDecision: false) {
+                                try await appStore.codexAccountService.smartSwitch()
+                            }
                         }
-                    }
-                    .buttonStyle(
-                        ProminentActionButtonStyle(
-                            fillColor: Color.green.opacity(0.78),
-                            fontSizeOverride: 10,
-                            horizontalPaddingOverride: 7,
-                            verticalPaddingOverride: 2,
-                            cornerRadius: 8
+                        .buttonStyle(
+                            ProminentActionButtonStyle(
+                                fillColor: Color.green.opacity(0.78),
+                                fontSizeOverride: 10,
+                                horizontalPaddingOverride: 7,
+                                verticalPaddingOverride: 2,
+                                cornerRadius: 8
+                            )
                         )
-                    )
-                    .controlSize(.mini)
-                    .disabled(isSwitching)
+                        .controlSize(.mini)
+                        .disabled(isSwitching)
+                    }
+                    if todayTokens > 0 { TodayTokenBadge(tokens: todayTokens) }
+                    ConfigShortcutButton(tool: .codex)
                 }
-                if todayTokens > 0 { TodayTokenBadge(tokens: todayTokens) }
             }
 
             VStack(spacing: 10) {
@@ -670,8 +642,15 @@ struct CopilotQuotaCard: View {
                 let frac = Double(r) / Double(t)
                 let used = t - r
                 let pct = Int((frac * 100).rounded())
-                UnifiedQuotaRow(style: .compact, showUsedAtTop: true, 
-title: "Copilot", fraction: frac, primaryValue: "\(pct)%", secondaryValue: "\(used)/\(t)", countdown: q.toModel().resetCountdown)
+                UnifiedQuotaRow(style: .compact, showUsedAtTop: true,
+                    title: "Copilot", fraction: frac, primaryValue: "\(pct)%", secondaryValue: "\(used)/\(t)", countdown: q.toModel().resetCountdown)
+                if let resetAt = q.resetAt {
+                    Divider().opacity(0.3)
+                    HStack {
+                        Image(systemName: "arrow.clockwise.circle").font(.system(size: 9))
+                        Text("重置于 \(resetAt.formatted(.dateTime.month().day()))").font(.system(size: 9, weight: .medium))
+                    }.foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
         }
         .menuBarCardSurface()
@@ -722,7 +701,7 @@ struct AntigravityAccountCard: View {
                     HStack(spacing: 4) {
                         Text(Tool.antigravity.displayName).font(.system(size: 13, weight: .bold, design: .rounded))
                         Text("·").font(.system(size: 11, weight: .medium)).foregroundStyle(.tertiary)
-                        Text(account.email).font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                        Text(account.email).font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
                     }
                     Spacer()
                     HStack(spacing: 8) {
@@ -740,7 +719,7 @@ struct AntigravityAccountCard: View {
                         ForEach(pairs, id: \.first?.id) { pair in
                             HStack(alignment: .top, spacing: 6) {
                                 ForEach(pair, id: \.id) { model in
-                                    AntigravityModelCell(model: model).frame(maxWidth: .infinity)
+                                    AntigravityModelRow(model: model, inGrid: true).frame(maxWidth: .infinity)
                                 }
                                 if pair.count == 1 { Color.clear.frame(maxWidth: .infinity) }
                             }
@@ -778,29 +757,15 @@ title: "Total Quota", fraction: frac, primaryValue: "\(pct)%", secondaryValue: n
     }
 }
 
-struct AntigravityModelCell: View {
-    let model: AGModelQuota
-    var body: some View {
-        let pct = model.remainingFraction.map { Int(($0 * 100).rounded()) }
-        UnifiedQuotaRow(
-            style: .compact,
-            valuePlacement: .bottomLeading,
-            title: model.displayName,
-            fraction: model.remainingFraction,
-            primaryValue: pct.map { "\($0)%" },
-            secondaryValue: nil,
-            countdown: model.resetCountdown
-        )
-            .padding(.horizontal, 8).padding(.vertical, 6)
-            .background(Color.primary.opacity(0.04), in: .rect(cornerRadius: 7))
-    }
-}
-
+/// Shared quota row for a single Antigravity model.
+/// `inGrid: true` adds the cell background used in the two-column grid layout.
 struct AntigravityModelRow: View {
     let model: AGModelQuota
+    var inGrid: Bool = false
+
     var body: some View {
         let pct = model.remainingFraction.map { Int(($0 * 100).rounded()) }
-        UnifiedQuotaRow(
+        let row = UnifiedQuotaRow(
             style: .compact,
             valuePlacement: .bottomLeading,
             title: model.displayName,
@@ -809,6 +774,13 @@ struct AntigravityModelRow: View {
             secondaryValue: nil,
             countdown: model.resetCountdown
         )
+        if inGrid {
+            row
+                .padding(.horizontal, 8).padding(.vertical, 6)
+                .background(Color.primary.opacity(0.04), in: .rect(cornerRadius: 7))
+        } else {
+            row
+        }
     }
 }
 
@@ -870,7 +842,7 @@ struct OpenCodeQuotaCard: View {
                 }
             }
             if todayTokens == 0 {
-                Text("暂无数据").font(.system(size: 10)).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
+                Text("仅记录 token 用量，暂无会话数据").font(.system(size: 10)).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .padding(12)
