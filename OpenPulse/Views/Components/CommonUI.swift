@@ -453,6 +453,7 @@ struct UnifiedQuotaRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: spacing) {
             if valuePlacement == .bottomLeading {
+                // Used for Antigravity grid cells: title → value row → progress bar
                 Text(title)
                     .font(titleFont)
                     .foregroundStyle(style == .compact ? .secondary : .primary)
@@ -465,13 +466,13 @@ struct UnifiedQuotaRow: View {
                     }
                     if let c = countdown {
                         ResetCountdownLabel(countdown: c)
-                            .font(style == .compact ? nil : .system(size: 10, weight: .medium))
                     }
                     Spacer(minLength: 0)
                 }
 
                 QuotaProgressBar(fraction: fraction, color: quotaBarColor(fraction: fraction), height: barHeight)
             } else {
+                // Standard layout: title + primary value → progress bar → secondary + countdown
                 HStack(alignment: .firstTextBaseline) {
                     Text(title)
                         .font(titleFont)
@@ -479,26 +480,20 @@ struct UnifiedQuotaRow: View {
                         .lineLimit(1)
 
                     Spacer()
-
-                    HStack(spacing: 8) {
-                        if showUsedAtTop, let s = secondaryValue {
-                            Text(s).font(secondaryFont).foregroundStyle(.secondary).lineLimit(1)
-                        }
-                        primaryValueView
-                    }
+                    primaryValueView
                 }
 
                 QuotaProgressBar(fraction: fraction, color: quotaBarColor(fraction: fraction), height: barHeight)
 
-                if (!showUsedAtTop && secondaryValue != nil) || countdown != nil {
+                // Always show secondary (usage) and countdown below the bar on the same line
+                if secondaryValue != nil || countdown != nil {
                     HStack(alignment: .firstTextBaseline) {
-                        if !showUsedAtTop, let s = secondaryValue {
+                        if let s = secondaryValue {
                             Text(s).font(secondaryFont).foregroundStyle(.secondary).lineLimit(1)
                         }
                         Spacer()
                         if let c = countdown {
                             ResetCountdownLabel(countdown: c)
-                                .font(style == .compact ? nil : .system(size: 10, weight: .medium))
                         }
                     }
                 }
@@ -726,15 +721,11 @@ struct SubscriptionTag: View {
 
 struct ResetCountdownLabel: View {
     let countdown: String
-    
+
     var body: some View {
         HStack(spacing: 3) {
             Image(systemName: "clock.arrow.2.circlepath")
-            if countdown.contains("h") || countdown.contains("m") || countdown.contains("d") {
-                Text("\(countdown) 后重置")
-            } else {
-                Text("\(countdown) 重置")
-            }
+            Text("\(countdown) 重置")
         }
         .font(.system(size: 9, weight: .semibold))
         .foregroundStyle(.secondary)
@@ -764,16 +755,9 @@ func quotaBarColor(fraction: Double?) -> Color {
 }
 
 /// 把 Date 转成倒计时字符串，如 "3h 12m"
+/// Countdown string — delegates to resetDateString for consistent output.
 func countdownString(to date: Date) -> String {
-    let diff = date.timeIntervalSinceNow
-    guard diff > 0 else { return "即将重置" }
-    let totalMins = Int(diff / 60)
-    let days = totalMins / (60 * 24)
-    let hours = (totalMins % (60 * 24)) / 60
-    let mins = totalMins % 60
-    if days > 0 { return hours > 0 ? "\(days)d \(hours)h" : "\(days)d" }
-    if hours > 0 { return mins > 0 ? "\(hours)h \(mins)m" : "\(hours)h" }
-    return "\(max(1, mins))m"
+    resetDateString(for: date)
 }
 
 /// Static formatters — allocated once and reused across all renders.
