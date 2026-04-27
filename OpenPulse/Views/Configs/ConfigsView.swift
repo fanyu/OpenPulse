@@ -30,6 +30,23 @@ struct ConfigFile: Identifiable, Hashable {
         case .prompt: .purple
         }
     }
+
+    static func primaryConfig(for tool: Tool) -> ConfigFile? {
+        allConfigFiles.first {
+            $0.tool == tool && $0.kind == .config
+        }
+    }
+
+    var tool: Tool? {
+        switch toolName {
+        case "Codex": .codex
+        case "Claude Code": .claudeCode
+        case "OpenCode": .opencode
+        case "Antigravity": .antigravity
+        case "Copilot": .copilot
+        default: nil
+        }
+    }
 }
 
 // MARK: - Static catalog

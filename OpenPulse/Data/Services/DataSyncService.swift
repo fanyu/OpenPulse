@@ -1,1032 +1,767 @@
 import Foundation
 import SwiftData
 
-/// Orchestrates all parsers: FSEvents file watching + periodic polling.
+// MARK: - DataSyncService
+
+/// Orchestrates all parsers with:
+///   • Per-tool independent refresh (no global lock — tools run concurrently)
+///   • ConsecutiveFailureGate so transient errors don't flash-clear UI data
+///   • Heavy parsing work off MainActor via Task.detached(priority: .utility)
+///   • Per-category quota TTL so API-only tools (Copilot, AG quota) aren't called too often
+///   • FSEvents debounce + path filtering to avoid spurious re-parses
 @MainActor
 @Observable
 final class DataSyncService {
-    private struct SyncSourceError: LocalizedError {
-        let source: String
-        let path: String?
-        let underlying: Error
 
-        var errorDescription: String? { underlying.localizedDescription }
-    }
+    // MARK: - Public observable state
 
-    private enum SyncStateError: LocalizedError {
-        case stalled(seconds: Int)
+    /// Per-tool sync state (replacing single global isSyncing).
+    let states = SyncStateMap()
 
-        var errorDescription: String? {
-            switch self {
-            case .stalled(let seconds):
-                "同步已卡住超过 \(seconds) 秒，已允许重新刷新。"
-            }
-        }
-    }
-
-    private static let staleSyncThreshold: TimeInterval = 45
-    private static let upsertYieldBatchSize = 100
-    private static let localFileMinimumInterval: TimeInterval = 10
-    private static let localFileFailureBackoff: TimeInterval = 30
-    private static let localFilePathSilenceDuration: TimeInterval = 300
-    private static let claudeLocalRoots = [
-        URL.homeDirectory.appending(path: ".claude/projects").path,
-        URL.homeDirectory.appending(path: ".config/claude/projects").path,
-    ]
-    private static let claudeBridgeRoot = ClaudeCodeBridgeInstaller.cacheURL.deletingLastPathComponent().path
-    private static let claudeBridgeCachePath = ClaudeCodeBridgeInstaller.cacheURL.path
-    private static let codexLocalRoots = [
-        URL.homeDirectory.appending(path: ".codex/sessions").path,
-    ]
-    private static let codexAuthURL = URL.homeDirectory.appending(path: ".codex/auth.json")
-    private static let antigravityLocalRoots = [
-        URL.homeDirectory.appending(path: ".gemini/antigravity/brain").path,
-    ]
-    private static let openCodeLocalRoots = [
-        URL.homeDirectory.appending(path: ".local/share/opencode").path,
-    ]
-    private static let openCodeInterestingPathFragments = [
-        "/opencode.db",
-        "/opencode.db-wal",
-        "/log/",
-        "/storage/session_diff/",
-    ]
-
-    private(set) var isSyncing = false
-    private(set) var lastSyncDate: Date?
-    private(set) var syncError: Error?
-    private var syncStartedAt: Date?
-    private var activeSyncID: UUID?
-    private var currentSyncPhase: String?
-    private var currentSyncPhaseStartedAt: Date?
-    private var lastLocalFileSyncAt: Date?
-    private var localFileSyncBlockedUntil: Date = .distantPast
-    private var pendingLocalFilePaths: Set<String> = []
-    private var silencedLocalFailureKeys: [String: Date] = [:]
-
-    /// 最新的 Codex 多账户额度列表
+    /// Latest Codex multi-account snapshots.
     private(set) var latestCodexAccounts: [CodexAccountSnapshot] = []
 
-    /// 最新的 Claude 订阅配额响应（来自 Claude Code bridge status JSON）；无订阅时为 nil
+    /// Latest Claude subscription quota response (nil when no subscription).
     private(set) var latestClaudeUsage: ClaudeUsageResponse?
     private(set) var latestClaudeAccountInfo: ClaudeAccountInfo?
-    private var lastClaudeAPIFetchAt: Date?
 
-    /// 最新的 Antigravity 账号配额列表（每个账号含所有模型，推荐模型优先）
+    /// Latest Antigravity account quota list.
     private(set) var latestAntigravityAccounts: [AGAccountQuota]?
 
-    /// 最新的 Copilot quota snapshots（keyed by quota_id）
+    /// Latest Copilot quota snapshots keyed by quota_id.
     private(set) var latestCopilotSnapshots: [String: CopilotSnapshot]?
-
-    /// Copilot 账号配额重置日期（来自 quota_reset_date_utc）
     private(set) var latestCopilotResetAt: Date?
     private(set) var latestCopilotPlan: String?
 
-    private let claudeParser = ClaudeCodeParser()
-    private let codexParser = CodexParser()
-    private let codexAccountService: CodexAccountService
+    // MARK: - Configuration
+
+    /// Minimum seconds between API quota calls per tool. Parsing local files
+    /// is never rate-limited — only network API calls respect this TTL.
+    private static let quotaAPITTL: [Tool: TimeInterval] = [
+        .claudeCode:   600,    // Claude OAuth API — 10 min
+        .copilot:     3600,    // GitHub API — 1 hour
+        .antigravity:  600,    // Google API — 10 min
+    ]
+
+    // MARK: - SettingsView compatibility helpers
+
+    /// UserDefaults key for per-tool poll interval (used by SettingsView).
+    static func intervalKey(for tool: Tool) -> String { "syncInterval.\(tool.rawValue)" }
+
+    /// Default poll interval for a tool (used by SettingsView).
+    static func defaultInterval(for tool: Tool) -> Double {
+        defaultPollInterval[tool] ?? 600
+    }
+
+    /// Reschedule the poll timer for a single tool (called from SettingsView).
+    func rescheduleTimer(for tool: Tool, interval: Double) {
+        reschedulePollTimer(for: tool, interval: interval)
+    }
+
+    // MARK: - MenuBarView compatibility helpers
+
+    /// True when any tool is actively refreshing.
+    var isSyncingActive: Bool { Tool.allCases.contains { states[$0].isRefreshing } }
+
+    /// Most recent sync date across all tools.
+    var lastSyncDate: Date? { Tool.allCases.compactMap { states[$0].lastSyncDate }.max() }
+
+    /// First non-nil error message across all tools (for status indicator).
+    var syncError: String? { Tool.allCases.compactMap { states[$0].lastError }.first }
+
+    /// Refresh a single tool (called from MenuBarView after account switch).
+    func sync(tool: Tool) async { await refreshTool(tool) }
+
+    /// Refresh all tools (called from MenuBarView manual refresh button).
+    func sync() async { await refreshAll() }
+
+    /// Default background poll intervals per tool (seconds).
+    private static let defaultPollInterval: [Tool: TimeInterval] = [
+        .claudeCode:  1800,
+        .codex:        300,
+        .antigravity:  600,
+        .copilot:     3600,
+        .opencode:     300,
+    ]
+
+    /// Watched filesystem paths and which tool they belong to.
+    private static let fsWatchRoots: [(path: String, tool: Tool)] = [
+        (.homeDirectory + "/.claude/projects",            .claudeCode),
+        (.homeDirectory + "/.config/claude/projects",     .claudeCode),
+        (.homeDirectory + "/.codex/sessions",             .codex),
+        (.homeDirectory + "/.gemini/antigravity/brain",   .antigravity),
+        (.homeDirectory + "/.local/share/opencode",       .opencode),
+    ]
+
+    /// Claude Code bridge cache dir/file (triggers quota refresh, not session parse).
+    private static let claudeBridgeRoot: String = ClaudeCodeBridgeInstaller.cacheURL
+        .deletingLastPathComponent().path
+    private static let claudeBridgeCachePath: String = ClaudeCodeBridgeInstaller.cacheURL.path
+
+    /// OpenCode: only specific sub-paths are interesting.
+    private static let openCodeInterestingFragments = ["/opencode.db", "/opencode.db-wal", "/log/", "/storage/session_diff/"]
+
+    // MARK: - Private state
+
+    private let claudeParser  = ClaudeCodeParser()
+    private let codexParser   = CodexParser()
     private let antigravityParser = AntigravityParser()
     private let copilotClient = CopilotAPIClient()
     private let openCodeParser = OpenCodeParser()
+    private let codexAccountService: CodexAccountService
     private var dotTextAPIService = DotTextAPIService()
 
-    private var timers: [Tool: Timer] = [:]
-    private var toolSyncRetryTasks: [Tool: Task<Void, Never>] = [:]
+    private let modelContainer: ModelContainer
+
+    // Per-tool failure gates
+    private var failureGates: [Tool: ConsecutiveFailureGate] = {
+        Dictionary(uniqueKeysWithValues: Tool.allCases.map { ($0, ConsecutiveFailureGate()) })
+    }()
+
+    // Last successful API quota fetch time per tool (for TTL enforcement)
+    private var lastQuotaAPIFetchAt: [Tool: Date] = [:]
+
+    // Poll timers and background tasks
+    private var pollTimers: [Tool: Timer] = [:]
     private var fsEventStream: FSEventStream?
     private var fsDebounceTask: Task<Void, Never>?
-    private var localFileSyncRetryTask: Task<Void, Never>?
+    private var pendingFSPaths: Set<String> = []
+
+    // Tracks the last sync cutoff date used per-tool for incremental parsing
+    private var lastParsedAt: [Tool: Date] = [:]
+
+    // One-time flag: backfill Codex placeholder model names at most once per launch
+    private var codexBackfillDone = false
+
+    // Dot-text push debounce
     private var dotTextPushTask: Task<Void, Never>?
-    /// Set to true after the first Codex full scan completes. Prevents re-scanning
-    /// every FSEvents trigger when some sessions permanently lack JSONL model data.
-    private var codexBackfillDone: Bool = false
 
-    private let modelContainer: ModelContainer
-    private var modelContext: ModelContext
-
-    /// UserDefaults key for per-tool sync interval
-    static func intervalKey(for tool: Tool) -> String { "syncInterval.\(tool.rawValue)" }
-
-    /// Default intervals (seconds) per tool
-    static func defaultInterval(for tool: Tool) -> Double {
-        switch tool {
-        case .claudeCode:   1800
-        case .codex:         300   // has FSEvents, timer is coarse backup
-        case .antigravity:   600
-        case .copilot:      3600   // API-only, no FSEvents
-        case .opencode:      300   // has FSEvents, timer is coarse backup
-        }
-    }
+    // MARK: - Init / lifecycle
 
     init(modelContainer: ModelContainer, codexAccountService: CodexAccountService) {
         self.modelContainer = modelContainer
-        self.modelContext = DataSyncService.makeWriteContext(container: modelContainer)
         self.codexAccountService = codexAccountService
     }
 
-    // MARK: - Lifecycle
-
     func start() {
         purgeOrphanedQuotas()
-        for tool in Tool.allCases { scheduleTimer(for: tool) }
+        for tool in Tool.allCases { schedulePollTimer(for: tool) }
         startFSEventWatching()
         NotificationService.shared.requestPermission()
-        Task { await sync() }
-    }
-
-    /// Delete QuotaRecords whose toolRaw no longer maps to a known Tool case.
-    /// This cleans up stale records from tools that have since been removed.
-    private func purgeOrphanedQuotas() {
-        let known = Set(Tool.allCases.map(\.rawValue))
-        let descriptor = FetchDescriptor<QuotaRecord>()
-        guard let all = try? modelContext.fetch(descriptor) else { return }
-        for record in all where !known.contains(record.toolRaw) {
-            modelContext.delete(record)
-        }
-        try? modelContext.save()
-        rebuildWriteContext()
+        Task { await refreshAll() }
     }
 
     func stop() {
-        timers.values.forEach { $0.invalidate() }
-        timers.removeAll()
-        toolSyncRetryTasks.values.forEach { $0.cancel() }
-        toolSyncRetryTasks.removeAll()
-        localFileSyncRetryTask?.cancel()
-        localFileSyncRetryTask = nil
-        dotTextPushTask?.cancel()
-        dotTextPushTask = nil
+        pollTimers.values.forEach { $0.invalidate() }
+        pollTimers.removeAll()
         fsEventStream?.stop()
         fsEventStream = nil
+        fsDebounceTask?.cancel()
+        dotTextPushTask?.cancel()
     }
 
-    var isSyncingActive: Bool {
-        guard isSyncing, let syncStartedAt else { return false }
-        return Date().timeIntervalSince(syncStartedAt) < Self.staleSyncThreshold
-    }
+    // MARK: - Public refresh API
 
-    private func beginSyncRun(scope: String, allowStaleRecovery: Bool) -> UUID? {
-        if isSyncing {
-            guard let syncStartedAt else {
-                isSyncing = false
-                activeSyncID = nil
-                currentSyncPhase = nil
-                currentSyncPhaseStartedAt = nil
-                syncError = SyncStateError.stalled(seconds: Int(Self.staleSyncThreshold))
-                AppLogger.shared.error("Sync state reset: missing start time while marked syncing")
-                return nil
+    /// Refresh all tools concurrently. This is the primary entry point.
+    func refreshAll() async {
+        await withTaskGroup(of: Void.self) { group in
+            for tool in Tool.allCases {
+                group.addTask { await self.refreshTool(tool) }
             }
-
-            let elapsed = Date().timeIntervalSince(syncStartedAt)
-            if !allowStaleRecovery || elapsed < Self.staleSyncThreshold {
-                AppLogger.shared.recordDiagnostic(
-                    level: .info,
-                    scope: "sync.skip",
-                    message: "\(scope) skipped while another sync is active (\(Int(elapsed.rounded()))s)"
-                )
-                return nil
-            }
-
-            syncError = SyncStateError.stalled(seconds: Int(elapsed.rounded()))
-            AppLogger.shared.error("Previous sync considered stalled after \(Int(elapsed.rounded()))s; starting a new cycle for \(scope)")
         }
-
-        let runID = UUID()
-        activeSyncID = runID
-        syncStartedAt = Date()
-        isSyncing = true
-        return runID
+        scheduleDotTextPush(force: true)
+        checkQuotaNotifications()
     }
 
-    private func endSyncRun(_ runID: UUID) {
-        finishCurrentPhase()
-        if activeSyncID == runID {
-            isSyncing = false
-            syncStartedAt = nil
-            activeSyncID = nil
-            currentSyncPhase = nil
-            currentSyncPhaseStartedAt = nil
-        }
-    }
-
-    func sync() async {
-        guard let runID = beginSyncRun(scope: "full-sync", allowStaleRecovery: true) else { return }
-        syncError = nil
-        AppLogger.shared.info("Sync started at \(Date())")
-        AppLogger.shared.recordDiagnostic(scope: "sync.start", message: "full sync started")
-        defer { endSyncRun(runID) }
+    /// Refresh a single tool (called by per-tool timers and FSEvents).
+    func refreshTool(_ tool: Tool) async {
+        guard states[tool].beginRefresh() else { return }
+        defer { states[tool].endRefresh() }
 
         do {
-            try await syncClaudeCode()
-            try await syncCodex()
-            try await syncAntigravity()
-            await syncCopilot()
-            try await syncOpenCode()
-            try persistModelContext(scope: "full-sync", tool: nil)
-            syncError = nil
-            lastSyncDate = Date()
-            let count = (try? modelContext.fetchCount(FetchDescriptor<SessionRecord>())) ?? 0
-            AppLogger.shared.info("Sync completed. Total sessions in DB: \(count)")
-            if let syncStartedAt {
-                let elapsed = Date().timeIntervalSince(syncStartedAt)
-                AppLogger.shared.recordDiagnostic(scope: "sync.finish", message: "full sync finished in \(Int(elapsed.rounded()))s, sessions=\(count)")
-            }
-            checkQuotaNotifications()
-            scheduleDotTextQuotaPush(force: true)
+            try await performToolRefresh(tool)
+            states[tool].recordSuccess()
+            failureGates[tool]?.recordSuccess()
+            lastParsedAt[tool] = Date()
         } catch {
-            syncError = error
-            AppLogger.shared.error("Sync error: \(error)")
-            AppLogger.shared.recordSyncError(
-                scope: "full-sync",
-                tool: nil,
-                error: error,
-                source: syncErrorSource(error),
-                path: syncErrorPath(error),
-                details: syncErrorDetails(error)
-            )
+            let hasPriorData = hasStoredData(for: tool)
+            let shouldSurface = failureGates[tool]?.shouldSurfaceError(onFailureWithPriorData: hasPriorData) ?? true
+            if shouldSurface {
+                states[tool].recordError(error.localizedDescription)
+            } else {
+                // Suppress transient error — keep showing last-known data silently
+                states[tool].clearError()
+            }
+            AppLogger.shared.warning("[\(tool.rawValue)] refresh error (surfaced=\(shouldSurface)): \(error.localizedDescription)")
         }
     }
 
-    /// Sync a single tool and save. Used by per-tool timers.
-    func sync(tool: Tool) async {
-        guard let runID = beginSyncRun(scope: "tool-sync:\(tool.rawValue)", allowStaleRecovery: false) else { return }
-        toolSyncRetryTasks[tool]?.cancel()
-        toolSyncRetryTasks[tool] = nil
-        syncError = nil
-        AppLogger.shared.recordDiagnostic(scope: "sync.tool.start", message: "\(tool.rawValue) sync started")
-        defer { endSyncRun(runID) }
-        do {
-            switch tool {
-            case .claudeCode:   try await syncClaudeCode()
-            case .codex:        try await syncCodex()
-            case .antigravity:  try await syncAntigravity()
-            case .copilot:      await syncCopilot()
-            case .opencode:     try await syncOpenCode()
-            }
-            try persistModelContext(scope: "tool-sync:\(tool.rawValue)", tool: tool)
-            syncError = nil
-            lastSyncDate = Date()
-            AppLogger.shared.recordDiagnostic(scope: "sync.tool.finish", message: "\(tool.rawValue) sync finished")
-            if tool == .codex || tool == .claudeCode {
-                scheduleDotTextQuotaPush(force: true)
-            }
-        } catch {
-            syncError = error
-            AppLogger.shared.error("Sync error (\(tool.rawValue)): \(error)")
-            AppLogger.shared.recordSyncError(
-                scope: "tool-sync",
-                tool: tool,
-                error: error,
-                source: syncErrorSource(error),
-                path: syncErrorPath(error),
-                details: syncErrorDetails(error)
-            )
+    // MARK: - Per-tool timer control (public for settings pane)
+
+    func reschedulePollTimer(for tool: Tool, interval: Double) {
+        pollTimers[tool]?.invalidate()
+        schedulePollTimer(for: tool, override: interval)
+    }
+
+    func reschedulePollTimer(interval: Double) {
+        for tool in Tool.allCases { reschedulePollTimer(for: tool, interval: interval) }
+    }
+
+    // MARK: - Private: dispatch per tool
+
+    private func performToolRefresh(_ tool: Tool) async throws {
+        // All heavy parsing runs off MainActor so the UI stays responsive.
+        let context = makeWriteContext()
+
+        switch tool {
+        case .claudeCode:
+            try await refreshClaudeCode(context: context)
+        case .codex:
+            try await refreshCodex(context: context)
+        case .antigravity:
+            try await refreshAntigravity(context: context)
+        case .copilot:
+            try await refreshCopilot(context: context)
+        case .opencode:
+            try await refreshOpenCode(context: context)
         }
+
+        try context.save()
     }
 
-    func rescheduleTimer(for tool: Tool, interval: Double) {
-        timers[tool]?.invalidate()
-        scheduleTimer(for: tool, override: interval)
-    }
+    // MARK: - Claude Code
 
-    // MARK: - Per-tool sync
+    private func refreshClaudeCode(context: ModelContext) async throws {
+        // 1. Parse local files off main thread
+        let since = incrementalCutoff(for: .claudeCode)
+        let (sessions, dailyStats) = try await Task.detached(priority: .utility) {
+            let sessions  = try await self.claudeParser.parseSessions(since: since)
+            let stats     = (try? await self.claudeParser.parseDailyStatsFromCache()) ?? []
+            return (sessions, stats)
+        }.value
 
-    /// Parses Claude's local files only (stats-cache.json + JSONL). No network.
-    private func parseClaudeFiles(since: Date?) async throws {
-        startPhase("claude.local")
-        let cachedStats = (try? await claudeParser.parseDailyStatsFromCache()) ?? []
-        AppLogger.shared.info("ClaudeCode: parsed \(cachedStats.count) cached daily stats")
-        try await upsertDailyStats(cachedStats, label: "claude.dailyStats")
+        upsertSessions(sessions, context: context)
+        dailyStats.forEach { upsertDailyStats($0, context: context) }
 
-        let sessions = try await claudeParser.parseSessions(since: since)
-        AppLogger.shared.info("ClaudeCode: parsed \(sessions.count) sessions")
-        try await upsertSessions(sessions, label: "claude.sessions")
-        finishCurrentPhase()
-    }
-
-    /// Parses Antigravity's local markdown files only. No network.
-    private func parseAntigravityFiles(since: Date?) async throws {
-        startPhase("antigravity.local")
-        let sessions = try await antigravityParser.parseSessions(since: since)
-        AppLogger.shared.info("Antigravity: parsed \(sessions.count) sessions")
-        try await upsertSessions(sessions, label: "antigravity.sessions")
-        finishCurrentPhase()
-    }
-
-    /// Full Claude sync: local files + Claude Code bridge quota cache.
-    private func syncClaudeCode() async throws {
-        let since = lastSyncDate.map { Calendar.current.date(byAdding: .hour, value: -1, to: $0)! }
-        try await parseClaudeFiles(since: since)
+        // 2. Account info (cheap local read, do once or on first miss)
         if latestClaudeAccountInfo == nil {
             latestClaudeAccountInfo = await claudeParser.readAccountInfo()
         }
-        await syncClaudeQuota()
+
+        // 3. Quota — prefer bridge cache, fall back to API (with TTL)
+        await refreshClaudeQuota(context: context)
     }
 
-    private func syncClaudeQuota(preferImmediateFallback: Bool = false) async {
-        startPhase("claude.quota")
-        // Restore last-known bridge data from disk so the UI can show the most recent Claude quota on launch.
-        if latestClaudeUsage == nil,
-           let cached = UserDefaults.standard.data(forKey: "cached.claudeUsageData"),
-           let restored = try? JSONDecoder().decode(ClaudeUsageResponse.self, from: cached) {
-            latestClaudeUsage = restored
-            // Also keep SwiftData QuotaRecord in sync with the cached data
-            // so the card's fallback path has something to show even when latestClaudeUsage
-            // later gets cleared (e.g. after app restart where cache decode fails).
-            upsertQuota(toolQuota(from: restored))
+    private func refreshClaudeQuota(context: ModelContext) async {
+        // Restore persisted quota on first run so UI isn't empty at launch
+        if latestClaudeUsage == nil, let cached = restoredClaudeUsageCache() {
+            latestClaudeUsage = cached
+            upsertQuota(toolQuotaFromClaudeUsage(cached), context: context)
         }
 
+        // Try bridge cache first (zero network cost)
         do {
             let quota = try await claudeParser.readSubscriptionQuotaFromBridge()
             if let usage = quota.raw as? ClaudeUsageResponse {
                 latestClaudeUsage = usage
-                if let data = try? JSONEncoder().encode(usage) {
-                    UserDefaults.standard.set(data, forKey: "cached.claudeUsageData")
-                }
+                persistClaudeUsageCache(usage)
             }
-            upsertQuota(quota)
-        } catch {
-            AppLogger.shared.warning("Claude bridge quota unavailable: \(error.localizedDescription)")
-            await syncClaudeQuotaFromAPIIfNeeded(preferImmediateFallback: preferImmediateFallback)
-        }
-        finishCurrentPhase()
-    }
-
-    private func syncClaudeQuotaFromAPIIfNeeded(preferImmediateFallback: Bool = false) async {
-        let now = Date()
-        let minimumInterval = effectiveSyncInterval(for: .claudeCode)
-        if let lastClaudeAPIFetchAt,
-           now.timeIntervalSince(lastClaudeAPIFetchAt) < minimumInterval {
-            AppLogger.shared.recordDiagnostic(
-                level: .info,
-                scope: "claude.quota.api.skip",
-                message: "Claude API fallback throttled for \(Int((minimumInterval - now.timeIntervalSince(lastClaudeAPIFetchAt)).rounded()))s"
-            )
+            upsertQuota(quota, context: context)
             return
+        } catch {
+            AppLogger.shared.info("[claude] bridge quota unavailable: \(error.localizedDescription); checking API TTL")
         }
 
+        // API fallback — respect TTL
+        guard isQuotaAPIEligible(for: .claudeCode) else { return }
         do {
             let quota = try await claudeParser.fetchSubscriptionQuota()
-            lastClaudeAPIFetchAt = now
+            lastQuotaAPIFetchAt[.claudeCode] = Date()
             if let usage = quota.raw as? ClaudeUsageResponse {
                 latestClaudeUsage = usage
-                if let data = try? JSONEncoder().encode(usage) {
-                    UserDefaults.standard.set(data, forKey: "cached.claudeUsageData")
-                }
+                persistClaudeUsageCache(usage)
             }
-            upsertQuota(quota)
-            AppLogger.shared.info("Claude quota refreshed via API fallback")
+            upsertQuota(quota, context: context)
         } catch {
-            lastClaudeAPIFetchAt = now
-            AppLogger.shared.warning("Claude API quota fallback failed: \(error.localizedDescription)")
+            lastQuotaAPIFetchAt[.claudeCode] = Date()
+            AppLogger.shared.warning("[claude] API quota failed: \(error.localizedDescription)")
         }
     }
 
-    /// Build a ToolQuota from a ClaudeUsageResponse.
-    private func toolQuota(from usage: ClaudeUsageResponse) -> ToolQuota {
-        let fiveHour = usage.fiveHour
-        let remaining = fiveHour.map { Int((1.0 - ($0.utilization ?? 0) / 100.0) * 100) }
-        let resetAt = fiveHour?.resetDate
-        return ToolQuota(
-            id: Tool.claudeCode.rawValue, tool: .claudeCode,
-            accountKey: nil, accountLabel: nil,
-            remaining: remaining, total: 100,
-            unit: .messages, resetAt: resetAt, updatedAt: Date(),
-            raw: usage
-        )
-    }
+    // MARK: - Codex
 
-    private func syncCodex() async throws {
-        let since = lastSyncDate.map { Calendar.current.date(byAdding: .hour, value: -1, to: $0)! }
-        try await parseCodexFiles(since: since)
-        let localRateLimitSnapshot = await codexParser.parseLatestRateLimitsSnapshot()
-        let localLimits = localRateLimitSnapshot?.limits
-        let smartSwitchEnabled = UserDefaults.standard.bool(forKey: "codex.smartSwitch.enabled")
+    private func refreshCodex(context: ModelContext) async throws {
+        // 1. Parse local sessions + daily stats off main thread
+        let since = incrementalCutoff(for: .codex)
+        let needsBackfill = !codexBackfillDone && hasCodexPlaceholderModels(context: context)
+        let effectiveSince: Date? = needsBackfill ? nil : since
+        if needsBackfill { codexBackfillDone = true }
 
-        startPhase("codex.accounts")
+        let (sessions, dailyStats, rateLimitSnapshot) = try await Task.detached(priority: .utility) {
+            let sessions = try await self.codexParser.parseSessions(since: effectiveSince)
+            let stats    = try await self.codexParser.parseDailyStats(since: since)
+            let rl       = await self.codexParser.parseLatestRateLimitsSnapshot()
+            return (sessions, stats, rl)
+        }.value
+
+        upsertSessions(sessions, context: context)
+        dailyStats.forEach { upsertDailyStats($0, context: context) }
+
+        // 2. Account sync + quota
         await codexAccountService.syncCurrentSelectionFromAuthFile()
-        let knownCodexAccountCount = await codexAccountService.listAccounts().count
-        let accounts: [CodexAccountSnapshot]
-        if !smartSwitchEnabled,
-           let localRateLimitSnapshot,
-           shouldApplyLocalCodexRateLimits(localRateLimitSnapshot, accountCount: knownCodexAccountCount) {
-            _ = await codexAccountService.applyLocalRateLimitsToCurrentAccount(localRateLimitSnapshot.limits)
+        let smartSwitch = UserDefaults.standard.bool(forKey: "codex.smartSwitch.enabled")
+        let knownCount  = await codexAccountService.listAccounts().count
+
+        var accounts: [CodexAccountSnapshot]
+        if !smartSwitch,
+           let snapshot = rateLimitSnapshot,
+           shouldPreferLocalCodexLimits(snapshot, accountCount: knownCount)
+        {
+            _ = await codexAccountService.applyLocalRateLimitsToCurrentAccount(snapshot.limits)
             accounts = await codexAccountService.refreshStaleUsage(excludingCurrentAccount: true)
-            AppLogger.shared.info("Codex: using local rate limits from session JSONL")
         } else {
             accounts = await codexAccountService.refreshAllUsage()
         }
 
-        if smartSwitchEnabled,
-           let decision = try? await codexAccountService.autoSmartSwitchIfNeeded(accounts: accounts) {
-            AppLogger.shared.warning(
-                "Codex auto switch -> \(decision.account.titleText)\(decision.usedCLIFallback ? " (CLI fallback)" : "")"
-            )
-            latestCodexAccounts = await codexAccountService.listAccounts()
-        } else {
-            if !smartSwitchEnabled,
-               let localRateLimitSnapshot,
-               shouldApplyLocalCodexRateLimits(localRateLimitSnapshot, accountCount: accounts.count) {
-                latestCodexAccounts = await codexAccountService.applyLocalRateLimitsToCurrentAccount(localRateLimitSnapshot.limits)
-                AppLogger.shared.recordDiagnostic(
-                    scope: "codex.localQuota.preferred",
-                    message: "preferred local current-account rate limits after account refresh"
-                )
-            } else {
-                latestCodexAccounts = accounts
-            }
+        // Auto smart-switch
+        if smartSwitch,
+           let decision = try? await codexAccountService.autoSmartSwitchIfNeeded(accounts: accounts)
+        {
+            AppLogger.shared.warning("[codex] auto switch → \(decision.account.titleText)\(decision.usedCLIFallback ? " (CLI)" : "")")
+            accounts = await codexAccountService.listAccounts()
+        } else if !smartSwitch,
+                  let snapshot = rateLimitSnapshot,
+                  shouldPreferLocalCodexLimits(snapshot, accountCount: accounts.count)
+        {
+            accounts = await codexAccountService.applyLocalRateLimitsToCurrentAccount(snapshot.limits)
         }
-        removeStaleCodexQuotas(validAccountKeys: Set(latestCodexAccounts.map(\.accountID)))
-        try await upsertQuotas(latestCodexAccounts.map(\.quota), label: "codex.quotas")
-        finishCurrentPhase()
 
-        if latestCodexAccounts.isEmpty, let limits = localLimits, isUsableCodexLocalRateLimits(limits) {
-            startPhase("codex.fallbackQuota")
-            let quota = ToolQuota(
-                id: Tool.codex.rawValue,
-                tool: .codex,
-                accountKey: nil,
-                accountLabel: nil,
+        latestCodexAccounts = accounts
+        removeStaleCodexQuotas(validAccountKeys: Set(accounts.map(\.accountID)), context: context)
+        accounts.map(\.quota).forEach { upsertQuota($0, context: context) }
+
+        // Fallback quota from local rate limits when API returned nothing
+        if accounts.isEmpty,
+           let limits = rateLimitSnapshot?.limits,
+           isUsableCodexLimits(limits)
+        {
+            let fallback = ToolQuota(
+                id: Tool.codex.rawValue, tool: .codex,
+                accountKey: nil, accountLabel: nil,
                 remaining: limits.fiveHourWindow.map { Int($0.remainingPercent) },
-                total: 100,
-                unit: .tokens,
+                total: 100, unit: .tokens,
                 resetAt: limits.fiveHourWindow?.resetDate,
-                updatedAt: Date(),
-                raw: limits
+                updatedAt: Date(), raw: limits
             )
-            upsertQuota(quota)
-            finishCurrentPhase()
+            upsertQuota(fallback, context: context)
         }
     }
 
-    private func syncCodexLocalQuotaIfNeeded(triggeredPaths: [String]) async throws {
-        let shouldRefreshCodexQuota = triggeredPaths.contains { $0.contains("/.codex/") }
-        guard shouldRefreshCodexQuota else { return }
+    // MARK: - Antigravity
 
-        let smartSwitchEnabled = UserDefaults.standard.bool(forKey: "codex.smartSwitch.enabled")
-        guard !smartSwitchEnabled else {
-            AppLogger.shared.recordDiagnostic(
-                scope: "codex.localQuota.skip",
-                message: "local Codex quota skipped while smart switch is enabled"
-            )
-            return
-        }
+    private func refreshAntigravity(context: ModelContext) async throws {
+        // 1. Parse local markdown files
+        let since = incrementalCutoff(for: .antigravity)
+        let sessions = try await Task.detached(priority: .utility) {
+            try await self.antigravityParser.parseSessions(since: since)
+        }.value
+        upsertSessions(sessions, context: context)
 
-        let accountCount = await codexAccountService.listAccounts().count
-        guard let localRateLimitSnapshot = await codexParser.parseLatestRateLimitsSnapshot() else {
-            AppLogger.shared.recordDiagnostic(
-                scope: "codex.localQuota.skip",
-                message: "local Codex rate limits unavailable from session JSONL"
-            )
-            return
-        }
-
-        if !shouldApplyLocalCodexRateLimits(localRateLimitSnapshot, accountCount: accountCount) {
-            startPhase("codex.localQuota.apiRefresh")
-            await codexAccountService.syncCurrentSelectionFromAuthFile()
-            latestCodexAccounts = await codexAccountService.refreshAllUsage(force: true)
-            removeStaleCodexQuotas(validAccountKeys: Set(latestCodexAccounts.map(\.accountID)))
-            try await upsertQuotas(latestCodexAccounts.map(\.quota), label: "codex.localQuota.apiRefresh")
-            AppLogger.shared.recordDiagnostic(
-                scope: "codex.localQuota.skip",
-                message: "local Codex rate limits skipped because source did not match current account selection; refreshed via API instead"
-            )
-            finishCurrentPhase()
-            return
-        }
-        let localLimits = localRateLimitSnapshot.limits
-
-        startPhase("codex.localQuota")
-        await codexAccountService.syncCurrentSelectionFromAuthFile()
-        latestCodexAccounts = await codexAccountService.applyLocalRateLimitsToCurrentAccount(localLimits)
-        removeStaleCodexQuotas(validAccountKeys: Set(latestCodexAccounts.map(\.accountID)))
-        try await upsertQuotas(latestCodexAccounts.map(\.quota), label: "codex.localQuota")
-        AppLogger.shared.recordDiagnostic(
-            scope: "codex.localQuota",
-            message: "updated Codex quota from local session JSONL"
-        )
-        finishCurrentPhase()
-    }
-
-    private func isUsableCodexLocalRateLimits(_ limits: CodexRateLimits) -> Bool {
-        [limits.fiveHourWindow, limits.oneWeekWindow]
-            .compactMap(\.?.resetDate)
-            .contains { $0 > Date() }
-    }
-
-    private func shouldApplyLocalCodexRateLimits(
-        _ snapshot: CodexParser.LocalRateLimitSnapshot,
-        accountCount: Int
-    ) -> Bool {
-        guard isUsableCodexLocalRateLimits(snapshot.limits) else { return false }
-        // Local session JSONL files do not carry a stable account identifier, so
-        // "most recently modified file" becomes ambiguous once multiple Codex
-        // accounts have been used on the same machine. In that case we only trust
-        // per-account API refresh results and never let local rate limits override
-        // the selected account.
-        guard accountCount <= 1 else { return false }
-        return true
-    }
-
-    private func parseCodexFiles(since: Date?) async throws {
-        startPhase("codex.local")
-
-        // Full scan to backfill placeholder model names — done at most once per launch.
-        // After the scan (even if some records remain un-fixable), we stop forcing full
-        // scans so that FSEvents-triggered syncs don't re-scan thousands of sessions.
-        let needsBackfill = !codexBackfillDone && hasCodexPlaceholderModels()
-        let effectiveSince: Date? = needsBackfill ? nil : since
-        if needsBackfill { codexBackfillDone = true }
-
-        let sessions = try await codexParser.parseSessions(since: effectiveSince)
-        AppLogger.shared.info("Codex: parsed \(sessions.count) sessions (fullScan=\(needsBackfill))")
-        try await upsertSessions(sessions, label: "codex.sessions")
-
-        let stats = try await codexParser.parseDailyStats(since: since)
-        try await upsertDailyStats(stats, label: "codex.dailyStats")
-        finishCurrentPhase()
-    }
-
-    /// Full Antigravity sync: local markdown files + Google OAuth quota API.
-    private func syncAntigravity() async throws {
-        let since = lastSyncDate.map { Calendar.current.date(byAdding: .hour, value: -1, to: $0)! }
-        try await parseAntigravityFiles(since: since)
-
+        // 2. Quota API — TTL-gated
+        guard isQuotaAPIEligible(for: .antigravity) else { return }
         do {
-            startPhase("antigravity.quota")
             let quota = try await antigravityParser.fetchQuota()
+            lastQuotaAPIFetchAt[.antigravity] = Date()
             if let accounts = quota.raw as? [AGAccountQuota] {
                 latestAntigravityAccounts = accounts
             }
-            upsertQuota(quota)
-            finishCurrentPhase()
+            upsertQuota(quota, context: context)
         } catch {
-            AppLogger.shared.warning("Antigravity quota skipped: \(error.localizedDescription)")
-            finishCurrentPhase()
+            lastQuotaAPIFetchAt[.antigravity] = Date()
+            AppLogger.shared.warning("[antigravity] quota failed: \(error.localizedDescription)")
         }
     }
 
-    /// Local-files-only sync — called by FSEvents on every file change.
-    /// Parses JSONL/SQLite/markdown but never touches any network API,
-    /// so frequent file writes during active use can't trigger rate limits.
-    private func syncLocalFiles() async {
-        let now = Date()
-        pruneExpiredSilencedLocalFailures(referenceDate: now)
-        let triggeredPaths = pendingLocalFilePaths.sorted()
-        let activeTriggeredPaths = triggeredPaths.filter { !isSilencedLocalFailureKey($0, referenceDate: now) }
-        if !triggeredPaths.isEmpty, activeTriggeredPaths.isEmpty {
-            pendingLocalFilePaths.subtract(triggeredPaths)
-            AppLogger.shared.recordDiagnostic(
-                level: .info,
-                scope: "sync.local.skip",
-                message: "all triggered paths silenced for \(Int(Self.localFilePathSilenceDuration / 60))m"
-            )
-            return
-        }
-        if now < localFileSyncBlockedUntil {
-            scheduleLocalFileSyncRetry(after: localFileSyncBlockedUntil.timeIntervalSince(now))
-            AppLogger.shared.recordDiagnostic(
-                level: .info,
-                scope: "sync.local.skip",
-                message: "local file sync blocked for \(Int(localFileSyncBlockedUntil.timeIntervalSince(now).rounded()))s"
-            )
-            return
-        }
-        if let lastLocalFileSyncAt,
-           now.timeIntervalSince(lastLocalFileSyncAt) < Self.localFileMinimumInterval {
-            scheduleLocalFileSyncRetry(after: Self.localFileMinimumInterval - now.timeIntervalSince(lastLocalFileSyncAt))
-            AppLogger.shared.recordDiagnostic(
-                level: .info,
-                scope: "sync.local.skip",
-                message: "local file sync throttled"
-            )
-            return
-        }
-        guard let runID = beginSyncRun(scope: "local-files", allowStaleRecovery: false) else {
-            scheduleLocalFileSyncRetry(after: 10)
-            return
-        }
-        localFileSyncRetryTask?.cancel()
-        localFileSyncRetryTask = nil
-        pendingLocalFilePaths.subtract(triggeredPaths)
-        lastLocalFileSyncAt = now
-        AppLogger.shared.recordDiagnostic(
-            scope: "sync.local.start",
-            message: "local file sync started\(activeTriggeredPaths.isEmpty ? "" : " · paths=\(activeTriggeredPaths.prefix(4).joined(separator: ", "))")"
-        )
-        defer { endSyncRun(runID) }
-        let since = lastSyncDate.map { Calendar.current.date(byAdding: .hour, value: -1, to: $0)! }
-        let shouldSyncClaude = activeTriggeredPaths.isEmpty || shouldSyncLocalTool(paths: activeTriggeredPaths, roots: Self.claudeLocalRoots)
-        let shouldSyncCodex = activeTriggeredPaths.isEmpty || shouldSyncLocalTool(paths: activeTriggeredPaths, roots: Self.codexLocalRoots)
-        let shouldSyncAntigravity = activeTriggeredPaths.isEmpty || shouldSyncLocalTool(paths: activeTriggeredPaths, roots: Self.antigravityLocalRoots)
-        let shouldSyncOpenCode = activeTriggeredPaths.isEmpty || shouldSyncLocalTool(paths: activeTriggeredPaths, roots: Self.openCodeLocalRoots)
-        let shouldRefreshClaudeQuota = activeTriggeredPaths.contains(Self.claudeBridgeCachePath)
+    // MARK: - Copilot
+
+    private func refreshCopilot(context: ModelContext) async throws {
+        guard isQuotaAPIEligible(for: .copilot) else { return }
         do {
-            if shouldSyncClaude {
-                try await parseClaudeFiles(since: since)
-            }
-            if shouldRefreshClaudeQuota {
-                await syncClaudeQuota(preferImmediateFallback: true)
-            }
-            if shouldSyncCodex {
-                try await parseCodexFiles(since: since)
-            }
-            try await syncCodexLocalQuotaIfNeeded(triggeredPaths: activeTriggeredPaths)
-            if shouldSyncAntigravity {
-                try await parseAntigravityFiles(since: since)
-            }
-            if shouldSyncOpenCode {
-                try await syncOpenCode()
-            }
-            try persistModelContext(scope: "local-files", tool: nil)
-            syncError = nil
-            lastSyncDate = Date()
-            AppLogger.shared.recordDiagnostic(scope: "sync.local.finish", message: "local file sync finished")
-            scheduleDotTextQuotaPush(force: false)
-        } catch {
-            localFileSyncBlockedUntil = Date().addingTimeInterval(Self.localFileFailureBackoff)
-            let silencedKey = localFailureSilenceKey(error: error, triggeredPaths: activeTriggeredPaths)
-            if let silencedKey {
-                let silencedUntil = Date().addingTimeInterval(Self.localFilePathSilenceDuration)
-                silencedLocalFailureKeys[silencedKey] = silencedUntil
-                AppLogger.shared.recordDiagnostic(
-                    level: .warning,
-                    scope: "sync.local.silence",
-                    message: "silenced \(silencedKey) for \(Int(Self.localFilePathSilenceDuration / 60))m after repeated file-open failure"
-                )
-            }
-            AppLogger.shared.error("Local file sync error: \(error)")
-            syncError = error
-            AppLogger.shared.recordSyncError(
-                scope: "local-files",
-                tool: nil,
-                error: error,
-                source: syncErrorSource(error),
-                path: syncErrorPath(error) ?? activeTriggeredPaths.first,
-                details: syncErrorDetails(error, triggeredPaths: activeTriggeredPaths)
-            )
-            AppLogger.shared.recordDiagnostic(
-                level: .warning,
-                scope: "sync.local.backoff",
-                message: "local file sync backoff \(Int(Self.localFileFailureBackoff))s after error: \(error.localizedDescription)"
-            )
-        }
-    }
-
-    private func scheduleLocalFileSyncRetry(after delay: TimeInterval) {
-        guard localFileSyncRetryTask == nil else { return }
-        localFileSyncRetryTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(Int(max(1, delay) * 1000)))
-            guard !Task.isCancelled else { return }
-            self?.localFileSyncRetryTask = nil
-            guard self?.pendingLocalFilePaths.isEmpty == false else { return }
-            AppLogger.shared.recordDiagnostic(
-                scope: "sync.local.retry",
-                message: "retrying local file sync after throttle"
-            )
-            await self?.syncLocalFiles()
-        }
-    }
-
-    private func syncCopilot() async {
-        do {
-            startPhase("copilot.quota")
             let (quota, snapshots, plan) = try await copilotClient.fetchQuota()
+            lastQuotaAPIFetchAt[.copilot] = Date()
             latestCopilotSnapshots = snapshots
-            latestCopilotResetAt = quota.resetAt
-            latestCopilotPlan = plan
-            upsertQuota(quota)
-            finishCurrentPhase()
+            latestCopilotResetAt   = quota.resetAt
+            latestCopilotPlan      = plan
+            upsertQuota(quota, context: context)
         } catch {
-            AppLogger.shared.warning("Copilot quota skipped: \(error.localizedDescription)")
-            finishCurrentPhase()
+            lastQuotaAPIFetchAt[.copilot] = Date()
+            AppLogger.shared.warning("[copilot] quota failed: \(error.localizedDescription)")
+            throw error     // propagate so FailureGate can count it
         }
     }
 
-    private func syncOpenCode() async throws {
-        startPhase("opencode.local")
-        let since = lastSyncDate.map { Calendar.current.date(byAdding: .hour, value: -1, to: $0)! }
-        let sessions = try await openCodeParser.parseSessions(since: since)
-        AppLogger.shared.info("OpenCode: parsed \(sessions.count) sessions")
-        try await upsertSessions(sessions, label: "opencode.sessions")
-        finishCurrentPhase()
+    // MARK: - OpenCode
+
+    private func refreshOpenCode(context: ModelContext) async throws {
+        let since = incrementalCutoff(for: .opencode)
+        let sessions = try await Task.detached(priority: .utility) {
+            try await self.openCodeParser.parseSessions(since: since)
+        }.value
+        upsertSessions(sessions, context: context)
     }
 
-    // MARK: - SwiftData upsert helpers
+    // MARK: - FSEvents (local-files-only, no API calls)
 
-    /// Returns true if any Codex SessionRecord still has the "openai" placeholder model name.
-    private func hasCodexPlaceholderModels() -> Bool {
-        let toolRaw = Tool.codex.rawValue
-        let placeholder = "openai"
-        let descriptor = FetchDescriptor<SessionRecord>(
-            predicate: #Predicate { $0.toolRaw == toolRaw && $0.model == placeholder }
-        )
-        return ((try? modelContext.fetchCount(descriptor)) ?? 0) > 0
-    }
-
-    private func upsertSession(_ session: ToolSession) {
-        let sessionId = session.id
-        var sessionDescriptor = FetchDescriptor<SessionRecord>(predicate: #Predicate { $0.id == sessionId })
-        sessionDescriptor.fetchLimit = 1
-        let existing = (try? modelContext.fetch(sessionDescriptor))?.first
-
-        if let existing {
-            existing.inputTokens = session.inputTokens
-            existing.outputTokens = session.outputTokens
-            existing.cacheReadTokens = session.cacheReadTokens
-            existing.cacheWriteTokens = session.cacheWriteTokens
-            existing.endedAt = session.endedAt
-            if !session.taskDescription.isEmpty {
-                existing.taskDescription = session.taskDescription
-            }
-            // Update model name so previously-saved "openai" placeholders get corrected
-            if !session.model.isEmpty {
-                existing.model = session.model
-            }
-        } else {
-            let record = SessionRecord(
-                id: session.id,
-                tool: session.tool,
-                startedAt: session.startedAt,
-                endedAt: session.endedAt,
-                inputTokens: session.inputTokens,
-                outputTokens: session.outputTokens,
-                cacheReadTokens: session.cacheReadTokens,
-                cacheWriteTokens: session.cacheWriteTokens,
-                taskDescription: session.taskDescription,
-                model: session.model,
-                cwd: session.cwd,
-                gitBranch: session.gitBranch
-            )
-            modelContext.insert(record)
+    /// Called by FSEvents when local files change. Runs only the parsers for the affected
+    /// tools — never touches network APIs. The 500 ms debounce collapses burst writes.
+    private func handleLocalFileChange(paths: [String]) {
+        pendingFSPaths.formUnion(paths)
+        fsDebounceTask?.cancel()
+        fsDebounceTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
+            await self?.flushLocalFileChanges()
         }
     }
 
-    private func upsertSessions(_ sessions: [ToolSession], label: String) async throws {
-        guard !sessions.isEmpty else { return }
-        let start = Date()
-        for (index, session) in sessions.enumerated() {
-            upsertSession(session)
-            if index.isMultiple(of: Self.upsertYieldBatchSize) {
-                await Task.yield()
+    private func flushLocalFileChanges() async {
+        let paths = pendingFSPaths.sorted()
+        pendingFSPaths.removeAll()
+        guard !paths.isEmpty else { return }
+
+        let affectedTools = toolsAffectedByPaths(paths)
+        let bridgeTriggered = paths.contains(Self.claudeBridgeCachePath)
+
+        await withTaskGroup(of: Void.self) { group in
+            for tool in affectedTools {
+                // Local-files-only refresh — skip quota API
+                group.addTask { await self.refreshLocalFiles(for: tool) }
             }
         }
-        let elapsed = Date().timeIntervalSince(start)
-        if elapsed >= 1 {
-            AppLogger.shared.recordDiagnostic(scope: "upsert.sessions", message: "\(label) inserted/updated \(sessions.count) sessions in \(String(format: "%.2f", elapsed))s")
+
+        if bridgeTriggered {
+            let ctx = makeWriteContext()
+            await refreshClaudeQuota(context: ctx)
+            try? ctx.save()
+        }
+
+        // Quick FSEvents-driven Codex quota update (local rate-limit JSONL only)
+        if paths.contains(where: { $0.contains("/.codex/") }) {
+            await refreshCodexLocalQuotaFromFile()
+        }
+
+        scheduleDotTextPush(force: false)
+    }
+
+    private func refreshLocalFiles(for tool: Tool) async {
+        guard states[tool].beginRefresh() else { return }
+        defer { states[tool].endRefresh() }
+        let since = incrementalCutoff(for: tool)
+        let context = makeWriteContext()
+        do {
+            switch tool {
+            case .claudeCode:
+                let (sessions, stats) = try await Task.detached(priority: .utility) {
+                    let s = try await self.claudeParser.parseSessions(since: since)
+                    let d = (try? await self.claudeParser.parseDailyStatsFromCache()) ?? []
+                    return (s, d)
+                }.value
+                upsertSessions(sessions, context: context)
+                stats.forEach { upsertDailyStats($0, context: context) }
+            case .codex:
+                let needsBackfill = !codexBackfillDone && hasCodexPlaceholderModels(context: context)
+                let effectiveSince: Date? = needsBackfill ? nil : since
+                if needsBackfill { codexBackfillDone = true }
+                let (sessions, stats) = try await Task.detached(priority: .utility) {
+                    let s = try await self.codexParser.parseSessions(since: effectiveSince)
+                    let d = try await self.codexParser.parseDailyStats(since: since)
+                    return (s, d)
+                }.value
+                upsertSessions(sessions, context: context)
+                stats.forEach { upsertDailyStats($0, context: context) }
+            case .antigravity:
+                let sessions = try await Task.detached(priority: .utility) {
+                    try await self.antigravityParser.parseSessions(since: since)
+                }.value
+                upsertSessions(sessions, context: context)
+            case .opencode:
+                let sessions = try await Task.detached(priority: .utility) {
+                    try await self.openCodeParser.parseSessions(since: since)
+                }.value
+                upsertSessions(sessions, context: context)
+            case .copilot:
+                break   // no local files
+            }
+            try context.save()
+            states[tool].recordSuccess()
+            failureGates[tool]?.recordSuccess()
+            lastParsedAt[tool] = Date()
+        } catch {
+            // Local file errors are silent — stale data is better than a flash of nothing
+            AppLogger.shared.warning("[\(tool.rawValue)] local file parse error (silent): \(error.localizedDescription)")
         }
     }
 
-    private func upsertDailyStats(_ stats: DailyStats) {
-        let date = stats.date
+    /// Re-read Codex local rate-limit JSONL and apply quota without hitting the API.
+    private func refreshCodexLocalQuotaFromFile() async {
+        guard !UserDefaults.standard.bool(forKey: "codex.smartSwitch.enabled") else { return }
+        guard let snapshot = await codexParser.parseLatestRateLimitsSnapshot() else { return }
+        let accountCount = await codexAccountService.listAccounts().count
+        guard shouldPreferLocalCodexLimits(snapshot, accountCount: accountCount) else { return }
+
+        await codexAccountService.syncCurrentSelectionFromAuthFile()
+        let accounts = await codexAccountService.applyLocalRateLimitsToCurrentAccount(snapshot.limits)
+        let context  = makeWriteContext()
+        latestCodexAccounts = accounts
+        removeStaleCodexQuotas(validAccountKeys: Set(accounts.map(\.accountID)), context: context)
+        accounts.map(\.quota).forEach { upsertQuota($0, context: context) }
+        try? context.save()
+        AppLogger.shared.recordDiagnostic(scope: "codex.localQuota", message: "updated quota from local JSONL")
+    }
+
+    // MARK: - Helpers: quota TTL
+
+    private func isQuotaAPIEligible(for tool: Tool) -> Bool {
+        guard let ttl = Self.quotaAPITTL[tool] else { return true }
+        guard let last = lastQuotaAPIFetchAt[tool] else { return true }
+        return Date().timeIntervalSince(last) >= ttl
+    }
+
+    // MARK: - Helpers: Codex local rate limits
+
+    private func isUsableCodexLimits(_ limits: CodexRateLimits) -> Bool {
+        [limits.fiveHourWindow, limits.oneWeekWindow]
+            .compactMap { $0?.resetDate }
+            .contains { $0 > Date() }
+    }
+
+    private func shouldPreferLocalCodexLimits(_ snapshot: CodexParser.LocalRateLimitSnapshot, accountCount: Int) -> Bool {
+        guard isUsableCodexLimits(snapshot.limits) else { return false }
+        return accountCount <= 1
+    }
+
+    // MARK: - Helpers: incremental cutoff
+
+    /// Returns last-parsed date minus 1 h buffer so we don't miss sessions that started
+    /// just before the previous parse completed.
+    private func incrementalCutoff(for tool: Tool) -> Date? {
+        lastParsedAt[tool].map { Calendar.current.date(byAdding: .hour, value: -1, to: $0)! }
+    }
+
+    // MARK: - Helpers: determine affected tools from FSEvent paths
+
+    private func toolsAffectedByPaths(_ paths: [String]) -> Set<Tool> {
+        var tools = Set<Tool>()
+        for path in paths {
+            for (root, tool) in Self.fsWatchRoots where path.hasPrefix(root) {
+                tools.insert(tool)
+            }
+        }
+        return tools
+    }
+
+    // MARK: - Helpers: SwiftData (all operate on a dedicated context)
+
+    private static let upsertBatchYieldSize = 100
+
+    private func makeWriteContext() -> ModelContext {
+        let ctx = ModelContext(modelContainer)
+        ctx.autosaveEnabled = false
+        return ctx
+    }
+
+    private func upsertSessions(_ sessions: [ToolSession], context: ModelContext) {
+        for session in sessions {
+            let id = session.id
+            var desc = FetchDescriptor<SessionRecord>(predicate: #Predicate { $0.id == id })
+            desc.fetchLimit = 1
+            if let existing = (try? context.fetch(desc))?.first {
+                existing.inputTokens  = session.inputTokens
+                existing.outputTokens = session.outputTokens
+                existing.cacheReadTokens  = session.cacheReadTokens
+                existing.cacheWriteTokens = session.cacheWriteTokens
+                existing.endedAt = session.endedAt
+                if !session.taskDescription.isEmpty { existing.taskDescription = session.taskDescription }
+                if !session.model.isEmpty            { existing.model = session.model }
+            } else {
+                context.insert(SessionRecord(
+                    id: session.id, tool: session.tool,
+                    startedAt: session.startedAt, endedAt: session.endedAt,
+                    inputTokens: session.inputTokens, outputTokens: session.outputTokens,
+                    cacheReadTokens: session.cacheReadTokens, cacheWriteTokens: session.cacheWriteTokens,
+                    taskDescription: session.taskDescription, model: session.model,
+                    cwd: session.cwd, gitBranch: session.gitBranch
+                ))
+            }
+        }
+    }
+
+    private func upsertDailyStats(_ stats: DailyStats, context: ModelContext) {
+        let date    = stats.date
         let toolRaw = stats.tool.rawValue
-        var statsDescriptor = FetchDescriptor<DailyStatsRecord>(
-            predicate: #Predicate { $0.date == date && $0.toolRaw == toolRaw }
-        )
-        statsDescriptor.fetchLimit = 1
-        let existing = (try? modelContext.fetch(statsDescriptor))?.first
-
-        if let existing {
-            existing.totalInputTokens = stats.totalInputTokens
+        var desc = FetchDescriptor<DailyStatsRecord>(predicate: #Predicate { $0.date == date && $0.toolRaw == toolRaw })
+        desc.fetchLimit = 1
+        if let existing = (try? context.fetch(desc))?.first {
+            existing.totalInputTokens  = stats.totalInputTokens
             existing.totalOutputTokens = stats.totalOutputTokens
             existing.totalCacheReadTokens = stats.totalCacheReadTokens
             existing.sessionCount = stats.sessionCount
         } else {
-            let record = DailyStatsRecord(
-                date: stats.date,
-                tool: stats.tool,
-                totalInputTokens: stats.totalInputTokens,
-                totalOutputTokens: stats.totalOutputTokens,
-                totalCacheReadTokens: stats.totalCacheReadTokens,
-                sessionCount: stats.sessionCount
-            )
-            modelContext.insert(record)
+            context.insert(DailyStatsRecord(
+                date: stats.date, tool: stats.tool,
+                totalInputTokens: stats.totalInputTokens, totalOutputTokens: stats.totalOutputTokens,
+                totalCacheReadTokens: stats.totalCacheReadTokens, sessionCount: stats.sessionCount
+            ))
         }
     }
 
-    private func upsertDailyStats(_ stats: [DailyStats], label: String) async throws {
-        guard !stats.isEmpty else { return }
-        let start = Date()
-        for (index, item) in stats.enumerated() {
-            upsertDailyStats(item)
-            if index.isMultiple(of: Self.upsertYieldBatchSize) {
-                await Task.yield()
-            }
-        }
-        let elapsed = Date().timeIntervalSince(start)
-        if elapsed >= 1 {
-            AppLogger.shared.recordDiagnostic(scope: "upsert.dailyStats", message: "\(label) upserted \(stats.count) rows in \(String(format: "%.2f", elapsed))s")
-        }
-    }
-
-    private func upsertQuota(_ quota: ToolQuota) {
-        let toolRaw = quota.tool.rawValue
+    private func upsertQuota(_ quota: ToolQuota, context: ModelContext) {
+        let toolRaw    = quota.tool.rawValue
         let accountKey = quota.accountKey
-        var quotaDescriptor = FetchDescriptor<QuotaRecord>(
-            predicate: #Predicate { $0.toolRaw == toolRaw && $0.accountKey == accountKey }
-        )
-        quotaDescriptor.fetchLimit = 1
-        let existing = (try? modelContext.fetch(quotaDescriptor))?.first
-
-        if let existing {
+        var desc = FetchDescriptor<QuotaRecord>(predicate: #Predicate { $0.toolRaw == toolRaw && $0.accountKey == accountKey })
+        desc.fetchLimit = 1
+        if let existing = (try? context.fetch(desc))?.first {
             existing.accountLabel = quota.accountLabel
-            existing.remaining = quota.remaining
-            existing.total = quota.total
-            existing.resetAt = quota.resetAt
-            existing.updatedAt = Date()
+            existing.remaining    = quota.remaining
+            existing.total        = quota.total
+            existing.resetAt      = quota.resetAt
+            existing.updatedAt    = Date()
         } else {
-            let record = QuotaRecord(
-                tool: quota.tool,
-                accountKey: quota.accountKey,
-                accountLabel: quota.accountLabel,
-                remaining: quota.remaining,
-                total: quota.total,
-                unit: quota.unit,
-                resetAt: quota.resetAt
-            )
-            modelContext.insert(record)
+            context.insert(QuotaRecord(
+                tool: quota.tool, accountKey: quota.accountKey,
+                accountLabel: quota.accountLabel, remaining: quota.remaining,
+                total: quota.total, unit: quota.unit, resetAt: quota.resetAt
+            ))
         }
     }
 
-    private func upsertQuotas(_ quotas: [ToolQuota], label: String) async throws {
-        guard !quotas.isEmpty else { return }
-        let start = Date()
-        for (index, quota) in quotas.enumerated() {
-            upsertQuota(quota)
-            if index.isMultiple(of: Self.upsertYieldBatchSize) {
-                await Task.yield()
-            }
-        }
-        let elapsed = Date().timeIntervalSince(start)
-        if elapsed >= 1 {
-            AppLogger.shared.recordDiagnostic(scope: "upsert.quotas", message: "\(label) upserted \(quotas.count) rows in \(String(format: "%.2f", elapsed))s")
-        }
-    }
-
-    private func startPhase(_ name: String) {
-        finishCurrentPhase()
-        currentSyncPhase = name
-        currentSyncPhaseStartedAt = Date()
-        AppLogger.shared.info("Sync phase started: \(name)")
-    }
-
-    private func finishCurrentPhase() {
-        guard let currentSyncPhase, let currentSyncPhaseStartedAt else { return }
-        let elapsed = Date().timeIntervalSince(currentSyncPhaseStartedAt)
-        AppLogger.shared.info("Sync phase finished: \(currentSyncPhase) in \(String(format: "%.2f", elapsed))s")
-        if elapsed >= 2 {
-            AppLogger.shared.recordDiagnostic(
-                level: elapsed >= 10 ? .warning : .info,
-                scope: "sync.phase",
-                message: "\(currentSyncPhase) took \(String(format: "%.2f", elapsed))s"
-            )
-        }
-        self.currentSyncPhase = nil
-        self.currentSyncPhaseStartedAt = nil
-    }
-
-    private func persistModelContext(scope: String, tool: Tool?) throws {
-        startPhase("model-save")
-        do {
-            try modelContext.save()
-            rebuildWriteContext()
-            finishCurrentPhase()
-        } catch {
-            let wrapped = SyncSourceError(source: "model-save", path: nil, underlying: error)
-            finishCurrentPhase()
-            if isTransientFileAccessError(error) {
-                AppLogger.shared.warning("Transient model save skipped during \(scope): \(error.localizedDescription)")
-                AppLogger.shared.recordDiagnostic(
-                    level: .warning,
-                    scope: "sync.modelSave.skip",
-                    message: "scope=\(scope) tool=\(tool?.rawValue ?? "none") details=\(syncErrorDetails(wrapped))"
-                )
-                return
-            }
-            throw wrapped
-        }
-    }
-
-    private static func makeWriteContext(container: ModelContainer) -> ModelContext {
-        let context = ModelContext(container)
-        context.autosaveEnabled = false
-        return context
-    }
-
-    private func rebuildWriteContext() {
-        modelContext = Self.makeWriteContext(container: modelContainer)
-    }
-
-    private func isTransientFileAccessError(_ error: Error) -> Bool {
-        let nsError = error as NSError
-        let description = error.localizedDescription.lowercased()
-        if description.contains("the file couldn’t be opened") || description.contains("the file couldn't be opened") {
-            return true
-        }
-        if description.contains("unable to open database file") || description.contains("sqlite.result error 0") {
-            return true
-        }
-        if nsError.domain == NSCocoaErrorDomain, nsError.code == NSFileReadNoSuchFileError {
-            return true
-        }
-        if nsError.domain == NSPOSIXErrorDomain, nsError.code == 2 {
-            return true
-        }
-        return false
-    }
-
-    private func shouldSyncLocalTool(paths: [String], roots: [String]) -> Bool {
-        paths.contains { path in
-            roots.contains { root in
-                path.hasPrefix(root)
-            }
-        }
-    }
-
-    private func syncErrorSource(_ error: Error) -> String {
-        if let syncSourceError = error as? SyncSourceError {
-            return syncSourceError.source
-        }
-        return currentSyncPhase ?? "unknown"
-    }
-
-    private func syncErrorPath(_ error: Error) -> String? {
-        if let syncSourceError = error as? SyncSourceError {
-            return syncSourceError.path
-        }
-        return nil
-    }
-
-    private func syncErrorDetails(_ error: Error, triggeredPaths: [String] = []) -> String {
-        let nsError = error as NSError
-        var parts: [String] = [
-            "domain=\(nsError.domain)",
-            "code=\(nsError.code)",
-            "phase=\(currentSyncPhase ?? "none")"
-        ]
-        if let syncSourceError = error as? SyncSourceError, let path = syncSourceError.path {
-            parts.append("path=\(path)")
-        }
-        if !triggeredPaths.isEmpty {
-            parts.append("triggered=\(triggeredPaths.prefix(4).joined(separator: ","))")
-        }
-        return parts.joined(separator: " · ")
-    }
-
-    private func localFailureSilenceKey(error: Error, triggeredPaths: [String]) -> String? {
-        if let path = syncErrorPath(error) {
-            return path
-        }
-        if let firstTriggeredPath = triggeredPaths.first {
-            return firstTriggeredPath
-        }
-        let source = syncErrorSource(error)
-        return source == "unknown" ? nil : source
-    }
-
-    private func isSilencedLocalFailureKey(_ key: String, referenceDate: Date) -> Bool {
-        guard let blockedUntil = silencedLocalFailureKeys[key] else { return false }
-        return blockedUntil > referenceDate
-    }
-
-    private func pruneExpiredSilencedLocalFailures(referenceDate: Date) {
-        silencedLocalFailureKeys = silencedLocalFailureKeys.filter { $0.value > referenceDate }
-    }
-
-    private func removeStaleCodexQuotas(validAccountKeys: Set<String>) {
+    private func removeStaleCodexQuotas(validAccountKeys: Set<String>, context: ModelContext) {
         let toolRaw = Tool.codex.rawValue
-        let descriptor = FetchDescriptor<QuotaRecord>(predicate: #Predicate { $0.toolRaw == toolRaw })
-        guard let records = try? modelContext.fetch(descriptor) else { return }
-        for record in records {
-            guard let accountKey = record.accountKey else { continue }
-            if !validAccountKeys.contains(accountKey) {
-                modelContext.delete(record)
-            }
+        let desc    = FetchDescriptor<QuotaRecord>(predicate: #Predicate { $0.toolRaw == toolRaw })
+        guard let records = try? context.fetch(desc) else { return }
+        for r in records {
+            if let key = r.accountKey, !validAccountKeys.contains(key) { context.delete(r) }
         }
     }
 
+    private func hasStoredData(for tool: Tool) -> Bool {
+        let toolRaw = tool.rawValue
+        let desc = FetchDescriptor<QuotaRecord>(predicate: #Predicate { $0.toolRaw == toolRaw })
+        let ctx  = ModelContext(modelContainer)
+        return ((try? ctx.fetchCount(desc)) ?? 0) > 0
+    }
 
-    // MARK: - Dot Text API
+    private func hasCodexPlaceholderModels(context: ModelContext) -> Bool {
+        let toolRaw     = Tool.codex.rawValue
+        let placeholder = "openai"
+        let desc = FetchDescriptor<SessionRecord>(predicate: #Predicate { $0.toolRaw == toolRaw && $0.model == placeholder })
+        return ((try? context.fetchCount(desc)) ?? 0) > 0
+    }
 
-    private func scheduleDotTextQuotaPush(force: Bool) {
+    private func purgeOrphanedQuotas() {
+        let known   = Set(Tool.allCases.map(\.rawValue))
+        let context = makeWriteContext()
+        let desc    = FetchDescriptor<QuotaRecord>()
+        guard let all = try? context.fetch(desc) else { return }
+        for r in all where !known.contains(r.toolRaw) { context.delete(r) }
+        try? context.save()
+    }
+
+    // MARK: - Claude usage cache helpers
+
+    private func restoredClaudeUsageCache() -> ClaudeUsageResponse? {
+        guard let data = UserDefaults.standard.data(forKey: "cached.claudeUsageData") else { return nil }
+        return try? JSONDecoder().decode(ClaudeUsageResponse.self, from: data)
+    }
+
+    private func persistClaudeUsageCache(_ usage: ClaudeUsageResponse) {
+        if let data = try? JSONEncoder().encode(usage) {
+            UserDefaults.standard.set(data, forKey: "cached.claudeUsageData")
+        }
+    }
+
+    private func toolQuotaFromClaudeUsage(_ usage: ClaudeUsageResponse) -> ToolQuota {
+        let remaining = usage.fiveHour?.utilization.map { Int((1 - $0 / 100) * 100) }
+        return ToolQuota(
+            id: Tool.claudeCode.rawValue, tool: .claudeCode,
+            accountKey: nil, accountLabel: nil,
+            remaining: remaining, total: 100, unit: .messages,
+            resetAt: usage.fiveHour?.resetDate, updatedAt: Date(), raw: usage
+        )
+    }
+
+    // MARK: - Poll timers
+
+    private func schedulePollTimer(for tool: Tool, override: Double? = nil) {
+        let interval = max(30, override ?? effectivePollInterval(for: tool))
+        pollTimers[tool] = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in await self?.refreshTool(tool) }
+        }
+    }
+
+    private func effectivePollInterval(for tool: Tool) -> TimeInterval {
+        let global = UserDefaults.standard.double(forKey: "menubar.syncIntervalGlobal")
+        let stored = UserDefaults.standard.double(forKey: "syncInterval.\(tool.rawValue)")
+        return global > 0 ? global : (stored > 0 ? stored : Self.defaultPollInterval[tool] ?? 600)
+    }
+
+    // MARK: - FSEvents
+
+    private func startFSEventWatching() {
+        var watchPaths = Self.fsWatchRoots.map(\.path).filter { FileManager.default.fileExists(atPath: $0) }
+        if FileManager.default.fileExists(atPath: Self.claudeBridgeRoot) {
+            watchPaths.append(Self.claudeBridgeRoot)
+        }
+        guard !watchPaths.isEmpty else { return }
+
+        AppLogger.shared.info("[fs] watching: \(watchPaths)")
+        fsEventStream = FSEventStream(paths: watchPaths) { [weak self] changedPaths in
+            Task { @MainActor [weak self] in
+                let filtered = self?.filterFSEventPaths(changedPaths) ?? []
+                guard !filtered.isEmpty else { return }
+                self?.handleLocalFileChange(paths: filtered)
+            }
+        }
+        fsEventStream?.start()
+    }
+
+    /// Drop paths that are not relevant to avoid noisy re-parses.
+    private func filterFSEventPaths(_ paths: [String]) -> [String] {
+        paths.filter { path in
+            // Bridge dir: only the specific status cache file matters
+            if path.hasPrefix(Self.claudeBridgeRoot) {
+                return path == Self.claudeBridgeCachePath
+            }
+            // OpenCode: only interesting sub-paths
+            let openCodeRoot = URL.homeDirectory.appending(path: ".local/share/opencode").path
+            if path.hasPrefix(openCodeRoot) {
+                return Self.openCodeInterestingFragments.contains { path.contains($0) }
+            }
+            return true
+        }
+    }
+
+    // MARK: - Dot Text push
+
+    private func scheduleDotTextPush(force: Bool) {
         dotTextPushTask?.cancel()
         dotTextPushTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(1))
             guard !Task.isCancelled else { return }
-            await self?.pushDotTextQuotaSnapshot(force: force)
+            await self?.pushDotTextSnapshot(force: force)
         }
     }
 
-    private func pushDotTextQuotaSnapshot(force: Bool) async {
-        let codexRaw = Tool.codex.rawValue
+    private func pushDotTextSnapshot(force: Bool) async {
+        let codexRaw  = Tool.codex.rawValue
         let claudeRaw = Tool.claudeCode.rawValue
-        let descriptor = FetchDescriptor<QuotaRecord>(
-            predicate: #Predicate { $0.toolRaw == codexRaw || $0.toolRaw == claudeRaw }
-        )
-        let fallbackQuotas = (try? modelContext.fetch(descriptor)) ?? []
+        let ctx  = ModelContext(modelContainer)
+        let desc = FetchDescriptor<QuotaRecord>(predicate: #Predicate { $0.toolRaw == codexRaw || $0.toolRaw == claudeRaw })
+        let fallback = (try? ctx.fetch(desc)) ?? []
         await dotTextAPIService.pushQuotaSnapshot(
             codexAccounts: latestCodexAccounts,
             claudeUsage: latestClaudeUsage,
-            fallbackQuotas: fallbackQuotas,
+            fallbackQuotas: fallback,
             force: force
         )
     }
@@ -1034,96 +769,36 @@ final class DataSyncService {
     // MARK: - Quota notifications
 
     private func checkQuotaNotifications() {
-        var quotas: [String: NotificationService.QuotaInfo] = [:]
+        var infos: [String: NotificationService.QuotaInfo] = [:]
 
         if let current = latestCodexAccounts.first(where: \.isCurrent),
-           let fiveHour = current.limits?.fiveHourWindow,
-           let used = fiveHour.usedPercent {
-            quotas[Tool.codex.rawValue] = .init(fraction: max(0, (100 - used) / 100), resetAt: fiveHour.resetDate)
+           let win = current.limits?.fiveHourWindow,
+           let used = win.usedPercent {
+            infos[Tool.codex.rawValue] = .init(fraction: max(0, (100 - used) / 100), resetAt: win.resetDate)
         }
-        if let usage = latestClaudeUsage,
-           let window = usage.fiveHour,
-           let util = window.utilization {
-            quotas[Tool.claudeCode.rawValue] = .init(fraction: max(0, (100 - util) / 100), resetAt: window.resetDate)
+        if let usage = latestClaudeUsage, let win = usage.fiveHour, let util = win.utilization {
+            infos[Tool.claudeCode.rawValue] = .init(fraction: max(0, (100 - util) / 100), resetAt: win.resetDate)
         }
-        // Copilot and Antigravity: use stored QuotaRecord if available
-        let descriptor = FetchDescriptor<QuotaRecord>()
-        if let records = try? modelContext.fetch(descriptor) {
+        let ctx  = ModelContext(modelContainer)
+        let desc = FetchDescriptor<QuotaRecord>()
+        if let records = try? ctx.fetch(desc) {
             for r in records {
-                guard quotas[r.toolRaw] == nil,
+                guard infos[r.toolRaw] == nil,
                       let rem = r.remaining, let tot = r.total, tot > 0 else { continue }
-                quotas[r.toolRaw] = .init(fraction: Double(rem) / Double(tot), resetAt: r.resetAt)
+                infos[r.toolRaw] = .init(fraction: Double(rem) / Double(tot), resetAt: r.resetAt)
             }
         }
-
-        NotificationService.shared.checkAndNotify(quotas: quotas)
-    }
-
-    // MARK: - Timer
-
-    private func scheduleTimer(for tool: Tool, override: Double? = nil) {
-        let clamped = max(30, override ?? effectiveSyncInterval(for: tool))
-        timers[tool] = Timer.scheduledTimer(withTimeInterval: clamped, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in await self?.sync(tool: tool) }
-        }
-    }
-
-    private func effectiveSyncInterval(for tool: Tool) -> Double {
-        let global = UserDefaults.standard.double(forKey: "menubar.syncIntervalGlobal")
-        let stored = UserDefaults.standard.double(forKey: Self.intervalKey(for: tool))
-        return global > 0 ? global : (stored > 0 ? stored : Self.defaultInterval(for: tool))
-    }
-
-    // Legacy: reschedule all tools at once (used nowhere but kept for safety)
-    func rescheduleTimer(interval: Double) {
-        for tool in Tool.allCases { rescheduleTimer(for: tool, interval: interval) }
-    }
-
-    // MARK: - FSEvents
-
-    private func startFSEventWatching() {
-        let paths = [
-            URL.homeDirectory.appending(path: ".claude/projects").path,
-            URL.homeDirectory.appending(path: ".codex/sessions").path,
-            URL.homeDirectory.appending(path: ".gemini/antigravity/brain").path,
-            URL.homeDirectory.appending(path: ".local/share/opencode").path,
-            Self.claudeBridgeRoot,
-        ].filter { FileManager.default.fileExists(atPath: $0) }
-
-        AppLogger.shared.info("Watching paths: \(paths)")
-        guard !paths.isEmpty else { return }
-        fsEventStream = FSEventStream(paths: paths) { [weak self] changedPaths in
-            // Debounce rapid file-change bursts (e.g. JSONL appends during active use)
-            // into a single syncLocalFiles() call after 500 ms of silence.
-            Task { @MainActor [weak self] in
-                let filteredPaths = self?.filteredLocalChangePaths(changedPaths) ?? []
-                guard !filteredPaths.isEmpty else { return }
-                self?.pendingLocalFilePaths.formUnion(filteredPaths)
-                self?.fsDebounceTask?.cancel()
-                self?.fsDebounceTask = Task { [weak self] in
-                    try? await Task.sleep(for: .milliseconds(500))
-                    guard !Task.isCancelled else { return }
-                    await self?.syncLocalFiles()
-                }
-            }
-        }
-        fsEventStream?.start()
-    }
-
-    private func filteredLocalChangePaths(_ changedPaths: [String]) -> [String] {
-        changedPaths.filter { path in
-            if path.hasPrefix(Self.claudeBridgeRoot) {
-                return path == Self.claudeBridgeCachePath
-            }
-            if path.hasPrefix(Self.openCodeLocalRoots[0]) {
-                return Self.openCodeInterestingPathFragments.contains { path.contains($0) }
-            }
-            return true
-        }
+        NotificationService.shared.checkAndNotify(quotas: infos)
     }
 }
 
-// MARK: - Minimal FSEventStream wrapper
+// MARK: - Convenience: home directory string
+
+private extension String {
+    static let homeDirectory = URL.homeDirectory.path
+}
+
+// MARK: - FSEventStream (unchanged wrapper)
 
 final class FSEventStream: @unchecked Sendable {
     private var streamRef: FSEventStreamRef?
@@ -1134,16 +809,14 @@ final class FSEventStream: @unchecked Sendable {
         var context = FSEventStreamContext(
             version: 0,
             info: Unmanaged.passUnretained(self).toOpaque(),
-            retain: nil,
-            release: nil,
-            copyDescription: nil
+            retain: nil, release: nil, copyDescription: nil
         )
         streamRef = FSEventStreamCreate(
             nil,
-            { _, info, _, eventPathsPointer, _, _ in
+            { _, info, _, eventPaths, _, _ in
                 guard let info else { return }
-                let obj = Unmanaged<FSEventStream>.fromOpaque(info).takeUnretainedValue()
-                let paths = (unsafeBitCast(eventPathsPointer, to: NSArray.self) as? [String]) ?? []
+                let obj   = Unmanaged<FSEventStream>.fromOpaque(info).takeUnretainedValue()
+                let paths = (unsafeBitCast(eventPaths, to: NSArray.self) as? [String]) ?? []
                 obj.callback(paths)
             },
             &context,

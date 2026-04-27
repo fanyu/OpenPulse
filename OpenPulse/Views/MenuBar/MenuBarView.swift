@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import AppKit
 
 struct MenuBarView: View {
     @Environment(AppStore.self) private var appStore
@@ -185,7 +186,7 @@ struct MenuBarView: View {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 9))
                     .foregroundStyle(.orange)
-                    .help(syncErrorHelpText(fallback: err.localizedDescription))
+                    .help(syncErrorHelpText(fallback: err))
             }
             Spacer()
             HStack(spacing: 8) {
@@ -247,6 +248,31 @@ struct MenuBarView: View {
     }
 }
 
+private struct ConfigShortcutButton: View {
+    let tool: Tool
+
+    private var configFile: ConfigFile? { ConfigFile.primaryConfig(for: tool) }
+
+    var body: some View {
+        if let configFile {
+            Button {
+                GlobalHotkeyService.shared.closeMenuBar()
+                if FileManager.default.fileExists(atPath: configFile.url.path) {
+                    NSWorkspace.shared.open(configFile.url)
+                } else {
+                    NSWorkspace.shared.activateFileViewerSelecting([configFile.url.deletingLastPathComponent()])
+                }
+            } label: {
+                Image(systemName: "document.badge.gearshape")
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .help("打开 \(configFile.displayName)")
+        }
+    }
+}
+
 // MARK: - Claude Code
 
 struct ClaudeQuotaCard: View {
@@ -272,7 +298,10 @@ struct ClaudeQuotaCard: View {
                     }
                 }
                 Spacer()
-                if todayTokens > 0 { TodayTokenBadge(tokens: todayTokens) }
+                HStack(spacing: 8) {
+                    ConfigShortcutButton(tool: .claudeCode)
+                    if todayTokens > 0 { TodayTokenBadge(tokens: todayTokens) }
+                }
             }
             if let usage {
                 VStack(spacing: 6) {
@@ -371,7 +400,10 @@ struct CodexQuotaCard: View {
                     SubscriptionTag(text: subscriptionName)
                 }
                 Spacer()
-                if todayTokens > 0 { TodayTokenBadge(tokens: todayTokens) }
+                HStack(spacing: 8) {
+                    ConfigShortcutButton(tool: .codex)
+                    if todayTokens > 0 { TodayTokenBadge(tokens: todayTokens) }
+                }
             }
             if let limits {
                 VStack(spacing: 6) {
@@ -416,20 +448,23 @@ struct CodexAccountQuotaCard: View {
                     }
                 }
                 Spacer(minLength: 8)
-                if account.isCurrent {
-                    Text("当前")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(.green)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background(Color.green.opacity(0.12), in: Capsule())
-                } else {
-                    Button("切换") {
-                        onSwitch(account.id)
+                HStack(spacing: 6) {
+                    ConfigShortcutButton(tool: .codex)
+                    if account.isCurrent {
+                        Text("当前")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.green)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(Color.green.opacity(0.12), in: Capsule())
+                    } else {
+                        Button("切换") {
+                            onSwitch(account.id)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.mini)
+                        .disabled(isSwitching)
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.mini)
-                    .disabled(isSwitching)
                 }
             }
             if let limits = account.limits {
@@ -459,6 +494,7 @@ struct CodexMultiAccountQuotaCard: View {
             HStack(alignment: .center) {
                 ToolIconLabel(tool: .codex)
                 Spacer()
+                ConfigShortcutButton(tool: .codex)
                 if codexSmartSwitchEnabled {
                     Button("智能切换") {
                         runSwitch(closeWhenNoDecision: false) {
@@ -604,16 +640,19 @@ struct CopilotQuotaCard: View {
     }
     var body: some View {
         VStack(spacing: 10) {
-            HStack {
-                HStack(spacing: 8) {
-                    ToolIconLabel(tool: .copilot)
-                    if let displayPlan = normalizedCopilotPlanDisplayName(plan) {
-                        SubscriptionTag(text: displayPlan)
+                HStack {
+                    HStack(spacing: 8) {
+                        ToolIconLabel(tool: .copilot)
+                        if let displayPlan = normalizedCopilotPlanDisplayName(plan) {
+                            SubscriptionTag(text: displayPlan)
+                        }
+                    }
+                    Spacer()
+                    HStack(spacing: 8) {
+                        ConfigShortcutButton(tool: .copilot)
+                        if todayTokens > 0 { TodayTokenBadge(tokens: todayTokens) }
                     }
                 }
-                Spacer()
-                if todayTokens > 0 { TodayTokenBadge(tokens: todayTokens) }
-            }
             if !ordered.isEmpty {
                 VStack(spacing: 5) {
                     ForEach(ordered, id: \.key) { item in
@@ -686,7 +725,10 @@ struct AntigravityAccountCard: View {
                         Text(account.email).font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                     }
                     Spacer()
-                    if todayTokens > 0 { TodayTokenBadge(tokens: todayTokens) }
+                    HStack(spacing: 8) {
+                        ConfigShortcutButton(tool: .antigravity)
+                        if todayTokens > 0 { TodayTokenBadge(tokens: todayTokens) }
+                    }
                 }
                 if visibleModels.isEmpty {
                     Text("全部模型已隐藏").font(.system(size: 9)).foregroundStyle(.quaternary).frame(maxWidth: .infinity, alignment: .leading)
@@ -719,7 +761,10 @@ struct AntigravityFallbackCard: View {
             HStack {
                 ToolIconLabel(tool: .antigravity)
                 Spacer()
-                if todayTokens > 0 { TodayTokenBadge(tokens: todayTokens) }
+                HStack(spacing: 8) {
+                    ConfigShortcutButton(tool: .antigravity)
+                    if todayTokens > 0 { TodayTokenBadge(tokens: todayTokens) }
+                }
             }
             if let r = quota.remaining, let t = quota.total, t > 0 {
                 let frac = Double(r) / Double(t)
@@ -791,7 +836,10 @@ struct SimpleQuotaCard: View {
             HStack {
                 ToolIconLabel(tool: tool)
                 Spacer()
-                if todayTokens > 0 { TodayTokenBadge(tokens: todayTokens) }
+                HStack(spacing: 8) {
+                    ConfigShortcutButton(tool: tool)
+                    if todayTokens > 0 { TodayTokenBadge(tokens: todayTokens) }
+                }
             }
             if let f = fraction {
                 let pct = Int((f * 100).rounded())
@@ -816,7 +864,10 @@ struct OpenCodeQuotaCard: View {
             HStack {
                 ToolIconLabel(tool: .opencode)
                 Spacer()
-                if todayTokens > 0 { TodayTokenBadge(tokens: todayTokens) }
+                HStack(spacing: 8) {
+                    ConfigShortcutButton(tool: .opencode)
+                    if todayTokens > 0 { TodayTokenBadge(tokens: todayTokens) }
+                }
             }
             if todayTokens == 0 {
                 Text("暂无数据").font(.system(size: 10)).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)

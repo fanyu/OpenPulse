@@ -11,6 +11,7 @@
 		0FDD15454877FF1BB808BA5E /* TrendsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44D51BF89557135F70FF6F47 /* TrendsView.swift */; };
 		120AD94708EC0E85F8D859AE /* DailyStatsRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCCDA4DF0EC129A5D3945AA3 /* DailyStatsRecord.swift */; };
 		14430807CC94A6DC009B7688 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E19C33043EDF71F1F02B80A /* SettingsView.swift */; };
+		15AC55FA0DD8FAE2E6ACD525 /* ToolSyncState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A861A46E5DC496FBF634333 /* ToolSyncState.swift */; };
 		293CDACA7222D9FF8E6F0FC1 /* ToolLogoImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94FD8AE1EE05A1ACE40E370B /* ToolLogoImage.swift */; };
 		2B82DB8B5FDD88D24079D486 /* ModelPricing.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD19B5E14DF8670708D6A8C0 /* ModelPricing.swift */; };
 		301E60B6321C36303453A64E /* LogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D058DCA8091F77E73442094 /* LogView.swift */; };
@@ -37,6 +38,7 @@
 		A7F5BB96B28B86404C636C2C /* AntigravityParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17FF3012B7E2288F242C0B7 /* AntigravityParser.swift */; };
 		ACFE41DA09FDB63087A5CC73 /* CommonUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = E44DFE8B1FF414DC177BEF99 /* CommonUI.swift */; };
 		B845C780045F45F642B7C190 /* ProviderComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C298F3CBB422846FB83A5FF /* ProviderComponents.swift */; };
+		B982FBAAD4916F4E4C91BB5D /* ConsecutiveFailureGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61CD85C3F8BBB34FF33E71F5 /* ConsecutiveFailureGate.swift */; };
 		BD5D47BFAF4E61E50078D3A0 /* TaskItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F162B140D2651A261556DD6 /* TaskItem.swift */; };
 		CD22A05AB603DA1198DA8B79 /* QuotaRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62113CA5D975C1A71899C037 /* QuotaRecord.swift */; };
 		D6D35E8BE1BF0D02FE6B7A64 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AC7AD8BD5E6F4A728B429D9 /* NotificationService.swift */; };
@@ -73,12 +75,14 @@
 		5A6B0992BD6928565C0BFBA4 /* MainWindowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowView.swift; sourceTree = "<group>"; };
 		5E19C33043EDF71F1F02B80A /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		5FD375993BBFCE958374B4F4 /* MenuBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarView.swift; sourceTree = "<group>"; };
+		61CD85C3F8BBB34FF33E71F5 /* ConsecutiveFailureGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsecutiveFailureGate.swift; sourceTree = "<group>"; };
 		62113CA5D975C1A71899C037 /* QuotaRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuotaRecord.swift; sourceTree = "<group>"; };
 		6D058DCA8091F77E73442094 /* LogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogView.swift; sourceTree = "<group>"; };
 		7086BEBA8F024D0188556DD4 /* SessionRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionRecord.swift; sourceTree = "<group>"; };
 		70978988BAE12EE3FFBBB75A /* CodexAccountService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexAccountService.swift; sourceTree = "<group>"; };
 		8918557F1ECC6689CA035E80 /* ToolAnalysisViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolAnalysisViews.swift; sourceTree = "<group>"; };
 		89E51531D07B099F396C58D4 /* DataSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DataSyncService.swift; sourceTree = "<group>"; };
+		8A861A46E5DC496FBF634333 /* ToolSyncState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolSyncState.swift; sourceTree = "<group>"; };
 		94FD8AE1EE05A1ACE40E370B /* ToolLogoImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolLogoImage.swift; sourceTree = "<group>"; };
 		9993EA42D3E23051DF67489A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		9AC7AD8BD5E6F4A728B429D9 /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
@@ -174,10 +178,12 @@
 				AAE363D258692709B22F2620 /* AppLogger.swift */,
 				CDD4CF2C5EDE7491AE3E099C /* ClaudeCodeBridgeInstaller.swift */,
 				70978988BAE12EE3FFBBB75A /* CodexAccountService.swift */,
+				61CD85C3F8BBB34FF33E71F5 /* ConsecutiveFailureGate.swift */,
 				89E51531D07B099F396C58D4 /* DataSyncService.swift */,
 				C462CDABE8B53296DB5A87C1 /* DotTextAPIService.swift */,
 				A3BA6F0CC3FDD8DFCCCF7CD5 /* KeychainService.swift */,
 				9AC7AD8BD5E6F4A728B429D9 /* NotificationService.swift */,
+				8A861A46E5DC496FBF634333 /* ToolSyncState.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -422,6 +428,7 @@
 				ACFE41DA09FDB63087A5CC73 /* CommonUI.swift in Sources */,
 				7FB9F2A8ECCC0B3539C6C429 /* CompareView.swift in Sources */,
 				3D2E1FCC20A790060EFF484B /* ConfigsView.swift in Sources */,
+				B982FBAAD4916F4E4C91BB5D /* ConsecutiveFailureGate.swift in Sources */,
 				7C004E6EC2DBCB001E80E0A8 /* CopilotAPIClient.swift in Sources */,
 				735412533A94EA74BB0EDD74 /* DailyStats.swift in Sources */,
 				120AD94708EC0E85F8D859AE /* DailyStatsRecord.swift in Sources */,
@@ -450,6 +457,7 @@
 				293CDACA7222D9FF8E6F0FC1 /* ToolLogoImage.swift in Sources */,
 				DB62A1FBBA9C5A8155DCE4F5 /* ToolQuota.swift in Sources */,
 				699729054FEE00973226B4D7 /* ToolSession.swift in Sources */,
+				15AC55FA0DD8FAE2E6ACD525 /* ToolSyncState.swift in Sources */,
 				0FDD15454877FF1BB808BA5E /* TrendsView.swift in Sources */,
 				FE99542E14E79742B1569A6B /* WindowCoordinator.swift in Sources */,
 			);
