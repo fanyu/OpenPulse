@@ -92,22 +92,14 @@ actor AntigravityParser {
 
     // MARK: - Quota via Google Cloud Code Assist API
 
-    /// Fetches quota for ALL Antigravity accounts found in ~/.cli-proxy-api/antigravity-*.json.
-    /// Returns a ToolQuota whose `raw` value is `[AGAccountQuota]` (one per account).
-    /// The summary `remaining` is the minimum remaining fraction across all accounts/models.
-    func fetchQuota() async throws -> ToolQuota {
-        guard FileManager.default.fileExists(atPath: proxyDir.path) else {
-            throw AntigravityError.noAuthFile
-        }
-        let authFiles = (try? FileManager.default.contentsOfDirectory(at: proxyDir, includingPropertiesForKeys: nil)
-            .filter { $0.lastPathComponent.hasPrefix("antigravity-") && $0.pathExtension == "json" }
-            .sorted { $0.lastPathComponent < $1.lastPathComponent }) ?? []
+    func fetchAllAccountQuotas() async throws -> AGQuotaFetchResult {
+        let authFiles = try authFilesByEmail()
         guard !authFiles.isEmpty else { throw AntigravityError.noAuthFile }
 
         var accounts: [AGAccountQuota] = []
         var lastError: Error?
 
-        for file in authFiles {
+        for (_, file) in authFiles {
             do {
                 let account = try await fetchAccountQuota(from: file)
                 accounts.append(account)
@@ -117,33 +109,24 @@ actor AntigravityParser {
             }
         }
 
-        // If all accounts failed, propagate the last error
         if accounts.isEmpty, let err = lastError { throw err }
+        return AGQuotaFetchResult(accounts: accounts, orderedEmails: authFiles.map(\.key))
+    }
 
-        // Derive summary: minimum remaining fraction across all accounts/models that have data
-        let allFractions = accounts.flatMap(\.models).compactMap(\.remainingFraction)
-        let minFraction = allFractions.min() ?? 1.0
+    /// Fetches quota for ALL Antigravity accounts found in ~/.cli-proxy-api/antigravity-*.json.
+    /// Returns a ToolQuota whose `raw` value is `[AGAccountQuota]` (one per account).
+    /// The summary `remaining` is the minimum remaining fraction across all accounts/models.
+    func fetchQuota() async throws -> ToolQuota {
+        let result = try await fetchAllAccountQuotas()
+        return toolQuota(from: result.accounts)
+    }
 
-        // Earliest reset time across everything
-        let resetAt: Date? = accounts.flatMap(\.models).compactMap { m -> Date? in
-            guard let t = m.resetTime else { return nil }
-            return parseISO8601(t)
-        }.min()
-
-        let remainingPct = Int((minFraction * 100).rounded())
-
-        return ToolQuota(
-            id: Tool.antigravity.rawValue,
-            tool: .antigravity,
-            accountKey: nil,
-            accountLabel: nil,
-            remaining: remainingPct,
-            total: 100,
-            unit: .requests,
-            resetAt: resetAt,
-            updatedAt: Date(),
-            raw: accounts as (any Sendable)
-        )
+    func fetchQuota(forAccountEmail email: String) async throws -> AGAccountQuota {
+        let authFiles = try authFilesByEmail()
+        guard let file = authFiles.first(where: { $0.key == email })?.value else {
+            throw AntigravityError.noAuthFile
+        }
+        return try await fetchAccountQuota(from: file)
     }
 
     /// Fetches quota for a single auth file, returns an `AGAccountQuota`.
@@ -163,7 +146,11 @@ actor AntigravityParser {
         let email = auth.email ?? emailFromFilename(file.deletingPathExtension().lastPathComponent)
 
         let projectId = try await fetchProjectId(token: token)
-        let models = try await fetchAllModels(token: token, projectId: projectId)
+        var models = try await fetchAllModels(token: token, projectId: projectId)
+        if projectId != nil, models.contains(where: { !$0.hasMeaningfulQuota }) {
+            let fallbackModels = try await fetchAllModels(token: token, projectId: nil)
+            models = mergePreferredModels(primary: models, secondary: fallbackModels)
+        }
 
         return AGAccountQuota(email: email, models: models)
     }
@@ -262,24 +249,35 @@ actor AntigravityParser {
         let remaining = apiResp.models.keys.filter { !seen.contains($0) }.sorted()
         orderedIds.append(contentsOf: remaining)
 
-        var seenDisplayNames = Set<String>()
-        return orderedIds.compactMap { modelId -> AGModelQuota? in
-            guard let info = apiResp.models[modelId] else { return nil }
+        var displayOrder: [String] = []
+        var bestModelByDisplayName: [String: AGModelQuota] = [:]
+
+        for modelId in orderedIds {
+            guard let info = apiResp.models[modelId] else { continue }
             let displayName = info.displayName ?? modelId
             // 过滤 displayName 等于 id 的内部测试模型（chat_*、tab_* 等无友好名称）
-            guard displayName != modelId else { return nil }
-            // 同一 displayName 可能对应多个 modelId（如 gemini-2.5-pro / gemini-2.5-pro-exp）
-            guard seenDisplayNames.insert(displayName).inserted else { return nil }
+            guard displayName != modelId else { continue }
             let quotaInfo = info.quotaInfo
             // nil = API returned no quota info for this model
             let fraction = quotaInfo?.remainingFraction.map { min(1.0, max(0.0, $0)) }
-            return AGModelQuota(
+            let candidate = AGModelQuota(
                 id: modelId,
                 displayName: displayName,
                 remainingFraction: fraction,
                 resetTime: quotaInfo?.resetTime
             )
+
+            if let existing = bestModelByDisplayName[displayName] {
+                if candidate.isPreferred(over: existing) {
+                    bestModelByDisplayName[displayName] = candidate
+                }
+            } else {
+                displayOrder.append(displayName)
+                bestModelByDisplayName[displayName] = candidate
+            }
         }
+
+        return displayOrder.compactMap { bestModelByDisplayName[$0] }
     }
 
     // MARK: - Helpers
@@ -304,6 +302,64 @@ actor AntigravityParser {
 
     private func parseISO8601(_ string: String) -> Date? {
         parseISO8601Flexible(string)
+    }
+
+    private func mergePreferredModels(primary: [AGModelQuota], secondary: [AGModelQuota]) -> [AGModelQuota] {
+        var orderedNames: [String] = []
+        var bestByDisplayName: [String: AGModelQuota] = [:]
+
+        for model in primary + secondary {
+            if let existing = bestByDisplayName[model.displayName] {
+                if model.isPreferred(over: existing) {
+                    bestByDisplayName[model.displayName] = model
+                }
+            } else {
+                orderedNames.append(model.displayName)
+                bestByDisplayName[model.displayName] = model
+            }
+        }
+
+        return orderedNames.compactMap { bestByDisplayName[$0] }
+    }
+
+    private func authFilesByEmail() throws -> [(key: String, value: URL)] {
+        guard FileManager.default.fileExists(atPath: proxyDir.path) else {
+            throw AntigravityError.noAuthFile
+        }
+        let files = (try? FileManager.default.contentsOfDirectory(at: proxyDir, includingPropertiesForKeys: nil)
+            .filter { $0.lastPathComponent.hasPrefix("antigravity-") && $0.pathExtension == "json" }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }) ?? []
+        guard !files.isEmpty else { throw AntigravityError.noAuthFile }
+
+        var items: [(key: String, value: URL)] = []
+        for file in files {
+            let rawData = try? Data(contentsOf: file)
+            let email = rawData
+                .flatMap { try? JSONDecoder().decode(AntigravityAuthFile.self, from: $0).email }
+                ?? emailFromFilename(file.deletingPathExtension().lastPathComponent)
+            items.append((key: email, value: file))
+        }
+        return items
+    }
+
+    private func toolQuota(from accounts: [AGAccountQuota]) -> ToolQuota {
+        let allFractions = accounts.flatMap(\.models).compactMap(\.remainingFraction)
+        let minFraction = allFractions.min() ?? 1.0
+        let resetAt = accounts.flatMap(\.models).compactMap(\.validatedResetDate).min()
+        let remainingPct = Int((minFraction * 100).rounded())
+
+        return ToolQuota(
+            id: Tool.antigravity.rawValue,
+            tool: .antigravity,
+            accountKey: nil,
+            accountLabel: nil,
+            remaining: remainingPct,
+            total: 100,
+            unit: .requests,
+            resetAt: resetAt,
+            updatedAt: Date(),
+            raw: accounts as (any Sendable)
+        )
     }
 
     // MARK: - Private parsing helpers
@@ -340,6 +396,32 @@ struct AGAccountQuota: Sendable, Identifiable {
     let models: [AGModelQuota]
 
     var id: String { email }
+
+    func mergedPreferBetter(with newer: AGAccountQuota) -> AGAccountQuota {
+        var orderedNames: [String] = []
+        var bestByDisplayName: [String: AGModelQuota] = [:]
+
+        for model in newer.models + models {
+            if let existing = bestByDisplayName[model.displayName] {
+                if model.isPreferred(over: existing) {
+                    bestByDisplayName[model.displayName] = model
+                }
+            } else {
+                orderedNames.append(model.displayName)
+                bestByDisplayName[model.displayName] = model
+            }
+        }
+
+        return AGAccountQuota(
+            email: email,
+            models: orderedNames.compactMap { bestByDisplayName[$0] }
+        )
+    }
+}
+
+struct AGQuotaFetchResult: Sendable {
+    let accounts: [AGAccountQuota]
+    let orderedEmails: [String]
 }
 
 struct AGModelQuota: Sendable {
@@ -355,11 +437,34 @@ struct AGModelQuota: Sendable {
         return "\(Int((f * 100).rounded()))%"
     }
 
+    /// Antigravity may occasionally return a reference-date placeholder
+    /// instead of a real future reset. Treat past or unparsable values as absent.
+    var validatedResetDate: Date? {
+        guard let t = resetTime,
+              let date = parseISO8601Flexible(t),
+              date > Date() else { return nil }
+        return date
+    }
+
+    var hasMeaningfulQuota: Bool {
+        remainingFraction != nil || validatedResetDate != nil
+    }
+
+    private var qualityScore: Int {
+        var score = 0
+        if remainingFraction != nil { score += 2 }
+        if validatedResetDate != nil { score += 1 }
+        return score
+    }
+
+    func isPreferred(over other: AGModelQuota) -> Bool {
+        qualityScore > other.qualityScore
+    }
+
     /// Countdown string derived from ISO 8601 resetTime, e.g. "3h 12m".
     /// Delegates to the shared countdownString(to:) free function for consistent output.
     var resetCountdown: String? {
-        guard let t = resetTime,
-              let date = parseISO8601Flexible(t) else { return nil }
+        guard let date = validatedResetDate else { return nil }
         return countdownString(to: date)
     }
 }

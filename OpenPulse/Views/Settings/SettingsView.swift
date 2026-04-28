@@ -3,7 +3,6 @@ import SwiftData
 import ServiceManagement
 
 struct SettingsView: View {
-    @Environment(AppStore.self) private var appStore
     @Query(sort: \QuotaRecord.updatedAt, order: .reverse) private var quotaRecords: [QuotaRecord]
     @Query(sort: \SessionRecord.startedAt, order: .reverse) private var sessionRecords: [SessionRecord]
     @Environment(\.modelContext) private var modelContext
@@ -15,7 +14,6 @@ struct SettingsView: View {
     @AppStorage("menubar.toolOrder")        private var toolOrderRaw = Tool.defaultOrderRaw
     @AppStorage("menubar.hiddenTools")      private var hiddenToolsRaw = ""
     @AppStorage("menubar.titleQuotaTools")  private var titleQuotaToolsRaw = ""
-    @AppStorage("menubar.syncIntervalGlobal") private var globalInterval: Double = 0
 
     // MARK: - Hotkey
     @AppStorage("menubar.hotkey.keyCode")    private var hotkeyKeyCode    = 0
@@ -59,22 +57,6 @@ struct SettingsView: View {
 
     private var menuBarTitleQuotaTools: [Tool] {
         orderedTools.filter(\.supportsMenuBarFiveHourDisplay)
-    }
-
-    private var isGlobalMode: Bool { globalInterval > 0 }
-
-    private func syncInterval(for tool: Tool) -> Double {
-        let v = UserDefaults.standard.double(forKey: DataSyncService.intervalKey(for: tool))
-        return v > 0 ? v : DataSyncService.defaultInterval(for: tool)
-    }
-
-    private func setSyncInterval(_ interval: Double, for tool: Tool) {
-        UserDefaults.standard.set(interval, forKey: DataSyncService.intervalKey(for: tool))
-        appStore.syncService?.rescheduleTimer(for: tool, interval: interval)
-    }
-
-    private func applyGlobalInterval(_ interval: Double) {
-        for tool in Tool.allCases { setSyncInterval(interval, for: tool) }
     }
 
     private func moveTools(from offsets: IndexSet, to destination: Int) {
@@ -126,31 +108,6 @@ struct SettingsView: View {
                 // 菜单栏设置
                 SettingsCard(title: "菜单栏显示", icon: "menubar.rectangle") {
                     VStack(alignment: .leading, spacing: 16) {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("全局刷新间隔")
-                                    .font(.body)
-                                Text("统一设置所有助手的数据同步频率")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Picker("", selection: $globalInterval) {
-                                Text("自定义").tag(0.0)
-                                Text("1 分钟").tag(60.0)
-                                Text("5 分钟").tag(300.0)
-                                Text("10 分钟").tag(600.0)
-                                Text("30 分钟").tag(1800.0)
-                                Text("1 小时").tag(3600.0)
-                            }
-                            .frame(width: 120)
-                            .onChange(of: globalInterval) { _, newValue in
-                                if newValue > 0 { applyGlobalInterval(newValue) }
-                            }
-                        }
-                        
-                        Divider()
-
                         VStack(alignment: .leading, spacing: 8) {
                             Text("菜单栏标题额度")
                                 .font(.subheadline.weight(.medium))
@@ -178,9 +135,9 @@ struct SettingsView: View {
                         Divider()
                         
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("工具排序与独立设置")
+                            Text("工具排序与显示")
                                 .font(.subheadline.weight(.medium))
-                            Text("拖拽列表调整菜单栏中的显示顺序；统一间隔选「自定义」后可单独设置每个工具的刷新频率。")
+                            Text("拖拽列表调整菜单栏中的显示顺序，并控制是否在菜单栏中显示。")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                             
@@ -191,20 +148,6 @@ struct SettingsView: View {
                                         Text(tool.displayName)
                                             .font(.body)
                                         Spacer()
-                                        
-                                        Picker("", selection: Binding(
-                                            get: { syncInterval(for: tool) },
-                                            set: { setSyncInterval($0, for: tool) }
-                                        )) {
-                                            Text("1m").tag(60.0)
-                                            Text("5m").tag(300.0)
-                                            Text("10m").tag(600.0)
-                                            Text("30m").tag(1800.0)
-                                            Text("1h").tag(3600.0)
-                                        }
-                                        .frame(width: 70)
-                                        .disabled(isGlobalMode)
-                                        
                                         Toggle("", isOn: Binding(
                                             get: { !hiddenTools.contains(tool.rawValue) },
                                             set: { setToolHidden(tool, !$0) }

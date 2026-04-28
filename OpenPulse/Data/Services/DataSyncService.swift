@@ -7,7 +7,6 @@ import SwiftData
 ///   • Per-tool independent refresh (no global lock — tools run concurrently)
 ///   • ConsecutiveFailureGate so transient errors don't flash-clear UI data
 ///   • Heavy parsing work off MainActor via Task.detached(priority: .utility)
-///   • Per-category quota TTL so API-only tools (Copilot, AG quota) aren't called too often
 ///   • FSEvents debounce + path filtering to avoid spurious re-parses
 @MainActor
 @Observable
@@ -27,36 +26,12 @@ final class DataSyncService {
 
     /// Latest Antigravity account quota list.
     private(set) var latestAntigravityAccounts: [AGAccountQuota]?
+    private(set) var refreshingAntigravityAccountEmails: Set<String> = []
 
     /// Latest Copilot quota snapshots keyed by quota_id.
     private(set) var latestCopilotSnapshots: [String: CopilotSnapshot]?
     private(set) var latestCopilotResetAt: Date?
     private(set) var latestCopilotPlan: String?
-
-    // MARK: - Configuration
-
-    /// Minimum seconds between API quota calls per tool. Parsing local files
-    /// is never rate-limited — only network API calls respect this TTL.
-    private static let quotaAPITTL: [Tool: TimeInterval] = [
-        .claudeCode:   600,    // Claude OAuth API — 10 min
-        .copilot:     3600,    // GitHub API — 1 hour
-        .antigravity:  600,    // Google API — 10 min
-    ]
-
-    // MARK: - SettingsView compatibility helpers
-
-    /// UserDefaults key for per-tool poll interval (used by SettingsView).
-    static func intervalKey(for tool: Tool) -> String { "syncInterval.\(tool.rawValue)" }
-
-    /// Default poll interval for a tool (used by SettingsView).
-    static func defaultInterval(for tool: Tool) -> Double {
-        defaultPollInterval[tool] ?? 600
-    }
-
-    /// Reschedule the poll timer for a single tool (called from SettingsView).
-    func rescheduleTimer(for tool: Tool, interval: Double) {
-        reschedulePollTimer(for: tool, interval: interval)
-    }
 
     // MARK: - MenuBarView compatibility helpers
 
@@ -75,11 +50,33 @@ final class DataSyncService {
     /// Refresh all tools (called from MenuBarView manual refresh button).
     func sync() async { await refreshAll() }
 
+    func refreshAntigravityAccount(email: String) async {
+        guard !refreshingAntigravityAccountEmails.contains(email) else { return }
+        refreshingAntigravityAccountEmails.insert(email)
+        defer { refreshingAntigravityAccountEmails.remove(email) }
+
+        do {
+            let account = try await antigravityParser.fetchQuota(forAccountEmail: email)
+            let merged = mergeAntigravityAccounts(
+                current: latestAntigravityAccounts ?? [],
+                refreshed: [account],
+                orderedEmails: antigravityOrderedEmails(current: latestAntigravityAccounts ?? [], refreshed: [account])
+            )
+            latestAntigravityAccounts = merged
+
+            let context = makeWriteContext()
+            upsertQuota(antigravityAggregateQuota(from: merged), context: context)
+            try context.save()
+        } catch {
+            AppLogger.shared.warning("[antigravity] account refresh failed for \(email): \(error.localizedDescription)")
+        }
+    }
+
     /// Default background poll intervals per tool (seconds).
     private static let defaultPollInterval: [Tool: TimeInterval] = [
-        .claudeCode:  1800,
+        .claudeCode:   300,
         .codex:        300,
-        .antigravity:  600,
+        .antigravity:  300,
         .copilot:     3600,
         .opencode:     300,
     ]
@@ -121,9 +118,6 @@ final class DataSyncService {
         Dictionary(uniqueKeysWithValues: Tool.allCases.map { ($0, ConsecutiveFailureGate()) })
     }()
 
-    // Last successful API quota fetch time per tool (for TTL enforcement)
-    private var lastQuotaAPIFetchAt: [Tool: Date] = [:]
-
     // Poll timers and background tasks
     private var pollTimers: [Tool: Timer] = [:]
     private var fsEventStream: FSEventStream?
@@ -150,6 +144,7 @@ final class DataSyncService {
     }
 
     func start() {
+        purgeLegacyRefreshPreferences()
         purgeOrphanedQuotas()
         for tool in Tool.allCases { schedulePollTimer(for: tool) }
         startFSEventWatching()
@@ -200,17 +195,6 @@ final class DataSyncService {
             }
             AppLogger.shared.warning("[\(tool.rawValue)] refresh error (surfaced=\(shouldSurface)): \(error.localizedDescription)")
         }
-    }
-
-    // MARK: - Per-tool timer control (public for settings pane)
-
-    func reschedulePollTimer(for tool: Tool, interval: Double) {
-        pollTimers[tool]?.invalidate()
-        schedulePollTimer(for: tool, override: interval)
-    }
-
-    func reschedulePollTimer(interval: Double) {
-        for tool in Tool.allCases { reschedulePollTimer(for: tool, interval: interval) }
     }
 
     // MARK: - Private: dispatch per tool
@@ -273,7 +257,7 @@ final class DataSyncService {
             latestClaudeAccountInfo = await claudeParser.readAccountInfo()
         }
 
-        // 3. Quota — prefer bridge cache, fall back to API (with TTL)
+        // 3. Quota — prefer bridge cache, fall back to API
         await refreshClaudeQuota(context: context)
     }
 
@@ -294,21 +278,18 @@ final class DataSyncService {
             upsertQuota(quota, context: context)
             return
         } catch {
-            AppLogger.shared.info("[claude] bridge quota unavailable: \(error.localizedDescription); checking API TTL")
+            AppLogger.shared.info("[claude] bridge quota unavailable: \(error.localizedDescription); falling back to API")
         }
 
-        // API fallback — respect TTL
-        guard isQuotaAPIEligible(for: .claudeCode) else { return }
+        // API fallback when bridge cache is unavailable
         do {
             let quota = try await claudeParser.fetchSubscriptionQuota()
-            lastQuotaAPIFetchAt[.claudeCode] = Date()
             if let usage = quota.raw as? ClaudeUsageResponse {
                 latestClaudeUsage = usage
                 persistClaudeUsageCache(usage)
             }
             upsertQuota(quota, context: context)
         } catch {
-            lastQuotaAPIFetchAt[.claudeCode] = Date()
             AppLogger.shared.warning("[claude] API quota failed: \(error.localizedDescription)")
         }
     }
@@ -392,17 +373,17 @@ final class DataSyncService {
         }.value
         upsertSessions(sessions, context: context)
 
-        // 2. Quota API — TTL-gated
-        guard isQuotaAPIEligible(for: .antigravity) else { return }
+        // 2. Quota API
         do {
-            let quota = try await antigravityParser.fetchQuota()
-            lastQuotaAPIFetchAt[.antigravity] = Date()
-            if let accounts = quota.raw as? [AGAccountQuota] {
-                latestAntigravityAccounts = accounts
-            }
-            upsertQuota(quota, context: context)
+            let result = try await antigravityParser.fetchAllAccountQuotas()
+            let mergedAccounts = mergeAntigravityAccounts(
+                current: latestAntigravityAccounts ?? [],
+                refreshed: result.accounts,
+                orderedEmails: result.orderedEmails
+            )
+            latestAntigravityAccounts = mergedAccounts
+            upsertQuota(antigravityAggregateQuota(from: mergedAccounts), context: context)
         } catch {
-            lastQuotaAPIFetchAt[.antigravity] = Date()
             AppLogger.shared.warning("[antigravity] quota failed: \(error.localizedDescription)")
         }
     }
@@ -410,16 +391,13 @@ final class DataSyncService {
     // MARK: - Copilot
 
     private func refreshCopilot(context: ModelContext) async throws {
-        guard isQuotaAPIEligible(for: .copilot) else { return }
         do {
             let (quota, snapshots, plan) = try await copilotClient.fetchQuota()
-            lastQuotaAPIFetchAt[.copilot] = Date()
             latestCopilotSnapshots = snapshots
             latestCopilotResetAt   = quota.resetAt
             latestCopilotPlan      = plan
             upsertQuota(quota, context: context)
         } catch {
-            lastQuotaAPIFetchAt[.copilot] = Date()
             AppLogger.shared.warning("[copilot] quota failed: \(error.localizedDescription)")
             throw error     // propagate so FailureGate can count it
         }
@@ -542,14 +520,6 @@ final class DataSyncService {
         accounts.map(\.quota).forEach { upsertQuota($0, context: context) }
         try? context.save()
         AppLogger.shared.recordDiagnostic(scope: "codex.localQuota", message: "updated quota from local JSONL")
-    }
-
-    // MARK: - Helpers: quota TTL
-
-    private func isQuotaAPIEligible(for tool: Tool) -> Bool {
-        guard let ttl = Self.quotaAPITTL[tool] else { return true }
-        guard let last = lastQuotaAPIFetchAt[tool] else { return true }
-        return Date().timeIntervalSince(last) >= ttl
     }
 
     // MARK: - Helpers: Codex local rate limits
@@ -694,6 +664,57 @@ final class DataSyncService {
         }
     }
 
+    private func mergeAntigravityAccounts(
+        current: [AGAccountQuota],
+        refreshed: [AGAccountQuota],
+        orderedEmails: [String]
+    ) -> [AGAccountQuota] {
+        let currentByEmail = Dictionary(uniqueKeysWithValues: current.map { ($0.email, $0) })
+        let refreshedByEmail = Dictionary(uniqueKeysWithValues: refreshed.map { ($0.email, $0) })
+
+        return orderedEmails.compactMap { email in
+            switch (currentByEmail[email], refreshedByEmail[email]) {
+            case let (currentAccount?, refreshedAccount?):
+                currentAccount.mergedPreferBetter(with: refreshedAccount)
+            case let (_, refreshedAccount?):
+                refreshedAccount
+            case let (currentAccount?, _):
+                currentAccount
+            default:
+                nil
+            }
+        }
+    }
+
+    private func antigravityOrderedEmails(current: [AGAccountQuota], refreshed: [AGAccountQuota]) -> [String] {
+        var seen = Set<String>()
+        var emails: [String] = []
+        for email in current.map(\.email) + refreshed.map(\.email) where seen.insert(email).inserted {
+            emails.append(email)
+        }
+        return emails
+    }
+
+    private func antigravityAggregateQuota(from accounts: [AGAccountQuota]) -> ToolQuota {
+        let allFractions = accounts.flatMap(\.models).compactMap(\.remainingFraction)
+        let minFraction = allFractions.min() ?? 1.0
+        let resetAt = accounts.flatMap(\.models).compactMap(\.validatedResetDate).min()
+        let remainingPct = Int((minFraction * 100).rounded())
+
+        return ToolQuota(
+            id: Tool.antigravity.rawValue,
+            tool: .antigravity,
+            accountKey: nil,
+            accountLabel: nil,
+            remaining: remainingPct,
+            total: 100,
+            unit: .requests,
+            resetAt: resetAt,
+            updatedAt: Date(),
+            raw: accounts as (any Sendable)
+        )
+    }
+
     private func removeStaleCodexQuotas(validAccountKeys: Set<String>, context: ModelContext) {
         let toolRaw = Tool.codex.rawValue
         let desc    = FetchDescriptor<QuotaRecord>(predicate: #Predicate { $0.toolRaw == toolRaw })
@@ -725,6 +746,14 @@ final class DataSyncService {
         try? context.save()
     }
 
+    private func purgeLegacyRefreshPreferences() {
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: "menubar.syncIntervalGlobal")
+        for tool in Tool.allCases {
+            defaults.removeObject(forKey: "syncInterval.\(tool.rawValue)")
+        }
+    }
+
     // MARK: - Claude usage cache helpers
 
     private func restoredClaudeUsageCache() -> ClaudeUsageResponse? {
@@ -750,17 +779,11 @@ final class DataSyncService {
 
     // MARK: - Poll timers
 
-    private func schedulePollTimer(for tool: Tool, override: Double? = nil) {
-        let interval = max(30, override ?? effectivePollInterval(for: tool))
+    private func schedulePollTimer(for tool: Tool) {
+        let interval = max(30, Self.defaultPollInterval[tool] ?? 300)
         pollTimers[tool] = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in await self?.refreshTool(tool) }
         }
-    }
-
-    private func effectivePollInterval(for tool: Tool) -> TimeInterval {
-        let global = UserDefaults.standard.double(forKey: "menubar.syncIntervalGlobal")
-        let stored = UserDefaults.standard.double(forKey: "syncInterval.\(tool.rawValue)")
-        return global > 0 ? global : (stored > 0 ? stored : Self.defaultPollInterval[tool] ?? 600)
     }
 
     // MARK: - FSEvents

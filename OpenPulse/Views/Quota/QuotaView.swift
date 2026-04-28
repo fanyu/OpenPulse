@@ -54,12 +54,23 @@ struct QuotaView: View {
         refreshingTools.contains(tool)
     }
 
+    private func isRefreshingAntigravityAccount(_ email: String) -> Bool {
+        isRefreshing(.antigravity) || (appStore.syncService?.refreshingAntigravityAccountEmails.contains(email) ?? false)
+    }
+
     private func refresh(tool: Tool) {
         guard !refreshingTools.contains(tool), appStore.syncService != nil else { return }
         refreshingTools.insert(tool)
         Task {
             await appStore.syncService?.sync(tool: tool)
             refreshingTools.remove(tool)
+        }
+    }
+
+    private func refreshAntigravityAccount(_ email: String) {
+        guard appStore.syncService != nil else { return }
+        Task {
+            await appStore.syncService?.refreshAntigravityAccount(email: email)
         }
     }
 
@@ -186,8 +197,8 @@ struct QuotaView: View {
             AntigravityDetailCard(
                 account: account,
                 todayTokens: toolTodayTokens(for: .antigravity),
-                isRefreshing: isRefreshing(.antigravity),
-                onRefresh: { refresh(tool: .antigravity) }
+                isRefreshing: isRefreshingAntigravityAccount(account.email),
+                onRefresh: { refreshAntigravityAccount(account.email) }
             )
         }
     }
@@ -238,8 +249,8 @@ struct QuotaView: View {
                         AntigravityDetailCard(
                             account: account,
                             todayTokens: toolTodayTokens(for: .antigravity),
-                            isRefreshing: isRefreshing(.antigravity),
-                            onRefresh: { refresh(tool: .antigravity) }
+                            isRefreshing: isRefreshingAntigravityAccount(account.email),
+                            onRefresh: { refreshAntigravityAccount(account.email) }
                         )
                     }
                 } else if let fallback = quotas.first(where: { $0.tool == .antigravity }) {
