@@ -6,6 +6,7 @@ import Foundation
 actor ClaudeCodeParser {
     private let claudeDir: URL
     private let statusCacheURL: URL
+    private var cachedKeychainCredentials: ClaudeCredentialSource?
 
     init(
         claudeDir: URL = .homeDirectory.appending(path: ".claude"),
@@ -145,6 +146,13 @@ actor ClaudeCodeParser {
             throw ClaudeError.noCredentials
         }
 
+        return try await fetchSubscriptionQuota(using: token, retryingAfterCredentialRefresh: true)
+    }
+
+    private func fetchSubscriptionQuota(
+        using token: String,
+        retryingAfterCredentialRefresh: Bool
+    ) async throws -> ToolQuota {
         var request = URLRequest(url: URL(string: "https://api.anthropic.com/api/oauth/usage")!)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
@@ -152,9 +160,25 @@ actor ClaudeCodeParser {
         request.timeoutInterval = 10
 
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+        guard let http = response as? HTTPURLResponse else {
+            throw ClaudeError.apiFailed("Missing HTTP response")
+        }
+
+        if http.statusCode == 401 || http.statusCode == 403,
+           retryingAfterCredentialRefresh {
+            invalidateCachedKeychainCredentials()
+            guard let refreshedToken = try await resolveOAuthToken(forceRefreshKeychain: true) else {
+                throw ClaudeError.noCredentials
+            }
+            return try await fetchSubscriptionQuota(
+                using: refreshedToken,
+                retryingAfterCredentialRefresh: false
+            )
+        }
+
+        guard http.statusCode == 200 else {
             let body = String(data: data, encoding: .utf8) ?? ""
-            throw ClaudeError.apiFailed("HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0): \(body.prefix(200))")
+            throw ClaudeError.apiFailed("HTTP \(http.statusCode): \(body.prefix(200))")
         }
 
         let usage = try JSONDecoder().decode(ClaudeUsageResponse.self, from: data)
@@ -194,8 +218,8 @@ actor ClaudeCodeParser {
 
     // MARK: - OAuth token resolution
 
-    private func resolveOAuthToken() async throws -> String? {
-        guard let source = try? resolveCredentialsSource(),
+    private func resolveOAuthToken(forceRefreshKeychain: Bool = false) async throws -> String? {
+        guard let source = try? resolveCredentialsSource(forceRefreshKeychain: forceRefreshKeychain),
               let creds = try? JSONDecoder().decode(ClaudeCredentials.self, from: source.data),
               let oauth = creds.claudeAiOauth,
               let token = oauth.accessToken else { return nil }
@@ -207,11 +231,15 @@ actor ClaudeCodeParser {
         return token
     }
 
-    private func resolveCredentialsSource() throws -> ClaudeCredentialSource? {
+    private func resolveCredentialsSource(forceRefreshKeychain: Bool = false) throws -> ClaudeCredentialSource? {
         let credFile = claudeDir.appending(path: ".credentials.json")
         if FileManager.default.fileExists(atPath: credFile.path),
            let data = try? Data(contentsOf: credFile) {
             return ClaudeCredentialSource(data: data, accountLabel: nil)
+        }
+
+        if !forceRefreshKeychain, let cachedKeychainCredentials {
+            return cachedKeychainCredentials
         }
 
         guard let record = try KeychainService.retrieveGenericPasswordRecord(service: "Claude Code-credentials"),
@@ -219,7 +247,13 @@ actor ClaudeCodeParser {
             return nil
         }
 
-        return ClaudeCredentialSource(data: data, accountLabel: record.account)
+        let source = ClaudeCredentialSource(data: data, accountLabel: record.account)
+        cachedKeychainCredentials = source
+        return source
+    }
+
+    private func invalidateCachedKeychainCredentials() {
+        cachedKeychainCredentials = nil
     }
 
     private func extractPreferredAccountLabel(from object: Any?) -> String? {

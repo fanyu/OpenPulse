@@ -6,6 +6,7 @@ final class DotTextAPIService {
         static let isEnabled = "dot.textAPI.enabled"
         static let deviceID = "dot.textAPI.deviceID"
         static let taskKey = "dot.textAPI.taskKey"
+        static let apiKeyRevision = "dot.textAPI.apiKeyRevision"
     }
 
     private struct RequestBody: Encodable {
@@ -51,6 +52,8 @@ final class DotTextAPIService {
 
     private let baseURL = URL(string: "https://dot.mindreset.tech")!
     private var lastSentFingerprint: String?
+    private var cachedAPIKey: String?
+    private var cachedAPIKeyRevision: Int?
 
     func pushQuotaSnapshot(
         codexAccounts: [CodexAccountSnapshot],
@@ -67,17 +70,16 @@ final class DotTextAPIService {
             return
         }
 
-        let apiKey = ((try? KeychainService.retrieve(key: KeychainService.Keys.dotAPIKey)) ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !apiKey.isEmpty else {
-            AppLogger.shared.recordDiagnostic(level: .warning, scope: "dot.text.skip", message: "Dot Text API key is empty")
-            return
-        }
-
         let taskKey = defaults.string(forKey: DefaultsKey.taskKey)?.trimmingCharacters(in: .whitespacesAndNewlines)
         let content = makeQuotaContent(codexAccounts: codexAccounts, claudeUsage: claudeUsage, fallbackQuotas: fallbackQuotas)
         let fingerprint = [deviceID, taskKey ?? "", content.fingerprint].joined(separator: "\u{1F}")
         guard force || lastSentFingerprint != fingerprint else { return }
+
+        let apiKey = loadAPIKey(using: defaults)
+        guard !apiKey.isEmpty else {
+            AppLogger.shared.recordDiagnostic(level: .warning, scope: "dot.text.skip", message: "Dot Text API key is empty")
+            return
+        }
 
         let body = RequestBody(
             refreshNow: true,
@@ -101,6 +103,19 @@ final class DotTextAPIService {
                 details: error.localizedDescription
             )
         }
+    }
+
+    private func loadAPIKey(using defaults: UserDefaults) -> String {
+        let revision = defaults.integer(forKey: DefaultsKey.apiKeyRevision)
+        if cachedAPIKeyRevision == revision, let cachedAPIKey {
+            return cachedAPIKey
+        }
+
+        let apiKey = ((try? KeychainService.retrieve(key: KeychainService.Keys.dotAPIKey)) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        cachedAPIKey = apiKey
+        cachedAPIKeyRevision = revision
+        return apiKey
     }
 
     private func send(body: RequestBody, deviceID: String, apiKey: String) async throws {

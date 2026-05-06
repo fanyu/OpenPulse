@@ -3,6 +3,10 @@ import SwiftData
 import ServiceManagement
 
 struct SettingsView: View {
+    private enum DotTextDefaultsKey {
+        static let apiKeyRevision = "dot.textAPI.apiKeyRevision"
+    }
+
     @Query(sort: \QuotaRecord.updatedAt, order: .reverse) private var quotaRecords: [QuotaRecord]
     @Query(sort: \SessionRecord.startedAt, order: .reverse) private var sessionRecords: [SessionRecord]
     @Environment(\.modelContext) private var modelContext
@@ -82,6 +86,14 @@ struct SettingsView: View {
             .map(\.rawValue)
             .filter { selected.contains($0) }
             .joined(separator: ",")
+    }
+
+    private func bumpDotAPIKeyRevision() {
+        let defaults = UserDefaults.standard
+        defaults.set(
+            defaults.integer(forKey: DotTextDefaultsKey.apiKeyRevision) + 1,
+            forKey: DotTextDefaultsKey.apiKeyRevision
+        )
     }
 
     // MARK: - View Layout
@@ -407,10 +419,12 @@ struct SettingsView: View {
         do {
             if trimmedKey.isEmpty {
                 KeychainService.delete(key: KeychainService.Keys.dotAPIKey)
+                bumpDotAPIKeyRevision()
                 dotTextAPIKey = ""
                 dotTextAPIStatus = "API key removed"
             } else {
                 try KeychainService.store(key: KeychainService.Keys.dotAPIKey, value: trimmedKey)
+                bumpDotAPIKeyRevision()
                 dotTextAPIKey = trimmedKey
                 dotTextAPIStatus = "API key saved"
             }
