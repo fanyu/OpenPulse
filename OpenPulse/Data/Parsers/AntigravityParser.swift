@@ -396,6 +396,7 @@ struct AGAccountQuota: Sendable, Identifiable {
     let models: [AGModelQuota]
 
     var id: String { email }
+    var displayModels: [AGModelQuota] { models.filter(\.isGeminiModel) }
 
     func mergedPreferBetter(with newer: AGAccountQuota) -> AGAccountQuota {
         var orderedNames: [String] = []
@@ -430,6 +431,13 @@ struct AGModelQuota: Sendable {
     /// nil = API returned no quota info for this model (no data, not necessarily unlimited)
     let remainingFraction: Double?
     let resetTime: String?
+    
+    /// Antigravity is used as the Gemini surface in OpenPulse.
+    /// Other provider models may appear in the upstream API response,
+    /// but should not affect Gemini quota presentation or aggregation.
+    var isGeminiModel: Bool {
+        id.hasPrefix("gemini-") || displayName.localizedCaseInsensitiveContains("gemini")
+    }
 
     /// Remaining percentage string, e.g. "82%" or "—" when no data
     var formattedPercentage: String {

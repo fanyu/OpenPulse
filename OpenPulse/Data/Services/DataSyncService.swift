@@ -376,13 +376,12 @@ final class DataSyncService {
         // 2. Quota API
         do {
             let result = try await antigravityParser.fetchAllAccountQuotas()
-            let mergedAccounts = mergeAntigravityAccounts(
-                current: latestAntigravityAccounts ?? [],
+            let refreshedAccounts = orderedAntigravityAccounts(
                 refreshed: result.accounts,
                 orderedEmails: result.orderedEmails
             )
-            latestAntigravityAccounts = mergedAccounts
-            upsertQuota(antigravityAggregateQuota(from: mergedAccounts), context: context)
+            latestAntigravityAccounts = refreshedAccounts
+            upsertQuota(antigravityAggregateQuota(from: refreshedAccounts), context: context)
         } catch {
             AppLogger.shared.warning("[antigravity] quota failed: \(error.localizedDescription)")
         }
@@ -695,11 +694,20 @@ final class DataSyncService {
         return emails
     }
 
+    private func orderedAntigravityAccounts(
+        refreshed: [AGAccountQuota],
+        orderedEmails: [String]
+    ) -> [AGAccountQuota] {
+        let refreshedByEmail = Dictionary(uniqueKeysWithValues: refreshed.map { ($0.email, $0) })
+        return orderedEmails.compactMap { refreshedByEmail[$0] }
+    }
+
     private func antigravityAggregateQuota(from accounts: [AGAccountQuota]) -> ToolQuota {
-        let allFractions = accounts.flatMap(\.models).compactMap(\.remainingFraction)
-        let minFraction = allFractions.min() ?? 1.0
-        let resetAt = accounts.flatMap(\.models).compactMap(\.validatedResetDate).min()
-        let remainingPct = Int((minFraction * 100).rounded())
+        let displayModels = accounts.flatMap(\.displayModels)
+        let allFractions = displayModels.compactMap(\.remainingFraction)
+        let minFraction = allFractions.min()
+        let resetAt = displayModels.compactMap(\.validatedResetDate).min()
+        let remainingPct = minFraction.map { Int(($0 * 100).rounded()) }
 
         return ToolQuota(
             id: Tool.antigravity.rawValue,
@@ -707,7 +715,7 @@ final class DataSyncService {
             accountKey: nil,
             accountLabel: nil,
             remaining: remainingPct,
-            total: 100,
+            total: remainingPct == nil ? nil : 100,
             unit: .requests,
             resetAt: resetAt,
             updatedAt: Date(),
