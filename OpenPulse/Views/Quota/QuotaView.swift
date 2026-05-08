@@ -607,13 +607,13 @@ struct AntigravityDetailCard: View {
                 Text(account.email).font(.caption).foregroundStyle(.secondary)
                 
                 let cols = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
-                if account.displayModels.isEmpty {
-                    Text("No Gemini quota data")
+                if account.models.isEmpty {
+                    Text("No quota data")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
                     LazyVGrid(columns: cols, spacing: 12) {
-                        ForEach(account.displayModels, id: \.id) { model in
+                        ForEach(account.models, id: \.id) { model in
                             AntigravityModelGridCell(model: model)
                         }
                     }

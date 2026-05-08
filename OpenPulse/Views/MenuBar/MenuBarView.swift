@@ -724,7 +724,7 @@ struct AntigravityAccountSection: View {
     private var isAccountHidden: Bool {
         Set(hiddenAccountEmailsRaw.components(separatedBy: ",").filter { !$0.isEmpty }).contains(account.email)
     }
-    private var visibleModels: [AGModelQuota] { account.displayModels.filter { !hiddenIds.contains($0.id) } }
+    private var visibleModels: [AGModelQuota] { account.models.filter { !hiddenIds.contains($0.id) } }
 
     var body: some View {
         if isAccountHidden { EmptyView() } else {

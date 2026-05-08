@@ -396,7 +396,7 @@ struct AGAccountQuota: Sendable, Identifiable {
     let models: [AGModelQuota]
 
     var id: String { email }
-    var displayModels: [AGModelQuota] { models.filter(\.isGeminiModel) }
+    var geminiModels: [AGModelQuota] { models.filter(\.isGeminiModel) }
 
     func mergedPreferBetter(with newer: AGAccountQuota) -> AGAccountQuota {
         var orderedNames: [String] = []

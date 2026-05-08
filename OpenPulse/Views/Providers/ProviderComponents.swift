@@ -278,7 +278,7 @@ struct AGAccountCard: View {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(account.email).font(.system(size: 13, weight: .bold))
-                    Text("\(account.displayModels.count) Gemini models").font(.system(size: 10)).foregroundStyle(.tertiary)
+                    Text("\(account.models.count) models available").font(.system(size: 10)).foregroundStyle(.tertiary)
                 }
                 Spacer()
                 HStack(spacing: 16) {
@@ -294,7 +294,7 @@ struct AGAccountCard: View {
             if modelsExpanded && !isAccountHidden {
                 Divider().opacity(0.05).padding(.horizontal, 14)
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 8)], spacing: 8) {
-                    ForEach(account.displayModels, id: \.id) { model in
+                    ForEach(account.models, id: \.id) { model in
                         let isSelected = !hiddenIds.contains(model.id)
                         Button { toggleModel(model.id) } label: {
                             HStack(spacing: 6) {
