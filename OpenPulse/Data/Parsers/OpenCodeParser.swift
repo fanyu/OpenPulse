@@ -4,6 +4,11 @@ import SQLite
 /// Parses OpenCode (SST) data from ~/.local/share/opencode/opencode.db
 actor OpenCodeParser {
     private let dataDir: URL
+    private let sessionIDColumn = Expression<String>("id")
+    private let titleColumn = Expression<String>("title")
+    private let timeCreatedColumn = Expression<Int64>("time_created")
+    private let directoryColumn = Expression<String>("directory")
+    private let dataColumn = Expression<String>("data")
 
     init(dataDir: URL = .homeDirectory.appending(path: ".local/share/opencode")) {
         self.dataDir = dataDir
@@ -26,18 +31,18 @@ actor OpenCodeParser {
     }
 
     private func parseSessions(from dbURL: URL, since date: Date?) throws -> [ToolSession] {
-        let db = try Connection(.uri(dbURL.path, parameters: [.immutable(true), .mode(.readOnly)]))
+        let db = try Connection(.uri(dbURL.path, parameters: [.mode(.readOnly)]))
 
-        guard let sessionRows = try? db.prepare(
+        let sessionRows = try db.prepareRowIterator(
             "SELECT id, title, time_created, directory FROM session WHERE time_archived IS NULL"
-        ) else { return [] }
+        )
 
         var sessions: [ToolSession] = []
-        for row in sessionRows {
-            guard let sessionId = row[0] as? String else { continue }
-            let title   = row[1] as? String ?? ""
-            let timeMs  = row[2] as? Int64  ?? 0
-            let dir     = row[3] as? String ?? ""
+        while let row = try sessionRows.failableNext() {
+            let sessionId = try row.get(sessionIDColumn)
+            let title = try row.get(titleColumn)
+            let timeMs = try row.get(timeCreatedColumn)
+            let dir = try row.get(directoryColumn)
             let startDate = Date(timeIntervalSince1970: TimeInterval(timeMs) / 1000)
 
             if let cutoff = date, startDate < cutoff { continue }
@@ -48,12 +53,12 @@ actor OpenCodeParser {
             var cacheWrite   = 0
             var model        = ""
 
-            if let msgRows = try? db.prepare(
-                "SELECT data FROM message WHERE session_id = ?", sessionId
+            if let msgRows = try? db.prepareRowIterator(
+                "SELECT data FROM message WHERE session_id = ?", bindings: [sessionId]
             ) {
-                for msgRow in msgRows {
-                    guard let dataStr = msgRow[0] as? String,
-                          let data = dataStr.data(using: .utf8),
+                while let msgRow = try msgRows.failableNext() {
+                    let dataStr = try msgRow.get(dataColumn)
+                    guard let data = dataStr.data(using: .utf8),
                           let msg = try? JSONDecoder().decode(OpenCodeMessageData.self, from: data),
                           msg.role == "assistant" else { continue }
                     inputTokens  += msg.tokens?.input     ?? 0
@@ -84,6 +89,8 @@ actor OpenCodeParser {
         let description = error.localizedDescription.lowercased()
         return description.contains("unable to open database file")
             || description.contains("code: 14")
+            || description.contains("database is locked")
+            || description.contains("database table is locked")
             || description.contains("the file couldn’t be opened")
             || description.contains("the file couldn't be opened")
     }

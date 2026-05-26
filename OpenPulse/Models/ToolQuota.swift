@@ -7,9 +7,9 @@ import Foundation
 /// Different day     → "M月d日 HH:mm"  (e.g. "5月3日 14:30")
 func resetDateString(for date: Date) -> String {
     if Calendar.current.isDateInToday(date) {
-        return date.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute())
+        return date.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
     }
-    return date.formatted(.dateTime.month().day().hour(.twoDigits(amPM: .omitted)).minute())
+    return date.formatted(.dateTime.month().day().hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
 }
 
 /// Quota / remaining allowance for a tool.
