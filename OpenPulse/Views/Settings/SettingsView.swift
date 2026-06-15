@@ -375,7 +375,7 @@ struct SettingsView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("OpenPulse")
                                 .font(.body.weight(.semibold))
-                            Text("版本 1.0 (Build 1)")
+                            Text("版本 1.0.1 (Build 2)")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }

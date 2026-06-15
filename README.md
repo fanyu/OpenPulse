@@ -6,9 +6,9 @@ A native macOS menu bar app that unifies token consumption and quota tracking ac
 
 ### Option 1: Download Release (Recommended)
 
-Download **OpenPulse-1.0.dmg** from [GitHub Releases](https://github.com/fanyu/OpenPulse/releases):
+Download **OpenPulse-1.0.1.dmg** from [GitHub Releases](https://github.com/fanyu/OpenPulse/releases):
 
-1. Download `OpenPulse-1.0.dmg`
+1. Download `OpenPulse-1.0.1.dmg`
 2. Open the DMG and drag **OpenPulse.app** to Applications
 3. On first launch, right-click → **Open** to bypass Gatekeeper
 
