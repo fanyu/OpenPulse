@@ -795,14 +795,13 @@ struct AntigravityModelRow: View {
     var inGrid: Bool = false
 
     var body: some View {
-        let pct = model.remainingFraction.map { Int(($0 * 100).rounded()) }
         let row = UnifiedQuotaRow(
             style: .compact,
             valuePlacement: .bottomLeading,
             title: model.displayName,
             fraction: model.remainingFraction,
-            primaryValue: pct.map { "\($0)%" },
-            secondaryValue: nil,
+            primaryValue: model.primaryValueText,
+            secondaryValue: model.secondaryStatusText,
             countdown: model.resetCountdown
         )
         if inGrid {

@@ -15,6 +15,7 @@ actor AntigravityParser {
     private let tokenEndpoint = "https://oauth2.googleapis.com/token"
     private let loadCodeAssistEndpoint = "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist"
     private let fetchModelsEndpoint = "https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels"
+    private let retrieveUserQuotaEndpoint = "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota"
     private let userAgent = "antigravity/1.11.3 Darwin/arm64"
 
     init(session: URLSession = .shared) {
@@ -146,11 +147,13 @@ actor AntigravityParser {
         let email = auth.email ?? emailFromFilename(file.deletingPathExtension().lastPathComponent)
 
         let projectId = try await fetchProjectId(token: token)
-        var models = try await fetchAllModels(token: token, projectId: projectId)
-        if projectId != nil, models.contains(where: { !$0.hasMeaningfulQuota }) {
-            let fallbackModels = try await fetchAllModels(token: token, projectId: nil)
-            models = mergePreferredModels(primary: models, secondary: fallbackModels)
+        var catalog = try await fetchModelCatalog(token: token, projectId: projectId)
+        if projectId != nil {
+            let fallbackCatalog = try await fetchModelCatalog(token: token, projectId: nil)
+            catalog = mergeModelCatalogs(primary: catalog, secondary: fallbackCatalog)
         }
+        let quotaBuckets = try await fetchQuotaBuckets(token: token, projectId: projectId)
+        let models = mergeQuotaBuckets(quotaBuckets, with: catalog)
 
         return AGAccountQuota(email: email, models: models)
     }
@@ -214,7 +217,7 @@ actor AntigravityParser {
         return info?.cloudaicompanionProject
     }
 
-    private func fetchAllModels(token: String, projectId: String?) async throws -> [AGModelQuota] {
+    private func fetchModelCatalog(token: String, projectId: String?) async throws -> AGModelCatalog {
         var request = URLRequest(url: URL(string: fetchModelsEndpoint)!)
         request.httpMethod = "POST"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -236,48 +239,54 @@ actor AntigravityParser {
             throw AntigravityError.apiFailed("fetchAvailableModels HTTP \(http.statusCode): \(body.prefix(200))")
         }
 
-        let apiResp = try JSONDecoder().decode(AGQuotaAPIResponse.self, from: data)
+        let apiResp = try JSONDecoder().decode(AGModelCatalogResponse.self, from: data)
 
-        // Build display order: recommended (agentModelSorts) first, then any remaining models
         let recommendedIds: [String] = apiResp.agentModelSorts
             .flatMap { $0.groups }
             .flatMap { $0.modelIds }
 
         var seen = Set<String>()
         var orderedIds = recommendedIds.filter { seen.insert($0).inserted }
-        // Append any models not in agentModelSorts (alphabetically for stability)
         let remaining = apiResp.models.keys.filter { !seen.contains($0) }.sorted()
         orderedIds.append(contentsOf: remaining)
 
-        var displayOrder: [String] = []
-        var bestModelByDisplayName: [String: AGModelQuota] = [:]
-
+        var displayNamesByID: [String: String] = [:]
         for modelId in orderedIds {
             guard let info = apiResp.models[modelId] else { continue }
-            let displayName = info.displayName ?? modelId
-            // 过滤 displayName 等于 id 的内部测试模型（chat_*、tab_* 等无友好名称）
-            guard displayName != modelId else { continue }
-            let quotaInfo = info.quotaInfo
-            // nil = API returned no quota info for this model
-            let fraction = quotaInfo?.remainingFraction.map { min(1.0, max(0.0, $0)) }
-            let candidate = AGModelQuota(
-                id: modelId,
-                displayName: displayName,
-                remainingFraction: fraction,
-                resetTime: quotaInfo?.resetTime
-            )
-
-            if let existing = bestModelByDisplayName[displayName] {
-                if candidate.isPreferred(over: existing) {
-                    bestModelByDisplayName[displayName] = candidate
-                }
-            } else {
-                displayOrder.append(displayName)
-                bestModelByDisplayName[displayName] = candidate
-            }
+            guard let displayName = info.displayName, displayName != modelId else { continue }
+            displayNamesByID[modelId] = displayName
         }
 
-        return displayOrder.compactMap { bestModelByDisplayName[$0] }
+        return AGModelCatalog(
+            orderedIDs: orderedIds,
+            displayNamesByID: displayNamesByID
+        )
+    }
+
+    private func fetchQuotaBuckets(token: String, projectId: String?) async throws -> [AGQuotaBucket] {
+        var request = URLRequest(url: URL(string: retrieveUserQuotaEndpoint)!)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+
+        var payload: [String: Any] = [:]
+        if let pid = projectId { payload["project"] = pid }
+        request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
+        request.timeoutInterval = 10
+
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw AntigravityError.apiFailed("No HTTP response from retrieveUserQuota")
+        }
+        if http.statusCode == 403 { throw AntigravityError.apiFailed("403 Forbidden – check Google auth") }
+        guard (200..<300).contains(http.statusCode) else {
+            let body = String(data: data, encoding: .utf8) ?? ""
+            throw AntigravityError.apiFailed("retrieveUserQuota HTTP \(http.statusCode): \(body.prefix(200))")
+        }
+
+        let apiResp = try JSONDecoder().decode(AGUserQuotaResponse.self, from: data)
+        return apiResp.buckets
     }
 
     // MARK: - Helpers
@@ -304,18 +313,51 @@ actor AntigravityParser {
         parseISO8601Flexible(string)
     }
 
-    private func mergePreferredModels(primary: [AGModelQuota], secondary: [AGModelQuota]) -> [AGModelQuota] {
+    private func mergeModelCatalogs(primary: AGModelCatalog, secondary: AGModelCatalog) -> AGModelCatalog {
+        var orderedIDs = primary.orderedIDs
+        var displayNamesByID = primary.displayNamesByID
+
+        for modelID in secondary.orderedIDs {
+            if !orderedIDs.contains(modelID) {
+                orderedIDs.append(modelID)
+            }
+            if displayNamesByID[modelID] == nil, let displayName = secondary.displayNamesByID[modelID] {
+                displayNamesByID[modelID] = displayName
+            }
+        }
+
+        return AGModelCatalog(orderedIDs: orderedIDs, displayNamesByID: displayNamesByID)
+    }
+
+    private func mergeQuotaBuckets(_ buckets: [AGQuotaBucket], with catalog: AGModelCatalog) -> [AGModelQuota] {
+        var orderedIDs = catalog.orderedIDs
+        let bucketIDs = Set(buckets.map(\.modelID))
+        for modelID in bucketIDs.sorted() where !orderedIDs.contains(modelID) {
+            orderedIDs.append(modelID)
+        }
+
+        let bucketsByID = Dictionary(uniqueKeysWithValues: buckets.map { ($0.modelID, $0) })
         var orderedNames: [String] = []
         var bestByDisplayName: [String: AGModelQuota] = [:]
 
-        for model in primary + secondary {
-            if let existing = bestByDisplayName[model.displayName] {
-                if model.isPreferred(over: existing) {
-                    bestByDisplayName[model.displayName] = model
+        for modelID in orderedIDs {
+            guard let bucket = bucketsByID[modelID] else { continue }
+            guard let displayName = catalog.displayNamesByID[modelID], displayName != modelID else { continue }
+
+            let candidate = AGModelQuota(
+                id: modelID,
+                displayName: displayName,
+                remainingFraction: bucket.clampedRemainingFraction,
+                resetTime: bucket.resetTime
+            )
+
+            if let existing = bestByDisplayName[displayName] {
+                if candidate.isPreferred(over: existing) {
+                    bestByDisplayName[displayName] = candidate
                 }
             } else {
-                orderedNames.append(model.displayName)
-                bestByDisplayName[model.displayName] = model
+                orderedNames.append(displayName)
+                bestByDisplayName[displayName] = candidate
             }
         }
 
@@ -344,9 +386,9 @@ actor AntigravityParser {
 
     private func toolQuota(from accounts: [AGAccountQuota]) -> ToolQuota {
         let allFractions = accounts.flatMap(\.models).compactMap(\.remainingFraction)
-        let minFraction = allFractions.min() ?? 1.0
+        let minFraction = allFractions.min()
         let resetAt = accounts.flatMap(\.models).compactMap(\.validatedResetDate).min()
-        let remainingPct = Int((minFraction * 100).rounded())
+        let remainingPct = minFraction.map { Int(($0 * 100).rounded()) }
 
         return ToolQuota(
             id: Tool.antigravity.rawValue,
@@ -354,7 +396,7 @@ actor AntigravityParser {
             accountKey: nil,
             accountLabel: nil,
             remaining: remainingPct,
-            total: 100,
+            total: remainingPct == nil ? nil : 100,
             unit: .requests,
             resetAt: resetAt,
             updatedAt: Date(),
@@ -425,6 +467,11 @@ struct AGQuotaFetchResult: Sendable {
     let orderedEmails: [String]
 }
 
+struct AGModelCatalog: Sendable {
+    let orderedIDs: [String]
+    let displayNamesByID: [String: String]
+}
+
 struct AGModelQuota: Sendable {
     let id: String
     let displayName: String
@@ -474,6 +521,11 @@ struct AGModelQuota: Sendable {
     var resetCountdown: String? {
         guard let date = validatedResetDate else { return nil }
         return countdownString(to: date)
+    }
+
+    var primaryValueText: String { formattedPercentage }
+    var secondaryStatusText: String? {
+        remainingFraction == nil && validatedResetDate != nil ? "额度未知" : nil
     }
 }
 
@@ -525,7 +577,7 @@ private struct AGSubscriptionInfo: Decodable {
     let cloudaicompanionProject: String?
 }
 
-private struct AGQuotaAPIResponse: Decodable {
+private struct AGModelCatalogResponse: Decodable {
     let models: [String: AGModelInfo]
     let agentModelSorts: [AGModelSort]
 
@@ -551,12 +603,38 @@ private struct AGModelGroup: Decodable {
 
 private struct AGModelInfo: Decodable {
     let displayName: String?
-    let quotaInfo: AGQuotaInfo?
 }
 
-private struct AGQuotaInfo: Decodable {
+private struct AGQuotaBucket: Decodable {
+    let modelID: String
     let remainingFraction: Double?
     let resetTime: String?
+
+    enum CodingKeys: String, CodingKey {
+        case modelID = "modelId"
+        case remainingFraction
+        case resetTime
+    }
+
+    var clampedRemainingFraction: Double? {
+        remainingFraction.map { min(1.0, max(0.0, $0)) }
+    }
+}
+
+private struct AGUserQuotaResponse: Decodable {
+    let buckets: [AGQuotaBucket]
+
+    enum CodingKeys: String, CodingKey {
+        case buckets
+        case quotaBuckets
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        buckets = try container.decodeIfPresent([AGQuotaBucket].self, forKey: .buckets)
+            ?? container.decodeIfPresent([AGQuotaBucket].self, forKey: .quotaBuckets)
+            ?? []
+    }
 }
 
 // MARK: - Errors

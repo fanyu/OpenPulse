@@ -631,17 +631,14 @@ struct AntigravityModelGridCell: View {
     let model: AGModelQuota
     
     var body: some View {
-        let pct = model.remainingFraction.map { Int(($0 * 100).rounded()) }
-        let used = pct.map { max(0, 100 - $0) }
-        
         VStack(alignment: .leading, spacing: 8) {
             UnifiedQuotaRow(
                 showUsedAtTop: true,
                 valuePlacement: .bottomLeading,
                 title: model.displayName,
                 fraction: model.remainingFraction,
-                primaryValue: pct.map { "\($0)%" },
-                secondaryValue: used.map { "\($0)% used" },
+                primaryValue: model.primaryValueText,
+                secondaryValue: model.remainingFraction.map { "\(max(0, 100 - Int(($0 * 100).rounded())))% used" } ?? model.secondaryStatusText,
                 countdown: model.resetCountdown
             )
         }
