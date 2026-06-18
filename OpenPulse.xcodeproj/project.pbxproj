@@ -40,6 +40,7 @@
 		B845C780045F45F642B7C190 /* ProviderComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C298F3CBB422846FB83A5FF /* ProviderComponents.swift */; };
 		B982FBAAD4916F4E4C91BB5D /* ConsecutiveFailureGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61CD85C3F8BBB34FF33E71F5 /* ConsecutiveFailureGate.swift */; };
 		BD5D47BFAF4E61E50078D3A0 /* TaskItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F162B140D2651A261556DD6 /* TaskItem.swift */; };
+		BE64B3C5DC2E6873017231B5 /* CodexProviderManagerViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 371D33D59B140913108C77AB /* CodexProviderManagerViewModel.swift */; };
 		CD22A05AB603DA1198DA8B79 /* QuotaRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62113CA5D975C1A71899C037 /* QuotaRecord.swift */; };
 		D6D35E8BE1BF0D02FE6B7A64 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AC7AD8BD5E6F4A728B429D9 /* NotificationService.swift */; };
 		D74481B801D4B7B1822ADAB3 /* SessionHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 002E5778BE7AC8F60942BA31 /* SessionHistoryView.swift */; };
@@ -51,6 +52,7 @@
 		E3D22434697CAD1DCBCD0436 /* SwiftZSTD in Frameworks */ = {isa = PBXBuildFile; productRef = A34676B78475615CA09E7538 /* SwiftZSTD */; };
 		E455166A3CA2CA28F1A6E1C2 /* DotTextAPIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C462CDABE8B53296DB5A87C1 /* DotTextAPIService.swift */; };
 		EE4954ADE342C53CAC9CC50E /* OpenPulseApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A9237E27AFD4475905CE152 /* OpenPulseApp.swift */; };
+		F2718A377932E806F99575EB /* CodexProviderConfigService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E04A866D990E3DF49C46F407 /* CodexProviderConfigService.swift */; };
 		FC608AD2FF7457A67AB70153 /* ClaudeCodeParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1495475A35ED9D5528C01B35 /* ClaudeCodeParser.swift */; };
 		FE99542E14E79742B1569A6B /* WindowCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D300FEA511990F4AFED88925 /* WindowCoordinator.swift */; };
 /* End PBXBuildFile section */
@@ -66,6 +68,7 @@
 		2C9B26FE7E06E64EC6892CF3 /* CodexParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexParser.swift; sourceTree = "<group>"; };
 		2F162B140D2651A261556DD6 /* TaskItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskItem.swift; sourceTree = "<group>"; };
 		342E886F9BF540A62FBE8BC7 /* GlobalHotkeyService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalHotkeyService.swift; sourceTree = "<group>"; };
+		371D33D59B140913108C77AB /* CodexProviderManagerViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexProviderManagerViewModel.swift; sourceTree = "<group>"; };
 		3927C3E82783459157AE7A2D /* ToolQuota.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolQuota.swift; sourceTree = "<group>"; };
 		40AC44480FE7CED374FE367D /* CopilotAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopilotAPIClient.swift; sourceTree = "<group>"; };
 		42286951DA0BA5C7591060C1 /* QuotaView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuotaView.swift; sourceTree = "<group>"; };
@@ -100,6 +103,7 @@
 		D05939178581C41AF8FC17BF /* CompareView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompareView.swift; sourceTree = "<group>"; };
 		D300FEA511990F4AFED88925 /* WindowCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowCoordinator.swift; sourceTree = "<group>"; };
 		D5CAC165D978D26D6B4C0AB6 /* OpenCodeParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenCodeParser.swift; sourceTree = "<group>"; };
+		E04A866D990E3DF49C46F407 /* CodexProviderConfigService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexProviderConfigService.swift; sourceTree = "<group>"; };
 		E44DFE8B1FF414DC177BEF99 /* CommonUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommonUI.swift; sourceTree = "<group>"; };
 		F1E0BA47A399C82114B0BE45 /* ConfigsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigsView.swift; sourceTree = "<group>"; };
 		FA613E3CB91EF6FF4D66FE15 /* DailyStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyStats.swift; sourceTree = "<group>"; };
@@ -121,6 +125,7 @@
 		061AD5EB3E63EE118CA82061 /* Providers */ = {
 			isa = PBXGroup;
 			children = (
+				371D33D59B140913108C77AB /* CodexProviderManagerViewModel.swift */,
 				9C298F3CBB422846FB83A5FF /* ProviderComponents.swift */,
 				56E1620B2EC31FA6AC86BB62 /* ProviderView.swift */,
 			);
@@ -178,6 +183,7 @@
 				AAE363D258692709B22F2620 /* AppLogger.swift */,
 				CDD4CF2C5EDE7491AE3E099C /* ClaudeCodeBridgeInstaller.swift */,
 				70978988BAE12EE3FFBBB75A /* CodexAccountService.swift */,
+				E04A866D990E3DF49C46F407 /* CodexProviderConfigService.swift */,
 				61CD85C3F8BBB34FF33E71F5 /* ConsecutiveFailureGate.swift */,
 				89E51531D07B099F396C58D4 /* DataSyncService.swift */,
 				C462CDABE8B53296DB5A87C1 /* DotTextAPIService.swift */,
@@ -379,7 +385,6 @@
 				};
 			};
 			buildConfigurationList = FF8FA7628899C18B7AA26737 /* Build configuration list for PBXProject "OpenPulse" */;
-			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -393,6 +398,7 @@
 				CC46313A9273438FCDF44A48 /* XCRemoteSwiftPackageReference "SwiftZSTD" */,
 			);
 			preferredProjectObjectVersion = 77;
+			productRefGroup = 57461CE580BF7C982EEEA8AA /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -425,6 +431,8 @@
 				96950433BB59A1B34ED7AF1B /* CodexAccount.swift in Sources */,
 				8DCA34358535ACF567C1B86B /* CodexAccountService.swift in Sources */,
 				43F0E34C09A23184A9BF94FE /* CodexParser.swift in Sources */,
+				F2718A377932E806F99575EB /* CodexProviderConfigService.swift in Sources */,
+				BE64B3C5DC2E6873017231B5 /* CodexProviderManagerViewModel.swift in Sources */,
 				ACFE41DA09FDB63087A5CC73 /* CommonUI.swift in Sources */,
 				7FB9F2A8ECCC0B3539C6C429 /* CompareView.swift in Sources */,
 				3D2E1FCC20A790060EFF484B /* ConfigsView.swift in Sources */,

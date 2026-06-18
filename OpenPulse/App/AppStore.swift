@@ -9,6 +9,7 @@ final class AppStore {
     var selectedTab: AppTab = .trends
     var lastSyncDate: Date?
     let codexAccountService = CodexAccountService()
+    let codexProviderConfigService = CodexProviderConfigService()
 
     let modelContainer: ModelContainer
     private(set) var syncService: DataSyncService?

@@ -168,6 +168,10 @@ actor CodexAccountService {
         return false
     }
 
+    func relaunchCodex() async throws -> Bool {
+        try await relaunchCodexApp()
+    }
+
     func smartSwitch() async throws -> SmartSwitchDecision? {
         let accounts = await listAccounts()
         guard let target = bestAccountToSwitch(from: accounts, requireCurrentExhausted: false, enforceMinimumGain: false) else {

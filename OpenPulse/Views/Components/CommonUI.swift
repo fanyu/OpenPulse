@@ -8,6 +8,7 @@ struct QuotaProgressBar: View {
     let fraction: Double?
     let color: Color
     var height: CGFloat = 4
+    var showsGlow = true
 
     var body: some View {
         GeometryReader { geo in
@@ -17,7 +18,7 @@ struct QuotaProgressBar: View {
                     Capsule()
                         .fill(color.gradient)
                         .frame(width: geo.size.width * CGFloat(max(0, min(1, f))), height: height)
-                        .shadow(color: color.opacity(0.25), radius: 2, y: 1)
+                        .shadow(color: showsGlow ? color.opacity(0.25) : .clear, radius: showsGlow ? 2 : 0, y: showsGlow ? 1 : 0)
                 }
             }
         }

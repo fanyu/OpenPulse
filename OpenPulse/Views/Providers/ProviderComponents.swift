@@ -19,6 +19,7 @@ struct CodexProviderContent: View {
     let appStore: AppStore
     @State private var isWorking = false
     @State private var errorMessage: String?
+    @State private var providerManager = CodexProviderManagerViewModel()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -81,6 +82,18 @@ struct CodexProviderContent: View {
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }
+
+            Divider().opacity(0.12)
+
+            CodexProviderManagerSection(
+                viewModel: providerManager,
+                appStore: appStore
+            )
+        }
+        .task {
+            if providerManager.providers.isEmpty {
+                await providerManager.load(using: appStore.codexProviderConfigService)
+            }
         }
     }
 
@@ -99,6 +112,219 @@ struct CodexProviderContent: View {
                 }
             }
         }
+    }
+}
+
+private struct CodexProviderManagerSection: View {
+    @Bindable var viewModel: CodexProviderManagerViewModel
+    let appStore: AppStore
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Providers")
+                        .font(.headline)
+                    Text("维护第三方 Provider，并为每个 Provider 指定默认模型。菜单栏切换时会同步切换到这里配置的默认模型。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("新增 Provider") {
+                    viewModel.beginCreate()
+                }
+                .buttonStyle(ProminentActionButtonStyle(fillColor: Color.black.opacity(0.82)))
+                .controlSize(.small)
+                .disabled(viewModel.isWorking)
+            }
+
+            HStack(alignment: .top, spacing: 16) {
+                providerList
+                    .frame(minWidth: 220, maxWidth: 240)
+                providerEditor
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            if let errorMessage = viewModel.errorMessage {
+                Text(errorMessage)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            } else if let statusMessage = viewModel.statusMessage {
+                Text(statusMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var providerList: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if viewModel.isLoading {
+                ProgressView("读取 Provider…")
+                    .controlSize(.small)
+            } else {
+                ForEach(viewModel.providers) { provider in
+                    Button {
+                        Task {
+                            await viewModel.selectProvider(
+                                id: provider.id,
+                                using: appStore.codexProviderConfigService
+                            )
+                        }
+                    } label: {
+                        HStack(alignment: .top, spacing: 10) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack(spacing: 6) {
+                                    Text(provider.name)
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundStyle(.primary)
+                                    if provider.id == viewModel.currentProviderID {
+                                        Text("当前")
+                                            .font(.system(size: 9, weight: .bold))
+                                            .foregroundStyle(.green)
+                                            .padding(.horizontal, 5)
+                                            .padding(.vertical, 2)
+                                            .background(Color.green.opacity(0.12), in: Capsule())
+                                    }
+                                }
+                                Text(provider.id)
+                                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                    .foregroundStyle(.tertiary)
+                                Text(provider.defaultModel.isEmpty ? "未配置默认模型" : provider.defaultModel)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                            Spacer()
+                        }
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .fill(viewModel.selectedProviderID == provider.id ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.04))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(viewModel.selectedProviderID == provider.id ? Color.accentColor.opacity(0.35) : Color.primary.opacity(0.05), lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private var providerEditor: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(viewModel.draft.isBuiltIn ? "OpenAI 内建 Provider" : (viewModel.isCreatingNew ? "新建 Provider" : "编辑 Provider"))
+                        .font(.system(size: 14, weight: .bold))
+                    Text(viewModel.draft.isBuiltIn ? "OpenAI 使用内建 Provider；这里只维护默认模型。" : "保存后会回写 `~/.codex/config.toml`。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                if !viewModel.draft.isBuiltIn, !viewModel.isCreatingNew {
+                    Button(role: .destructive) {
+                        Task {
+                            await viewModel.delete(using: appStore.codexProviderConfigService)
+                        }
+                    } label: {
+                        Label("删除", systemImage: "trash")
+                    }
+                    .disabled(viewModel.isWorking || viewModel.draft.id == viewModel.currentProviderID)
+                }
+            }
+
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
+                GridRow {
+                    fieldLabel("内部 ID")
+                    VStack(alignment: .leading, spacing: 4) {
+                        TextField("provider-id", text: $viewModel.draft.id)
+                            .textFieldStyle(.roundedBorder)
+                            .disabled(viewModel.isWorking || viewModel.draft.isBuiltIn || !viewModel.isCreatingNew)
+                        if !viewModel.draft.isBuiltIn {
+                            Text("用于写入 Codex 配置、切换 provider，以及生成环境变量名。建议使用短的英文标识，例如 `mimo`、`openrouter`。")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                GridRow {
+                    fieldLabel("名称")
+                    TextField("Provider Name", text: $viewModel.draft.name)
+                        .textFieldStyle(.roundedBorder)
+                        .disabled(viewModel.isWorking || viewModel.draft.isBuiltIn)
+                }
+                GridRow {
+                    fieldLabel("Base URL")
+                    TextField("https://example.com/v1", text: $viewModel.draft.baseURL)
+                        .textFieldStyle(.roundedBorder)
+                        .disabled(viewModel.isWorking || viewModel.draft.isBuiltIn)
+                }
+                GridRow {
+                    fieldLabel("默认模型")
+                    TextField("model-name", text: $viewModel.draft.defaultModel)
+                        .textFieldStyle(.roundedBorder)
+                        .disabled(viewModel.isWorking)
+                }
+                GridRow {
+                    fieldLabel("API Key")
+                    VStack(alignment: .leading, spacing: 4) {
+                        SecureField("输入真实 API Key", text: $viewModel.draftAPIKey)
+                            .textFieldStyle(.roundedBorder)
+                            .disabled(viewModel.isWorking || viewModel.draft.isBuiltIn)
+                        if !viewModel.draft.isBuiltIn {
+                            Text("这里填写的是真实 API Key。OpenPulse 会自动生成环境变量 `\(viewModel.environmentVariableName())`，并在保存时写入 Keychain 和 `launchctl`。清空后保存会删除该变量。")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+
+            HStack(spacing: 10) {
+                Button("保存") {
+                    Task {
+                        await viewModel.save(using: appStore.codexProviderConfigService)
+                    }
+                }
+                .buttonStyle(ProminentActionButtonStyle(fillColor: Color.black.opacity(0.82)))
+                .controlSize(.small)
+                .disabled(viewModel.isWorking)
+
+                Button("设为当前") {
+                    Task {
+                        await viewModel.setCurrent(
+                            using: appStore.codexProviderConfigService,
+                            codexAccountService: appStore.codexAccountService
+                        )
+                    }
+                }
+                .buttonStyle(ProminentActionButtonStyle(fillColor: Color.green.opacity(0.78)))
+                .controlSize(.small)
+                .disabled(viewModel.isWorking || viewModel.draft.id.isEmpty || viewModel.draft.id == viewModel.currentProviderID)
+
+                if viewModel.isWorking {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+            }
+        }
+        .padding(16)
+        .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.primary.opacity(0.05), lineWidth: 1)
+        )
+    }
+
+    private func fieldLabel(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .frame(width: 82, alignment: .leading)
     }
 }
 
