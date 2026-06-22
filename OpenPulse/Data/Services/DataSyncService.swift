@@ -78,7 +78,6 @@ final class DataSyncService {
         .codex:        300,
         .antigravity:  300,
         .copilot:     3600,
-        .opencode:     300,
     ]
 
     /// Watched filesystem paths and which tool they belong to.
@@ -87,7 +86,6 @@ final class DataSyncService {
         (.homeDirectory + "/.config/claude/projects",     .claudeCode),
         (.homeDirectory + "/.codex/sessions",             .codex),
         (.homeDirectory + "/.gemini/antigravity/brain",   .antigravity),
-        (.homeDirectory + "/.local/share/opencode",       .opencode),
     ]
 
     /// Claude Code bridge cache dir/file (triggers quota refresh, not session parse).
@@ -95,16 +93,12 @@ final class DataSyncService {
         .deletingLastPathComponent().path
     private static let claudeBridgeCachePath: String = ClaudeCodeBridgeInstaller.cacheURL.path
 
-    /// OpenCode: only specific sub-paths are interesting.
-    private static let openCodeInterestingFragments = ["/opencode.db", "/opencode.db-wal", "/log/", "/storage/session_diff/"]
-
     // MARK: - Private state
 
     private let claudeParser  = ClaudeCodeParser()
     private let codexParser   = CodexParser()
     private let antigravityParser = AntigravityParser()
     private let copilotClient = CopilotAPIClient()
-    private let openCodeParser = OpenCodeParser()
     private let codexAccountService: CodexAccountService
     private var dotTextAPIService = DotTextAPIService()
 
@@ -212,8 +206,6 @@ final class DataSyncService {
             try await refreshAntigravity(context: context)
         case .copilot:
             try await refreshCopilot(context: context)
-        case .opencode:
-            try await refreshOpenCode(context: context)
         }
 
         try context.save()
@@ -402,16 +394,6 @@ final class DataSyncService {
         }
     }
 
-    // MARK: - OpenCode
-
-    private func refreshOpenCode(context: ModelContext) async throws {
-        let since = incrementalCutoff(for: .opencode)
-        let sessions = try await Task.detached(priority: .utility) {
-            try await self.openCodeParser.parseSessions(since: since)
-        }.value
-        upsertSessions(sessions, context: context)
-    }
-
     // MARK: - FSEvents (local-files-only, no API calls)
 
     /// Called by FSEvents when local files change. Runs only the parsers for the affected
@@ -484,11 +466,6 @@ final class DataSyncService {
             case .antigravity:
                 let sessions = try await Task.detached(priority: .utility) {
                     try await self.antigravityParser.parseSessions(since: since)
-                }.value
-                upsertSessions(sessions, context: context)
-            case .opencode:
-                let sessions = try await Task.detached(priority: .utility) {
-                    try await self.openCodeParser.parseSessions(since: since)
                 }.value
                 upsertSessions(sessions, context: context)
             case .copilot:
@@ -820,11 +797,6 @@ final class DataSyncService {
             // Bridge dir: only the specific status cache file matters
             if path.hasPrefix(Self.claudeBridgeRoot) {
                 return path == Self.claudeBridgeCachePath
-            }
-            // OpenCode: only interesting sub-paths
-            let openCodeRoot = URL.homeDirectory.appending(path: ".local/share/opencode").path
-            if path.hasPrefix(openCodeRoot) {
-                return Self.openCodeInterestingFragments.contains { path.contains($0) }
             }
             return true
         }

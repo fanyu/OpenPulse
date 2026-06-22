@@ -14,6 +14,14 @@ struct CompareView: View {
         var days: Int {
             switch self { case .week: 7; case .month: 30; case .quarter: 90 }
         }
+
+        var localizedTitle: LocalizedStringKey {
+            switch self {
+            case .week: "7 Days"
+            case .month: "30 Days"
+            case .quarter: "90 Days"
+            }
+        }
     }
 
     private var filteredStats: [DailyStatsRecord] {
@@ -30,7 +38,9 @@ struct CompareView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 Picker("Range", selection: $range) {
-                    ForEach(DateRange.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                    ForEach(DateRange.allCases, id: \.self) { range in
+                        Text(range.localizedTitle).tag(range)
+                    }
                 }
                 .pickerStyle(.segmented)
 

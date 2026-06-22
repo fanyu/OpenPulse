@@ -6,7 +6,6 @@ enum Tool: String, Codable, CaseIterable, Sendable {
     case codex = "codex"
     case copilot = "copilot"
     case antigravity = "antigravity"
-    case opencode = "opencode"
 
     var displayName: String {
         switch self {
@@ -14,7 +13,6 @@ enum Tool: String, Codable, CaseIterable, Sendable {
         case .codex: "Codex CLI"
         case .copilot: "GitHub Copilot"
         case .antigravity: "Antigravity"
-        case .opencode: "OpenCode"
         }
     }
 
@@ -25,7 +23,6 @@ enum Tool: String, Codable, CaseIterable, Sendable {
         case .codex: "terminal.fill"
         case .copilot: "airplane.circle.fill"
         case .antigravity: "atom"
-        case .opencode: "curlybraces"
         }
     }
 
@@ -36,7 +33,6 @@ enum Tool: String, Codable, CaseIterable, Sendable {
         case .codex: "CodexLogo"
         case .copilot: "CopilotLogo"
         case .antigravity: "AntigravityLogo"
-        case .opencode: "OpenCodeLogo"
         }
     }
 
@@ -46,7 +42,6 @@ enum Tool: String, Codable, CaseIterable, Sendable {
         case .codex: "CodexGreen"
         case .copilot: "CopilotBlue"
         case .antigravity: "AntigravityPurple"
-        case .opencode: "OpenCodeBlue"
         }
     }
 
@@ -61,7 +56,7 @@ enum Tool: String, Codable, CaseIterable, Sendable {
         switch self {
         case .claudeCode, .codex:
             true
-        case .copilot, .antigravity, .opencode:
+        case .copilot, .antigravity:
             false
         }
     }

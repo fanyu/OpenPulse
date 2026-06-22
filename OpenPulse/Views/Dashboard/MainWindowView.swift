@@ -37,7 +37,7 @@ struct SidebarView: View {
     var body: some View {
         @Bindable var store = appStore
         List(AppTab.allCases, id: \.self, selection: $store.selectedTab) { tab in
-            Label(tab.rawValue, systemImage: tab.icon)
+            Label(tab.localizedTitle, systemImage: tab.icon)
                 .tag(tab)
         }
         .listStyle(.sidebar)

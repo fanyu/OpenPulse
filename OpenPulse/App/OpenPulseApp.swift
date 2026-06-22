@@ -210,11 +210,11 @@ private struct StatusBarRenderedImage {
 
 @MainActor
 private final class StatusBarImageRenderer {
-    private let iconSize = NSSize(width: 16, height: 16)
-    private let horizontalPadding: CGFloat = 8
-    private let spacing: CGFloat = 5
-    private let topFont = NSFont.monospacedSystemFont(ofSize: 8, weight: .semibold)
-    private let bottomFont = NSFont.monospacedSystemFont(ofSize: 8, weight: .semibold)
+    private let iconSize = NSSize(width: 17, height: 17)
+    private let horizontalPadding: CGFloat = 7
+    private let spacing: CGFloat = 6
+    private let topFont = NSFont.monospacedSystemFont(ofSize: 9, weight: .bold)
+    private let bottomFont = NSFont.monospacedSystemFont(ofSize: 9, weight: .bold)
 
     func render(snapshot: StatusBarSnapshot) -> StatusBarRenderedImage {
         let lines = Array(snapshot.lines.prefix(2))
@@ -246,8 +246,8 @@ private final class StatusBarImageRenderer {
 
         if hasText {
             let textX = horizontalPadding + iconSize.width + spacing
-            let topY = floor(rect.midY + 1)
-            let bottomY = floor(rect.midY - bottomSize.height - 1)
+            let topY = floor(rect.midY + 1.5)
+            let bottomY = floor(rect.midY - bottomSize.height - 1.5)
             (topText as NSString).draw(at: NSPoint(x: textX, y: topY), withAttributes: topAttributes)
             (bottomText as NSString).draw(at: NSPoint(x: textX, y: bottomY), withAttributes: bottomAttributes)
         }
@@ -304,7 +304,7 @@ private struct StatusBarQuotaItem: Equatable {
             let fiveHour = appStore.syncService?.latestClaudeUsage?.fiveHour?.utilization.map { max(0, 100 - Int($0.rounded())) }
             let sevenDay = appStore.syncService?.latestClaudeUsage?.sevenDay?.utilization.map { max(0, 100 - Int($0.rounded())) }
             return StatusBarQuotaItem(shortLabel: "CC", fiveHourText: format(fiveHour), sevenDayText: format(sevenDay))
-        case .copilot, .antigravity, .opencode:
+        case .copilot, .antigravity:
             return StatusBarQuotaItem(shortLabel: tool.displayName.prefix(1).uppercased(), fiveHourText: "--", sevenDayText: "--")
         }
     }

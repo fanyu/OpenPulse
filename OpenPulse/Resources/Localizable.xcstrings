@@ -1,0 +1,1122 @@
+{
+  "sourceLanguage" : "zh-Hans",
+  "strings" : {
+    "7 Days" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "7 Days" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "7 天" } }
+      }
+    },
+    "30 Days" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "30 Days" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "30 天" } }
+      }
+    },
+    "90 Days" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "90 Days" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "90 天" } }
+      }
+    },
+    "Activity Heatmap" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Activity Heatmap" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "活动热力图" } }
+      }
+    },
+    "All accounts" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "All accounts" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "全部账号" } }
+      }
+    },
+    "Average Remaining" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Average Remaining" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "平均余量" } }
+      }
+    },
+    "Coming soon" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Coming soon" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "即将推出" } }
+      }
+    },
+    "Compare" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Compare" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "对比" } }
+      }
+    },
+    "Input" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Input" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "输入" } }
+      }
+    },
+    "No quota data" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No quota data" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "无配额数据" } }
+      }
+    },
+    "Quota data unavailable" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Quota data unavailable" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "配额数据不可用" } }
+      }
+    },
+    "Range" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Range" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "范围" } }
+      }
+    },
+    "Refresh" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Refresh" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "刷新" } }
+      }
+    },
+    "Refreshing..." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Refreshing..." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "正在刷新..." } }
+      }
+    },
+    "Reset" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Reset" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "重置" } }
+      }
+    },
+    "Token Usage Over Time" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Token Usage Over Time" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "Token 用量趋势" } }
+      }
+    },
+    "Tokens" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Tokens" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "Tokens" } }
+      }
+    },
+    "Usage by Tool" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Usage by Tool" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "按工具统计用量" } }
+      }
+    },
+    "USD" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "USD" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "美元" } }
+      }
+    },
+    "Untitled session" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Untitled session" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "未命名会话" } }
+      }
+    },
+    "accounts" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "accounts" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "个账号" } }
+      }
+    },
+    "models" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "models" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "个模型" } }
+      }
+    },
+    "一键管理本机 AI Coding Agent 的 token、配额与配置文件。" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Manage local AI coding agents' tokens, quotas, and config files in one place." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "一键管理本机 AI Coding Agent 的 token、配额与配置文件。" } }
+      }
+    },
+    "不同工具的配额结构不同，这里统一展示当前可用的官方或本地配额来源。" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Quota structures vary by tool. This view normalizes official and local quota sources where available." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "不同工具的配额结构不同，这里统一展示当前可用的官方或本地配额来源。" } }
+      }
+    },
+    "个人使用，不上传数据。" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Personal use. No data upload." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "个人使用，不上传数据。" } }
+      }
+    },
+    "今日已消耗" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Consumed today" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "今日已消耗" } }
+      }
+    },
+    "今日已消耗 %@ tokens" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%@ tokens used today" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "今日已消耗 %@ tokens" } }
+      }
+    },
+    "立即刷新" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Refresh now" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "立即刷新" } }
+      }
+    },
+    "数据同步中..." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Syncing data..." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "数据同步中..." } }
+      }
+    },
+    "配额已更新于 %@" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Quota updated at %@" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "配额已更新于 %@" } }
+      }
+    },
+    "尚未获取数据" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No data yet" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "尚未获取数据" } }
+      }
+    },
+    "当前账号" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Current account" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "当前账号" } }
+      }
+    },
+    "全局重置于 %@" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Global reset on %@" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "全局重置于 %@" } }
+      }
+    },
+    "配额仪表盘" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Quota Dashboard" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "配额仪表盘" } }
+      }
+    },
+    "配置文件" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Config Files" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "配置文件" } }
+      }
+    },
+    "从上方选择 Agent 和文件开始编辑。" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Choose an agent and file above to start editing." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "从上方选择 Agent 和文件开始编辑。" } }
+      }
+    },
+    "已修改" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Modified" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "已修改" } }
+      }
+    },
+    "编辑" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Edit" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "编辑" } }
+      }
+    },
+    "分栏" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Split" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "分栏" } }
+      }
+    },
+    "预览" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Preview" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "预览" } }
+      }
+    },
+    "搜索 (⌘F)" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Search (⌘F)" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "搜索 (⌘F)" } }
+      }
+    },
+    "格式化 JSON (⌥⌘F)" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Format JSON (⌥⌘F)" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "格式化 JSON (⌥⌘F)" } }
+      }
+    },
+    "自动换行" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Word wrap" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "自动换行" } }
+      }
+    },
+    "查看差异 (⇧⌘D)" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "View diff (⇧⌘D)" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "查看差异 (⇧⌘D)" } }
+      }
+    },
+    "还原修改" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Revert changes" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "还原修改" } }
+      }
+    },
+    "在 Finder 中显示" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Show in Finder" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "在 Finder 中显示" } }
+      }
+    },
+    "复制路径" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Copy path" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "复制路径" } }
+      }
+    },
+    "保存" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Save" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "保存" } }
+      }
+    },
+    "JSON 有效" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Valid JSON" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "JSON 有效" } }
+      }
+    },
+    "配置文件缺失" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Config file missing" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "配置文件缺失" } }
+      }
+    },
+    "立即创建" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Create now" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "立即创建" } }
+      }
+    },
+    "数据源: %@" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Data source: %@" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "数据源: %@" } }
+      }
+    },
+    "Claude Code 将对话记录存储在本地 JSONL 文件，无需额外配置即可自动同步。" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Claude Code stores conversations in local JSONL files and syncs automatically with no extra setup." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "Claude Code 将对话记录存储在本地 JSONL 文件，无需额外配置即可自动同步。" } }
+      }
+    },
+    "支持多账户导入、OpenAI OAuth 登录、额度轮询，以及将任一账户切换为当前 `~/.codex/auth.json`。" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Supports multi-account import, OpenAI OAuth login, quota polling, and switching any account into the active `~/.codex/auth.json`." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "支持多账户导入、OpenAI OAuth 登录、额度轮询，以及将任一账户切换为当前 `~/.codex/auth.json`。" } }
+      }
+    },
+    "导入当前账号" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Import current account" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "导入当前账号" } }
+      }
+    },
+    "登录中..." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Signing in..." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "登录中..." } }
+      }
+    },
+    "新增 OpenAI 登录" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Add OpenAI login" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "新增 OpenAI 登录" } }
+      }
+    },
+    "刷新额度" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Refresh quota" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "刷新额度" } }
+      }
+    },
+    "还没有 Codex 账号。先导入当前 `~/.codex/auth.json`，或者直接新增 OpenAI 登录。" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No Codex accounts yet. Import the current `~/.codex/auth.json`, or add an OpenAI login directly." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "还没有 Codex 账号。先导入当前 `~/.codex/auth.json`，或者直接新增 OpenAI 登录。" } }
+      }
+    },
+    "Providers" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Providers" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "Provider 管理" } }
+      }
+    },
+    "维护第三方 Provider，并为每个 Provider 指定默认模型。菜单栏切换时会同步切换到这里配置的默认模型。" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Manage third-party providers and assign a default model to each one. Menu bar switching also applies the default model configured here." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "维护第三方 Provider，并为每个 Provider 指定默认模型。菜单栏切换时会同步切换到这里配置的默认模型。" } }
+      }
+    },
+    "新增 Provider" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Add Provider" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "新增 Provider" } }
+      }
+    },
+    "当前" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Current" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "当前" } }
+      }
+    },
+    "未配置默认模型" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No default model" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "未配置默认模型" } }
+      }
+    },
+    "OpenAI 内建 Provider" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Built-in OpenAI provider" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "OpenAI 内建 Provider" } }
+      }
+    },
+    "新建 Provider" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "New Provider" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "新建 Provider" } }
+      }
+    },
+    "编辑 Provider" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Edit Provider" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "编辑 Provider" } }
+      }
+    },
+    "OpenAI 使用内建 Provider；这里只维护默认模型。" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "OpenAI uses the built-in provider. Only the default model is managed here." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "OpenAI 使用内建 Provider；这里只维护默认模型。" } }
+      }
+    },
+    "保存后会回写 `~/.codex/config.toml`。" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Saving writes back to `~/.codex/config.toml`." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "保存后会回写 `~/.codex/config.toml`。" } }
+      }
+    },
+    "删除" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Delete" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "删除" } }
+      }
+    },
+    "内部 ID" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Internal ID" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "内部 ID" } }
+      }
+    },
+    "名称" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Name" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "名称" } }
+      }
+    },
+    "默认模型" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Default model" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "默认模型" } }
+      }
+    },
+    "这里填写的是真实 API Key。OpenPulse 会自动生成环境变量 `%@`，并在保存时写入 Keychain 和 `launchctl`。清空后保存会删除该变量。" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Enter the real API key here. OpenPulse will generate the `%@` environment variable and save it to Keychain and `launchctl`. Saving an empty value removes it." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "这里填写的是真实 API Key。OpenPulse 会自动生成环境变量 `%@`，并在保存时写入 Keychain 和 `launchctl`。清空后保存会删除该变量。" } }
+      }
+    },
+    "设为当前" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Set current" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "设为当前" } }
+      }
+    },
+    "切换" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Switch" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "切换" } }
+      }
+    },
+    "GitHub OAuth Token" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "GitHub OAuth Token" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "GitHub OAuth Token" } }
+      }
+    },
+    "已验证" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Verified" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "已验证" } }
+      }
+    },
+    "从本地配置导入" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Import from local config" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "从本地配置导入" } }
+      }
+    },
+    "导入成功" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Imported" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "导入成功" } }
+      }
+    },
+    "保存并验证" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Save and verify" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "保存并验证" } }
+      }
+    },
+    "同步所有账号的模型显示配置" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Sync model visibility across all accounts" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "同步所有账号的模型显示配置" } }
+      }
+    },
+    "正在加载账号数据..." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Loading account data..." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "正在加载账号数据..." } }
+      }
+    },
+    "总览" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Overview" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "总览" } }
+      }
+    },
+    "配额" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Quota" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "配额" } }
+      }
+    },
+    "活动" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Activity" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "活动" } }
+      }
+    },
+    "接入" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Providers" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "接入" } }
+      }
+    },
+    "配置" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Configs" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "配置" } }
+      }
+    },
+    "设置" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Settings" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "设置" } }
+      }
+    },
+    "日志" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Logs" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "日志" } }
+      }
+    },
+    "通用" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "General" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "通用" } }
+      }
+    },
+    "开机自动启动" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Launch at login" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "开机自动启动" } }
+      }
+    },
+    "在登录 Mac 时自动运行 OpenPulse" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Run OpenPulse automatically when you log in to your Mac" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "在登录 Mac 时自动运行 OpenPulse" } }
+      }
+    },
+    "语言" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Language" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "语言" } }
+      }
+    },
+    "选择 OpenPulse 的显示语言。更改后需要重启应用。" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Choose the display language for OpenPulse. Restart the app for changes to take effect." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "选择 OpenPulse 的显示语言。更改后需要重启应用。" } }
+      }
+    },
+    "跟随系统" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "System" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "跟随系统" } }
+      }
+    },
+    "English" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "English" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "English" } }
+      }
+    },
+    "简体中文" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Simplified Chinese" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "简体中文" } }
+      }
+    },
+    "语言将在重启 OpenPulse 后生效。" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The language will take effect after restarting OpenPulse." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "语言将在重启 OpenPulse 后生效。" } }
+      }
+    },
+    "立即重启" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Restart Now" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "立即重启" } }
+      }
+    },
+    "菜单栏显示" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Menu Bar" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "菜单栏显示" } }
+      }
+    },
+    "菜单栏标题额度" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Menu bar quota summary" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "菜单栏标题额度" } }
+      }
+    },
+    "选择后会在菜单栏直接显示该 Agent 的余量摘要；单个工具显示 5H/7D，两项工具时每行显示一个工具。" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Selected agents appear directly in the menu bar quota summary. One tool shows 5H/7D; two tools show one line per tool." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "选择后会在菜单栏直接显示该 Agent 的余量摘要；单个工具显示 5H/7D，两项工具时每行显示一个工具。" } }
+      }
+    },
+    "Antigravity 展示方式" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Antigravity display mode" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "Antigravity 展示方式" } }
+      }
+    },
+    "逐账号显示会保留每个账号和模型的明细；聚合显示会把所有账号合并成一个视图，并按模型分别计算平均余量。" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Per-account mode keeps each account and model separate. Aggregate mode merges all accounts into one view and averages remaining quota per model." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "逐账号显示会保留每个账号和模型的明细；聚合显示会把所有账号合并成一个视图，并按模型分别计算平均余量。" } }
+      }
+    },
+    "逐账号" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Per Account" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "逐账号" } }
+      }
+    },
+    "聚合" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Aggregate" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "聚合" } }
+      }
+    },
+    "工具排序与显示" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Tool order and visibility" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "工具排序与显示" } }
+      }
+    },
+    "拖拽列表调整菜单栏中的显示顺序，并控制是否在菜单栏中显示。" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Drag the list to adjust menu bar order and control which tools are shown." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "拖拽列表调整菜单栏中的显示顺序，并控制是否在菜单栏中显示。" } }
+      }
+    },
+    "快捷键" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Shortcuts" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "快捷键" } }
+      }
+    },
+    "激活菜单栏" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Open menu bar popover" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "激活菜单栏" } }
+      }
+    },
+    "点击右侧按钮录制，可在任何界面通过快捷键激活菜单栏" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Click the button on the right to record a shortcut that opens the menu bar popover from anywhere." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "点击右侧按钮录制，可在任何界面通过快捷键激活菜单栏" } }
+      }
+    },
+    "在任何界面按下快捷键即可激活菜单栏" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Press the shortcut anywhere to open the menu bar popover." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "在任何界面按下快捷键即可激活菜单栏" } }
+      }
+    },
+    "请按下快捷键…" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Press a shortcut…" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "请按下快捷键…" } }
+      }
+    },
+    "取消" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Cancel" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "取消" } }
+      }
+    },
+    "点击录制" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Record shortcut" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "点击录制" } }
+      }
+    },
+    "菜单栏操作快捷键" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Menu bar shortcuts" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "菜单栏操作快捷键" } }
+      }
+    },
+    "刷新同步" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Refresh sync" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "刷新同步" } }
+      }
+    },
+    "打开主窗口" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Open main window" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "打开主窗口" } }
+      }
+    },
+    "退出" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Quit" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "退出" } }
+      }
+    },
+    "启用智能切换" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Enable smart switching" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "启用智能切换" } }
+      }
+    },
+    "开启后，菜单栏会显示「智能切换」入口；后台监测到当前 Codex 账号 5h/7d 配额耗尽时，会自动切换到更优账号并重启 Codex。" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "When enabled, the menu bar shows Smart Switch. If the current Codex account exhausts its 5h/7d quota, OpenPulse automatically switches to a better account and restarts Codex." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "开启后，菜单栏会显示「智能切换」入口；后台监测到当前 Codex 账号 5h/7d 配额耗尽时，会自动切换到更优账号并重启 Codex。" } }
+      }
+    },
+    "通知" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Notifications" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "通知" } }
+      }
+    },
+    "配额不足提醒" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Low quota alert" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "配额不足提醒" } }
+      }
+    },
+    "当任意工具的配额低于设定阈值时，发送系统通知提醒" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Send a system notification when any tool's quota drops below the threshold." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "当任意工具的配额低于设定阈值时，发送系统通知提醒" } }
+      }
+    },
+    "提醒阈值" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Alert threshold" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "提醒阈值" } }
+      }
+    },
+    "低于 %lld%% 时提醒" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Alert below %lld%%" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "低于 %lld%% 时提醒" } }
+      }
+    },
+    "数据与存储" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Data & Storage" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "数据与存储" } }
+      }
+    },
+    "已缓存数据" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Cached data" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "已缓存数据" } }
+      }
+    },
+    "共 %lld 条会话记录，%lld 条配额快照" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%lld session records and %lld quota snapshots" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "共 %lld 条会话记录，%lld 条配额快照" } }
+      }
+    },
+    "清除所有缓存" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Clear all cache" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "清除所有缓存" } }
+      }
+    },
+    "关于" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "About" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "关于" } }
+      }
+    },
+    "版本 1.0.1 (Build 2)" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Version 1.0.1 (Build 2)" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "版本 1.0.1 (Build 2)" } }
+      }
+    },
+    "数据隐私安全" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Private by design" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "数据隐私安全" } }
+      }
+    },
+    "所有数据均保存在本地 Mac 上\n无遥测，无云同步" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "All data stays on this Mac\nNo telemetry, no cloud sync" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "所有数据均保存在本地 Mac 上\n无遥测，无云同步" } }
+      }
+    },
+    "清除所有已缓存的会话和配额数据？此操作不可撤销。" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Clear all cached sessions and quota data? This cannot be undone." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "清除所有已缓存的会话和配额数据？此操作不可撤销。" } }
+      }
+    },
+    "清除" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Clear" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "清除" } }
+      }
+    },
+    "同步中…" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Syncing…" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "同步中…" } }
+      }
+    },
+    "%lld 个工具" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%lld tools" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "%lld 个工具" } }
+      }
+    },
+    "更新于 %@前" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Updated %@ ago" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "更新于 %@前" } }
+      }
+    },
+    "尚未同步" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Not synced yet" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "尚未同步" } }
+      }
+    },
+    "打开 %@" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Open %@" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "打开 %@" } }
+      }
+    },
+    "尚未获取配额" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Quota not fetched yet" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "尚未获取配额" } }
+      }
+    },
+    "智能切换" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Smart Switch" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "智能切换" } }
+      }
+    },
+    "未配置" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Not configured" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "未配置" } }
+      }
+    },
+    "全部模型已隐藏" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "All models hidden" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "全部模型已隐藏" } }
+      }
+    },
+    "暂无可聚合的模型额度" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No model quota available to aggregate" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "暂无可聚合的模型额度" } }
+      }
+    },
+    "所有活动" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "All Activity" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "所有活动" } }
+      }
+    },
+    "%@ 活动记录" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%@ Activity" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "%@ 活动记录" } }
+      }
+    },
+    "共 %lld 条记录" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%lld records" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "共 %lld 条记录" } }
+      }
+    },
+    "暂无会话记录" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No session records" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "暂无会话记录" } }
+      }
+    },
+    "未找到匹配会话" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No matching sessions" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "未找到匹配会话" } }
+      }
+    },
+    "开始使用 AI 编程工具后将在此记录详情。" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Details will appear here after you start using AI coding tools." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "开始使用 AI 编程工具后将在此记录详情。" } }
+      }
+    },
+    "请尝试更改搜索词。" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Try changing your search terms." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "请尝试更改搜索词。" } }
+      }
+    },
+    "活动记录" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Activity" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "活动记录" } }
+      }
+    },
+    "全部" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "All" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "全部" } }
+      }
+    },
+    "搜索任务、项目、分支..." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Search tasks, projects, branches..." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "搜索任务、项目、分支..." } }
+      }
+    },
+    "%@ 深度分析" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%@ Deep Analysis" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "%@ 深度分析" } }
+      }
+    },
+    "基于近期使用情况的工具效能评估" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Tool efficiency analysis based on recent usage" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "基于近期使用情况的工具效能评估" } }
+      }
+    },
+    "累计会话" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Total sessions" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "累计会话" } }
+      }
+    },
+    "累计 Token" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Total Tokens" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "累计 Token" } }
+      }
+    },
+    "平均消耗" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Average usage" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "平均消耗" } }
+      }
+    },
+    "最常服务项目" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Top project" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "最常服务项目" } }
+      }
+    },
+    "数据总览" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Overview" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "数据总览" } }
+      }
+    },
+    "模型效能排行" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Model efficiency ranking" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "模型效能排行" } }
+      }
+    },
+    "工具份额占比" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Tool share" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "工具份额占比" } }
+      }
+    },
+    "无工具数据" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No tool data" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "无工具数据" } }
+      }
+    },
+    "%lld 工具" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%lld tools" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "%lld 工具" } }
+      }
+    },
+    "按小时分布" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Hourly distribution" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "按小时分布" } }
+      }
+    },
+    "按星期分布" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Weekday distribution" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "按星期分布" } }
+      }
+    },
+    "高峰时段" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Peak hour" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "高峰时段" } }
+      }
+    },
+    "最忙星期" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Busiest weekday" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "最忙星期" } }
+      }
+    },
+    "均值/会话" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Avg/session" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "均值/会话" } }
+      }
+    },
+    "总会话数" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Total sessions" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "总会话数" } }
+      }
+    },
+    "暂无数据" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No data" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "暂无数据" } }
+      }
+    },
+    "暂无记录" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No records" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "暂无记录" } }
+      }
+    },
+    "近 7 日任务数" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Tasks in last 7 days" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "近 7 日任务数" } }
+      }
+    },
+    "近期任务记录" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Recent tasks" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "近期任务记录" } }
+      }
+    },
+    "未同步配额数据" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Quota data not synced" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "未同步配额数据" } }
+      }
+    },
+    "无限制" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Unlimited" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "无限制" } }
+      }
+    },
+    "余额监控" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Balance monitor" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "余额监控" } }
+      }
+    },
+    "* 价格基于公开定价，仅供参考" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "* Prices are based on public pricing and are for reference only" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "* 价格基于公开定价，仅供参考" } }
+      }
+    },
+    "日成本趋势" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Daily cost trend" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "日成本趋势" } }
+      }
+    },
+    "按工具分布" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "By tool" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "按工具分布" } }
+      }
+    },
+    "无 USD 成本数据" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No USD cost data" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "无 USD 成本数据" } }
+      }
+    },
+    "模型成本排行 TOP 5" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Top 5 model costs" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "模型成本排行 TOP 5" } }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -84,7 +84,6 @@ private struct ProviderCardContainer: View {
         case .codex:        CodexProviderContent(appStore: appStore)
         case .copilot:      CopilotProviderContent()
         case .antigravity:  AntigravityProviderContent(appStore: appStore)
-        case .opencode:     OpenCodeProviderContent()
         }
     }
 
@@ -109,7 +108,7 @@ private struct ProviderCardContainer: View {
         case .codex:
             return !(appStore.syncService?.latestCodexAccounts.isEmpty ?? true)
                 || FileManager.default.fileExists(atPath: URL.homeDirectory.appending(path: ".codex/auth.json").path)
-        case .claudeCode, .antigravity, .opencode: return true
+        case .claudeCode, .antigravity: return true
         case .copilot:
             guard let token = try? KeychainService.retrieve(key: KeychainService.Keys.githubToken) else { return false }
             return !token.isEmpty

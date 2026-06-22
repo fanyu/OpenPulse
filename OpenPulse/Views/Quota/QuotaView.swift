@@ -261,12 +261,6 @@ struct QuotaView: View {
                         onRefresh: { refresh(tool: .antigravity) }
                     )
                 }
-            case .opencode:
-                OpenCodeDetailCard(
-                    todayTokens: toolTodayTokens(for: .opencode),
-                    isRefreshing: isRefreshing(.opencode),
-                    onRefresh: { refresh(tool: .opencode) }
-                )
             }
     }
 }
@@ -656,19 +650,6 @@ struct AntigravityDetailFallbackCard: View {
     var body: some View {
         DetailCardContainer(tool: .antigravity, todayTokens: todayTokens, isRefreshing: isRefreshing, onRefresh: onRefresh) {
             Text("尚未获取数据").foregroundStyle(.secondary)
-        }
-    }
-}
-
-struct OpenCodeDetailCard: View {
-    let todayTokens: Int
-    let isRefreshing: Bool
-    let onRefresh: () -> Void
-    var body: some View {
-        DetailCardContainer(tool: .opencode, todayTokens: todayTokens, isRefreshing: isRefreshing, onRefresh: onRefresh) {
-            if todayTokens == 0 {
-                Text("暂无数据").foregroundStyle(.secondary)
-            }
         }
     }
 }

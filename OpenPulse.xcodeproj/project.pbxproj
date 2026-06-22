@@ -24,7 +24,6 @@
 		5E5248E69F836344E19E268A /* ToolAnalysisViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8918557F1ECC6689CA035E80 /* ToolAnalysisViews.swift */; };
 		62576FBA949602EE4F6F0B8F /* ClaudeCodeBridgeInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDD4CF2C5EDE7491AE3E099C /* ClaudeCodeBridgeInstaller.swift */; };
 		668A3DB6EA2D53B5ED39F244 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 286B3F5BD5A8E159BD60C5BC /* Assets.xcassets */; };
-		68569C07EF283F7824CE98F3 /* OpenCodeParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5CAC165D978D26D6B4C0AB6 /* OpenCodeParser.swift */; };
 		699729054FEE00973226B4D7 /* ToolSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 291DCA8660FE30EBF6BCD172 /* ToolSession.swift */; };
 		735412533A94EA74BB0EDD74 /* DailyStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA613E3CB91EF6FF4D66FE15 /* DailyStats.swift */; };
 		7C004E6EC2DBCB001E80E0A8 /* CopilotAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40AC44480FE7CED374FE367D /* CopilotAPIClient.swift */; };
@@ -37,6 +36,7 @@
 		9B55BE0FE4AF691EB7E7DB4B /* QuotaView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42286951DA0BA5C7591060C1 /* QuotaView.swift */; };
 		A7F5BB96B28B86404C636C2C /* AntigravityParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17FF3012B7E2288F242C0B7 /* AntigravityParser.swift */; };
 		ACFE41DA09FDB63087A5CC73 /* CommonUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = E44DFE8B1FF414DC177BEF99 /* CommonUI.swift */; };
+		B366739390D07B800F0310F7 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A57ADBD61505E897EDD99EBF /* Localizable.xcstrings */; };
 		B845C780045F45F642B7C190 /* ProviderComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C298F3CBB422846FB83A5FF /* ProviderComponents.swift */; };
 		B982FBAAD4916F4E4C91BB5D /* ConsecutiveFailureGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61CD85C3F8BBB34FF33E71F5 /* ConsecutiveFailureGate.swift */; };
 		BD5D47BFAF4E61E50078D3A0 /* TaskItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F162B140D2651A261556DD6 /* TaskItem.swift */; };
@@ -93,6 +93,7 @@
 		A17FF3012B7E2288F242C0B7 /* AntigravityParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AntigravityParser.swift; sourceTree = "<group>"; };
 		A3BA6F0CC3FDD8DFCCCF7CD5 /* KeychainService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainService.swift; sourceTree = "<group>"; };
 		A494FF8BD7215CF0925772F8 /* AppStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStore.swift; sourceTree = "<group>"; };
+		A57ADBD61505E897EDD99EBF /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		AAE363D258692709B22F2620 /* AppLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLogger.swift; sourceTree = "<group>"; };
 		AD19B5E14DF8670708D6A8C0 /* ModelPricing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelPricing.swift; sourceTree = "<group>"; };
 		B225807FEB6829DD500E63EB /* Provider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Provider.swift; sourceTree = "<group>"; };
@@ -102,7 +103,6 @@
 		CDD4CF2C5EDE7491AE3E099C /* ClaudeCodeBridgeInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeCodeBridgeInstaller.swift; sourceTree = "<group>"; };
 		D05939178581C41AF8FC17BF /* CompareView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompareView.swift; sourceTree = "<group>"; };
 		D300FEA511990F4AFED88925 /* WindowCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowCoordinator.swift; sourceTree = "<group>"; };
-		D5CAC165D978D26D6B4C0AB6 /* OpenCodeParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenCodeParser.swift; sourceTree = "<group>"; };
 		E04A866D990E3DF49C46F407 /* CodexProviderConfigService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexProviderConfigService.swift; sourceTree = "<group>"; };
 		E44DFE8B1FF414DC177BEF99 /* CommonUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommonUI.swift; sourceTree = "<group>"; };
 		F1E0BA47A399C82114B0BE45 /* ConfigsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigsView.swift; sourceTree = "<group>"; };
@@ -262,6 +262,7 @@
 			isa = PBXGroup;
 			children = (
 				286B3F5BD5A8E159BD60C5BC /* Assets.xcassets */,
+				A57ADBD61505E897EDD99EBF /* Localizable.xcstrings */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -306,7 +307,6 @@
 				1495475A35ED9D5528C01B35 /* ClaudeCodeParser.swift */,
 				2C9B26FE7E06E64EC6892CF3 /* CodexParser.swift */,
 				40AC44480FE7CED374FE367D /* CopilotAPIClient.swift */,
-				D5CAC165D978D26D6B4C0AB6 /* OpenCodeParser.swift */,
 			);
 			path = Parsers;
 			sourceTree = "<group>";
@@ -390,6 +390,7 @@
 			knownRegions = (
 				Base,
 				en,
+				"zh-Hans",
 			);
 			mainGroup = 259F6CFA96D2EC24F6BD224D;
 			minimizedProjectReferenceProxies = 1;
@@ -413,6 +414,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				668A3DB6EA2D53B5ED39F244 /* Assets.xcassets in Resources */,
+				B366739390D07B800F0310F7 /* Localizable.xcstrings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -449,7 +451,6 @@
 				E0B47DD84E5433B04F1E56C2 /* MenuBarView.swift in Sources */,
 				2B82DB8B5FDD88D24079D486 /* ModelPricing.swift in Sources */,
 				D6D35E8BE1BF0D02FE6B7A64 /* NotificationService.swift in Sources */,
-				68569C07EF283F7824CE98F3 /* OpenCodeParser.swift in Sources */,
 				EE4954ADE342C53CAC9CC50E /* OpenPulseApp.swift in Sources */,
 				3E86B004DEBEBA5D9B0AE530 /* Provider.swift in Sources */,
 				B845C780045F45F642B7C190 /* ProviderComponents.swift in Sources */,

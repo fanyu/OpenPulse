@@ -7,7 +7,6 @@ enum Provider: String, CaseIterable, Identifiable {
     case codex       = "codex"
     case copilot     = "copilot"
     case antigravity = "antigravity"
-    case opencode    = "opencode"
 
     var id: String { rawValue }
 
@@ -31,7 +30,6 @@ enum Provider: String, CaseIterable, Identifiable {
         case .codex:        .localFile
         case .copilot:      .oauthToken
         case .antigravity:  .localFile
-        case .opencode:     .localFile
         }
     }
 
@@ -42,7 +40,6 @@ enum Provider: String, CaseIterable, Identifiable {
         case .codex:        "~/.codex/state_5.sqlite"
         case .antigravity:  "~/.cli-proxy-api/antigravity-*.json"
         case .copilot:      "~/.cli-proxy-api/github-copilot-*.json"
-        case .opencode:     "~/.local/share/opencode/"
         }
     }
 

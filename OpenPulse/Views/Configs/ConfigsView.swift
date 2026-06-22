@@ -41,7 +41,6 @@ struct ConfigFile: Identifiable, Hashable {
         switch toolName {
         case "Codex": .codex
         case "Claude Code": .claudeCode
-        case "OpenCode": .opencode
         case "Antigravity": .antigravity
         case "Copilot": .copilot
         default: nil
@@ -58,7 +57,6 @@ private let allConfigFiles: [ConfigFile] = [
     ConfigFile(id: "codex-agents",    toolName: "Codex",       displayName: "AGENTS.md",     url: home.appending(path: ".codex/AGENTS.md"),                    kind: .prompt),
     ConfigFile(id: "claude-settings", toolName: "Claude Code", displayName: "settings.json", url: home.appending(path: ".claude/settings.json"),               kind: .config),
     ConfigFile(id: "claude-md",       toolName: "Claude Code", displayName: "CLAUDE.md",     url: home.appending(path: ".claude/CLAUDE.md"),                   kind: .prompt),
-    ConfigFile(id: "opencode-json",   toolName: "OpenCode",    displayName: "opencode.json", url: home.appending(path: ".config/opencode/opencode.json"),      kind: .config),
     ConfigFile(id: "ag-settings",     toolName: "Antigravity", displayName: "settings.json", url: home.appending(path: ".gemini/settings.json"),               kind: .config),
     ConfigFile(id: "ag-gemini-md",    toolName: "Antigravity", displayName: "GEMINI.md",     url: home.appending(path: ".gemini/GEMINI.md"),                   kind: .prompt),
     ConfigFile(id: "copilot-config",  toolName: "Copilot",     displayName: "config.json",   url: home.appending(path: ".config/github-copilot/config.json"),  kind: .config),
@@ -238,7 +236,7 @@ struct ConfigsView: View {
 
     private var supplierSelector: some View {
         HStack(spacing: 10) {
-            ForEach(["Codex", "Claude Code", "OpenCode", "Antigravity"], id: \.self) { tool in
+            ForEach(["Codex", "Claude Code", "Antigravity"], id: \.self) { tool in
                 let isSelected = viewModel.selectedFile?.toolName == tool
                 FilterChip(label: tool, isSelected: isSelected) {
                     withAnimation(.spring(duration: 0.3)) {

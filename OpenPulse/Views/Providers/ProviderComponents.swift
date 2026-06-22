@@ -320,7 +320,7 @@ private struct CodexProviderManagerSection: View {
         )
     }
 
-    private func fieldLabel(_ text: String) -> some View {
+    private func fieldLabel(_ text: LocalizedStringKey) -> some View {
         Text(text)
             .font(.system(size: 12, weight: .semibold))
             .foregroundStyle(.secondary)
@@ -543,16 +543,5 @@ struct AGAccountCard: View {
         var ids = hiddenIds; if ids.contains(id) { ids.remove(id) } else { ids.insert(id) }
         let newValue = ids.joined(separator: ","); hiddenIdsBinding.wrappedValue = newValue
         if !syncModelConfig { UserDefaults.standard.set(newValue, forKey: "ag.hiddenModelIds.\(account.email)") }
-    }
-}
-
-// MARK: - OpenCode Content
-
-struct OpenCodeProviderContent: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label("数据源: \(Provider.opencode.dataSourcePath)", systemImage: "folder.badge.gearshape").font(.caption).foregroundStyle(.secondary)
-            Text("OpenCode 使用本地 SQLite 数据库，无需额外配置即可自动同步。").font(.subheadline).foregroundStyle(.secondary)
-        }
     }
 }

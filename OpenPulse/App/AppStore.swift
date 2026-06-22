@@ -60,4 +60,16 @@ enum AppTab: String, CaseIterable {
         case .logs:      "scroll"
         }
     }
+
+    var localizedTitle: LocalizedStringKey {
+        switch self {
+        case .trends:    "总览"
+        case .quota:     "配额"
+        case .activity:  "活动"
+        case .providers: "接入"
+        case .configs:   "配置"
+        case .settings:  "设置"
+        case .logs:      "日志"
+        }
+    }
 }

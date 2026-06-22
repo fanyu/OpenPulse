@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import ServiceManagement
+import AppKit
 
 struct SettingsView: View {
     private enum DotTextDefaultsKey {
@@ -13,11 +14,14 @@ struct SettingsView: View {
 
     @State private var showingClearConfirm = false
     @AppStorage("app.launchAtLogin") private var launchAtLogin = false
+    @AppStorage("app.language") private var appLanguage = "system"
+    @State private var showsLanguageRestartNotice = false
 
     // MARK: - Menubar display
     @AppStorage("menubar.toolOrder")        private var toolOrderRaw = Tool.defaultOrderRaw
     @AppStorage("menubar.hiddenTools")      private var hiddenToolsRaw = ""
     @AppStorage("menubar.titleQuotaTools")  private var titleQuotaToolsRaw = ""
+    @AppStorage("menubar.antigravityDisplayMode") private var antigravityDisplayMode = "accounts"
 
     // MARK: - Hotkey
     @AppStorage("menubar.hotkey.keyCode")    private var hotkeyKeyCode    = 0
@@ -102,18 +106,60 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 24) {
                 // 通用设置
                 SettingsCard(title: "通用", icon: "gearshape") {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("开机自动启动")
-                                .font(.body)
-                            Text("在登录 Mac 时自动运行 OpenPulse")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 16) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("开机自动启动")
+                                    .font(.body)
+                                Text("在登录 Mac 时自动运行 OpenPulse")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Toggle("", isOn: $launchAtLogin)
+                                .toggleStyle(.switch)
+                                .labelsHidden()
                         }
-                        Spacer()
-                        Toggle("", isOn: $launchAtLogin)
-                            .toggleStyle(.switch)
-                            .labelsHidden()
+
+                        Divider()
+
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack(alignment: .top, spacing: 16) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("语言")
+                                        .font(.body)
+                                    Text("选择 OpenPulse 的显示语言。更改后需要重启应用。")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Picker("语言", selection: $appLanguage) {
+                                    Text("跟随系统").tag("system")
+                                    Text("English").tag("en")
+                                    Text("简体中文").tag("zh-Hans")
+                                }
+                                .pickerStyle(.segmented)
+                                .labelsHidden()
+                                .frame(width: 260)
+                                .onChange(of: appLanguage) { _, newValue in
+                                    applyLanguagePreference(newValue)
+                                }
+                            }
+
+                            if showsLanguageRestartNotice {
+                                HStack(spacing: 12) {
+                                    Text("语言将在重启 OpenPulse 后生效。")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    Spacer()
+                                    Button("立即重启") {
+                                        relaunchApp()
+                                    }
+                                    .buttonStyle(.bordered)
+                                }
+                                .padding(.top, 2)
+                            }
+                        }
                     }
                 }
                 
@@ -142,6 +188,23 @@ struct SettingsView: View {
                                 }
                                 .padding(.vertical, 2)
                             }
+                        }
+
+                        Divider()
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Antigravity 展示方式")
+                                .font(.subheadline.weight(.medium))
+                            Text("逐账号显示会保留每个账号和模型的明细；聚合显示会把所有账号合并成一个视图，并按模型分别计算平均余量。")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+
+                            Picker("Antigravity 展示方式", selection: $antigravityDisplayMode) {
+                                Text("逐账号").tag("accounts")
+                                Text("聚合").tag("aggregate")
+                            }
+                            .pickerStyle(.segmented)
+                            .labelsHidden()
                         }
 
                         Divider()
@@ -414,6 +477,24 @@ struct SettingsView: View {
         try? modelContext.save()
     }
 
+    private func applyLanguagePreference(_ language: String) {
+        if language == "system" {
+            UserDefaults.standard.removeObject(forKey: "AppleLanguages")
+        } else {
+            UserDefaults.standard.set([language], forKey: "AppleLanguages")
+        }
+        UserDefaults.standard.synchronize()
+        showsLanguageRestartNotice = true
+    }
+
+    private func relaunchApp() {
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        task.arguments = [Bundle.main.bundleURL.path]
+        try? task.run()
+        NSApp.terminate(nil)
+    }
+
     private func saveDotTextAPIKey() {
         let trimmedKey = dotTextAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
         do {
@@ -437,7 +518,7 @@ struct SettingsView: View {
 // MARK: - Shortcut Row
 
 private struct ShortcutRow: View {
-    let label: String
+    let label: LocalizedStringKey
     let shortcut: String
 
     var body: some View {
@@ -457,7 +538,7 @@ private struct ShortcutRow: View {
 
 // MARK: - Settings Card
 private struct SettingsCard<Content: View>: View {
-    let title: String
+    let title: LocalizedStringKey
     let icon: String
     @ViewBuilder let content: () -> Content
 

@@ -10,6 +10,7 @@ struct MenuBarView: View {
 
     @AppStorage("menubar.toolOrder") private var toolOrderRaw = Tool.defaultOrderRaw
     @AppStorage("menubar.hiddenTools") private var hiddenToolsRaw = ""
+    @AppStorage("menubar.antigravityDisplayMode") private var antigravityDisplayMode = "accounts"
     init() {
         // Only load today's aggregate stats — avoids scanning today's raw sessions
         // every time the menu bar popover is shown or refreshed.
@@ -103,18 +104,23 @@ struct MenuBarView: View {
             )
         case .antigravity:
             if let accounts = appStore.syncService?.latestAntigravityAccounts {
-                AntigravityMultiAccountCard(
-                    accounts: accounts,
-                    todayTokens: todaySessionTokens(for: .antigravity)
-                )
+                if antigravityDisplayMode == "aggregate" {
+                    AntigravityAggregateCard(
+                        accounts: accounts,
+                        todayTokens: todaySessionTokens(for: .antigravity)
+                    )
+                } else {
+                    AntigravityMultiAccountCard(
+                        accounts: accounts,
+                        todayTokens: todaySessionTokens(for: .antigravity)
+                    )
+                }
             } else if let fallback = quotas.first(where: { $0.tool == .antigravity }) {
                 AntigravityFallbackCard(
                     quota: fallback,
                     todayTokens: todaySessionTokens(for: .antigravity)
                 )
             }
-        case .opencode:
-            OpenCodeQuotaCard(todayTokens: todaySessionTokens(for: .opencode))
         }
     }
 
@@ -310,9 +316,9 @@ private struct MenuBarToolIdentity<Accessory: View>: View {
     }
 
     var body: some View {
-        HStack(alignment: .center, spacing: 8) {
-            HStack(spacing: 8) {
-                ToolLogoImage(tool: tool, size: 18)
+        HStack(alignment: .center, spacing: 9) {
+            HStack(spacing: 9) {
+                ToolLogoImage(tool: tool, size: 24)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(tool.displayName)
                         .font(.system(size: 13, weight: .bold, design: .rounded))
@@ -390,7 +396,7 @@ private struct MenuBarResetLine: View {
                 .font(.system(size: 8, weight: .bold))
                 .foregroundStyle(.tertiary)
                 .textCase(.uppercase)
-            Text(countdown ?? "Unavailable")
+            Text(countdown ?? "—")
                 .font(.system(size: 10, weight: .bold, design: .rounded))
                 .foregroundStyle(countdown == nil ? .tertiary : .secondary)
                 .lineLimit(1)
@@ -966,6 +972,125 @@ struct AntigravityMultiAccountCard: View {
     }
 }
 
+struct AntigravityAggregateCard: View {
+    let accounts: [AGAccountQuota]
+    let todayTokens: Int
+    @AppStorage("ag.hiddenModelIds") private var globalHiddenModelIdsRaw = ""
+    @AppStorage("ag.hiddenAccountEmails") private var hiddenAccountEmailsRaw = ""
+
+    private var hiddenModelIds: Set<String> {
+        Set(globalHiddenModelIdsRaw.components(separatedBy: ",").filter { !$0.isEmpty })
+    }
+
+    private var hiddenAccountEmails: Set<String> {
+        Set(hiddenAccountEmailsRaw.components(separatedBy: ",").filter { !$0.isEmpty })
+    }
+
+    private var visibleAccounts: [AGAccountQuota] {
+        accounts.filter { !hiddenAccountEmails.contains($0.email) }
+    }
+
+    private var aggregatedModels: [AntigravityAggregatedModel] {
+        var orderedKeys: [String] = []
+        var buckets: [String: [AGModelQuota]] = [:]
+        var titles: [String: String] = [:]
+
+        for model in visibleAccounts.flatMap(\.models) where !hiddenModelIds.contains(model.id) {
+            let key = model.displayName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard !key.isEmpty else { continue }
+            if buckets[key] == nil {
+                orderedKeys.append(key)
+                titles[key] = model.displayName
+            }
+            buckets[key, default: []].append(model)
+        }
+
+        return orderedKeys.compactMap { key in
+            guard let models = buckets[key], let title = titles[key] else { return nil }
+            let fractions = models.compactMap(\.remainingFraction)
+            let average = fractions.isEmpty ? nil : fractions.reduce(0, +) / Double(fractions.count)
+            return AntigravityAggregatedModel(
+                id: key,
+                title: title,
+                remainingFraction: average,
+                resetDate: models.compactMap(\.validatedResetDate).min(),
+                contributingCount: fractions.count
+            )
+        }
+        .filter { $0.remainingFraction != nil || $0.resetDate != nil }
+    }
+
+    var body: some View {
+        MenuBarToolShell {
+            MenuBarToolIdentity(
+                tool: .antigravity,
+                todayTokens: todayTokens
+            ) {
+                ConfigShortcutButton(tool: .antigravity)
+            }
+        } content: {
+            if aggregatedModels.isEmpty {
+                Text("暂无可聚合的模型额度")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("All accounts")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    let pairs = stride(from: 0, to: aggregatedModels.count, by: 2)
+                        .map { Array(aggregatedModels[$0..<min($0 + 2, aggregatedModels.count)]) }
+                    VStack(spacing: 5) {
+                        ForEach(pairs, id: \.first?.id) { pair in
+                            HStack(alignment: .top, spacing: 6) {
+                                ForEach(pair) { model in
+                                    AntigravityAggregatedModelRow(model: model)
+                                        .frame(maxWidth: .infinity)
+                                }
+                                if pair.count == 1 { Color.clear.frame(maxWidth: .infinity) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+struct AntigravityAggregatedModel: Identifiable {
+    let id: String
+    let title: String
+    let remainingFraction: Double?
+    let resetDate: Date?
+    let contributingCount: Int
+
+    var primaryValueText: String {
+        guard let remainingFraction else { return "—" }
+        return "\(Int((remainingFraction * 100).rounded()))%"
+    }
+
+    var footerText: String {
+        contributingCount > 0 ? "\(contributingCount) accounts" : "额度未知"
+    }
+}
+
+struct AntigravityAggregatedModelRow: View {
+    let model: AntigravityAggregatedModel
+
+    var body: some View {
+        MenuBarQuotaPanel(
+            title: model.title,
+            fraction: model.remainingFraction,
+            primaryValue: model.primaryValueText,
+            countdown: model.resetDate.map { resetDateString(for: $0) },
+            footer: model.footerText
+        )
+    }
+}
+
 /// Content for a single Antigravity account (email + model quota grid).
 /// No outer card chrome — used inside AntigravityMultiAccountCard.
 struct AntigravityAccountSection: View {
@@ -1079,27 +1204,6 @@ private extension View {
         padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
             .glassEffect(.regular, in: .rect(cornerRadius: 14))
-    }
-}
-
-// MARK: - OpenCode
-
-struct OpenCodeQuotaCard: View {
-    let todayTokens: Int
-    var body: some View {
-        MenuBarToolShell {
-            MenuBarToolIdentity(
-                tool: .opencode,
-                todayTokens: todayTokens
-            ) {
-                ConfigShortcutButton(tool: .opencode)
-            }
-        } content: {
-            Text(todayTokens == 0 ? "仅记录 token 用量，暂无会话数据" : "仅提供 token 用量统计")
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
     }
 }
 
