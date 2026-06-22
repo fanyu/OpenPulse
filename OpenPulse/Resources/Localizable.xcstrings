@@ -163,6 +163,12 @@
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "今日已消耗 %@ tokens" } }
       }
     },
+    "今日 %@ tokens" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Today %@ tokens" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "今日 %@ tokens" } }
+      }
+    },
     "立即刷新" : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Refresh now" } },
@@ -1073,6 +1079,162 @@
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Quota data not synced" } },
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "未同步配额数据" } }
+      }
+    },
+    "额度仪表盘" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Quota dashboard" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "额度仪表盘" } }
+      }
+    },
+    "余量优先" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Remaining first" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "余量优先" } }
+      }
+    },
+    "5小时余量" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "5-hour remaining" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "5小时余量" } }
+      }
+    },
+    "本周余量" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Weekly remaining" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "本周余量" } }
+      }
+    },
+    "未获取到额度" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Quota unavailable" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "未获取到额度" } }
+      }
+    },
+    "服务商" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Provider" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "服务商" } }
+      }
+    },
+    "Copilot 余量" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Copilot remaining" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "Copilot 余量" } }
+      }
+    },
+    "账号" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Accounts" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "账号" } }
+      }
+    },
+    "模型" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Models" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "模型" } }
+      }
+    },
+    "最低余量" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Lowest remaining" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "最低余量" } }
+      }
+    },
+    "额度未知" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Quota unknown" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "额度未知" } }
+      }
+    },
+    "总余量" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Total remaining" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "总余量" } }
+      }
+    },
+    "%lld 个账号" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%lld accounts" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "%lld 个账号" } }
+      }
+    },
+    "+%lld 个模型在主窗口查看" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "+%lld more models in the main window" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "+%lld 个模型在主窗口查看" } }
+      }
+    },
+    "更新于 %@前" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Updated %@ ago" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "更新于 %@前" } }
+      }
+    },
+    "刷新同步 (⌘R)" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Refresh sync (⌘R)" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "刷新同步 (⌘R)" } }
+      }
+    },
+    "打开主窗口 (⌘M)" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Open main window (⌘M)" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "打开主窗口 (⌘M)" } }
+      }
+    },
+    "设置 (⌘,)" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Settings (⌘,)" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "设置 (⌘,)" } }
+      }
+    },
+    "退出 (⌘Q)" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Quit (⌘Q)" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "退出 (⌘Q)" } }
+      }
+    },
+    "打开 %@" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Open %@" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "打开 %@" } }
+      }
+    },
+    "数据已过期" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Data expired" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "数据已过期" } }
+      }
+    },
+    "已自动切换到 %@" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Automatically switched to %@" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "已自动切换到 %@" } }
+      }
+    },
+    "已切换到 %@" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Switched to %@" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "已切换到 %@" } }
+      }
+    },
+    "当前账号已经是最优选择" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The current account is already the best choice" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "当前账号已经是最优选择" } }
+      }
+    },
+    "未配模型" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No model" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "未配模型" } }
+      }
+    },
+    "读取中…" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Loading…" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "读取中…" } }
       }
     },
     "无限制" : {
