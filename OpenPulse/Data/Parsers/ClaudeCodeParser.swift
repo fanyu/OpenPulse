@@ -242,14 +242,49 @@ actor ClaudeCodeParser {
             return cachedKeychainCredentials
         }
 
-        guard let record = try KeychainService.retrieveGenericPasswordRecord(service: "Claude Code-credentials"),
-              let data = record.value.data(using: .utf8) else {
+        if let record = try? KeychainService.retrieveGenericPasswordRecord(service: "Claude Code-credentials"),
+           let data = record.value.data(using: .utf8) {
+            let source = ClaudeCredentialSource(data: data, accountLabel: record.account)
+            cachedKeychainCredentials = source
+            return source
+        }
+
+        guard let source = try readClaudeCredentialsViaSecurityCLI() else {
+            return nil
+        }
+        cachedKeychainCredentials = source
+        return source
+    }
+
+    private func readClaudeCredentialsViaSecurityCLI() throws -> ClaudeCredentialSource? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+        process.arguments = [
+            "find-generic-password",
+            "-s", "Claude Code-credentials",
+            "-w",
+        ]
+
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = Pipe()
+
+        try process.run()
+        let deadline = Date().addingTimeInterval(3)
+        while process.isRunning && Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        if process.isRunning {
+            process.terminate()
             return nil
         }
 
-        let source = ClaudeCredentialSource(data: data, accountLabel: record.account)
-        cachedKeychainCredentials = source
-        return source
+        guard process.terminationStatus == 0 else { return nil }
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        let value = String(decoding: data, as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return nil }
+        return ClaudeCredentialSource(data: Data(value.utf8), accountLabel: nil)
     }
 
     private func invalidateCachedKeychainCredentials() {

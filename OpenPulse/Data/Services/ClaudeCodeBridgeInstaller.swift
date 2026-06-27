@@ -99,8 +99,10 @@ tmp_file=$(mktemp "${cache_dir}/claude-code-status.XXXXXX" 2>/dev/null)
 if [ -n "$tmp_file" ]; then
     if printf "%s" "$input" | python3 -c '
 import json
+import subprocess
 import sys
 import time
+import urllib.request
 
 try:
     payload = json.load(sys.stdin)
@@ -109,11 +111,39 @@ except Exception:
 
 rate_limits = payload.get("rate_limits") or {}
 context_window = payload.get("context_window") or {}
+five_hour = rate_limits.get("five_hour")
+seven_day = rate_limits.get("seven_day")
+
+if not five_hour and not seven_day:
+    try:
+        raw_credentials = subprocess.check_output(
+            ["/usr/bin/security", "find-generic-password", "-s", "Claude Code-credentials", "-w"],
+            stderr=subprocess.DEVNULL,
+            timeout=3,
+        ).decode().strip()
+        credentials = json.loads(raw_credentials)
+        token = (credentials.get("claudeAiOauth") or {}).get("accessToken")
+        if token:
+            request = urllib.request.Request(
+                "https://api.anthropic.com/api/oauth/usage",
+                headers={
+                    "Authorization": "Bearer " + token,
+                    "anthropic-beta": "oauth-2025-04-20",
+                    "User-Agent": "claude-code/2.0.76",
+                },
+            )
+            with urllib.request.urlopen(request, timeout=5) as response:
+                usage = json.loads(response.read())
+            five_hour = usage.get("five_hour")
+            seven_day = usage.get("seven_day")
+    except Exception:
+        pass
+
 output = {
     "captured_at": int(time.time()),
     "rate_limits": {
-        "five_hour": rate_limits.get("five_hour"),
-        "seven_day": rate_limits.get("seven_day"),
+        "five_hour": five_hour,
+        "seven_day": seven_day,
     },
     "context_window": {
         "used_percentage": context_window.get("used_percentage"),
