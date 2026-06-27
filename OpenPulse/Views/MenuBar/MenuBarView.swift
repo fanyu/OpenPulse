@@ -259,7 +259,7 @@ private struct ConfigShortcutButton: View {
                     NSWorkspace.shared.activateFileViewerSelecting([configFile.url.deletingLastPathComponent()])
                 }
             } label: {
-                Image(systemName: "document.badge.gearshape")
+                Image(systemName: "gearshape")
                     .font(.system(size: 11, weight: .semibold))
             }
             .buttonStyle(.plain)
@@ -397,7 +397,7 @@ private struct MenuBarResetLine: View {
             Image(systemName: "clock.arrow.circlepath")
                 .font(.system(size: 8, weight: .bold))
                 .foregroundStyle(.secondary)
-            Text(countdown ?? "—")
+            Text(LocalizedStringKey(countdown ?? "—"))
                 .font(.system(size: 10, weight: .bold, design: .monospaced))
                 .foregroundStyle(countdown == nil ? .tertiary : .secondary)
                 .lineLimit(1)
@@ -561,8 +561,8 @@ struct CodexQuotaCard: View {
             title: label,
             fraction: fraction,
             primaryValue: primary,
-            countdown: isStale ? nil : window?.resetDate.map { isFiveHour ? menuBarTimeOnlyResetString(for: $0) : menuBarShortResetString(for: $0) },
-            footer: isStale ? "数据已过期" : nil
+            countdown: isStale ? "数据已过期" : window?.resetDate.map { isFiveHour ? menuBarTimeOnlyResetString(for: $0) : menuBarShortResetString(for: $0) },
+            footer: nil
         )
     }
 }
@@ -640,8 +640,8 @@ struct CodexAccountQuotaCard: View {
             title: label,
             fraction: fraction,
             primaryValue: primary,
-            countdown: isStale ? nil : window?.resetDate.map { isFiveHour ? menuBarTimeOnlyResetString(for: $0) : menuBarShortResetString(for: $0) },
-            footer: isStale ? "数据已过期" : nil
+            countdown: isStale ? "数据已过期" : window?.resetDate.map { isFiveHour ? menuBarTimeOnlyResetString(for: $0) : menuBarShortResetString(for: $0) },
+            footer: nil
         )
     }
 }
