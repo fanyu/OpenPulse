@@ -251,18 +251,20 @@ private struct ConfigShortcutButton: View {
 
     var body: some View {
         if let configFile {
-            Button {
-                GlobalHotkeyService.shared.closeMenuBar()
-                if FileManager.default.fileExists(atPath: configFile.url.path) {
-                    NSWorkspace.shared.open(configFile.url)
-                } else {
-                    NSWorkspace.shared.activateFileViewerSelecting([configFile.url.deletingLastPathComponent()])
+            Image(systemName: "gearshape")
+                .font(.system(size: 13, weight: .semibold))
+                .frame(width: 22, height: 22)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    GlobalHotkeyService.shared.closeMenuBar()
+                    if FileManager.default.fileExists(atPath: configFile.url.path) {
+                        NSWorkspace.shared.open(configFile.url)
+                    } else {
+                        NSWorkspace.shared.activateFileViewerSelecting([configFile.url.deletingLastPathComponent()])
+                    }
                 }
-            } label: {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 11, weight: .semibold))
-            }
-            .buttonStyle(.plain)
+                .accessibilityLabel(Text(String(localized: "打开 \(configFile.displayName)")))
+                .accessibilityAddTraits(.isButton)
             .foregroundStyle(.secondary)
             .help(String(localized: "打开 \(configFile.displayName)"))
         }
