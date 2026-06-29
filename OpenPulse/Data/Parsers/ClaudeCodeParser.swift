@@ -1,18 +1,27 @@
 import Foundation
+import CommonCrypto
+import CryptoKit
+import SQLite
 
 /// Parses Claude Code CLI data from ~/.claude/
 /// Token usage: projects/**/*.jsonl (per-message) + stats-cache.json (aggregated)
-/// Quota: prefer OpenPulse Claude Code bridge cache, fallback to Anthropic OAuth usage API.
+/// Quota: prefer OpenPulse Claude Code bridge cache, then Claude Desktop Web usage, then Anthropic OAuth usage API.
 actor ClaudeCodeParser {
     private let claudeDir: URL
+    private let claudeDesktopDir: URL
     private let statusCacheURL: URL
     private var cachedKeychainCredentials: ClaudeCredentialSource?
 
     init(
         claudeDir: URL = .homeDirectory.appending(path: ".claude"),
+        claudeDesktopDir: URL = .homeDirectory
+            .appending(path: "Library")
+            .appending(path: "Application Support")
+            .appending(path: "Claude"),
         statusCacheURL: URL = ClaudeCodeBridgeInstaller.cacheURL
     ) {
         self.claudeDir = claudeDir
+        self.claudeDesktopDir = claudeDesktopDir
         self.statusCacheURL = statusCacheURL
     }
 
@@ -58,6 +67,26 @@ actor ClaudeCodeParser {
                 sessionCount: activity.sessionCount
             )
         }.sorted { $0.date < $1.date }
+    }
+
+    func parseDailyStatsFromClaudeDesktop() async throws -> [DailyStats] {
+        let tokensFile = claudeDesktopDir.appending(path: "buddy-tokens.json")
+        guard FileManager.default.fileExists(atPath: tokensFile.path) else { return [] }
+
+        let data = try Data(contentsOf: tokensFile)
+        let payload = try JSONDecoder().decode(ClaudeDesktopBuddyTokens.self, from: data)
+        let tokens = payload.tokensToday.tokens
+        guard tokens > 0 else { return [] }
+
+        return [
+            DailyStats(
+                date: Calendar.current.startOfDay(for: Date()),
+                tool: .claudeCode,
+                totalInputTokens: tokens,
+                totalOutputTokens: 0,
+                sessionCount: 1
+            ),
+        ]
     }
 
     // MARK: - Per-session parsing from JSONL (detailed)
@@ -147,6 +176,58 @@ actor ClaudeCodeParser {
         }
 
         return try await fetchSubscriptionQuota(using: token, retryingAfterCredentialRefresh: true)
+    }
+
+    func fetchSubscriptionQuotaFromClaudeDesktop() async throws -> ToolQuota {
+        let cookies = try readClaudeDesktopCookies()
+        guard let orgUUID = cookies["lastActiveOrg"], !orgUUID.isEmpty else {
+            throw ClaudeError.desktopSessionUnavailable("Missing active organization")
+        }
+        guard cookies["sessionKey"]?.isEmpty == false else {
+            throw ClaudeError.desktopSessionUnavailable("Missing Claude desktop session")
+        }
+
+        var request = URLRequest(url: URL(string: "https://claude.ai/api/organizations/\(orgUUID)/usage")!)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 10
+        request.setValue(makeCookieHeader(cookies), forHTTPHeaderField: "Cookie")
+        request.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
+        request.setValue("https://claude.ai/settings/usage", forHTTPHeaderField: "Referer")
+        request.setValue("https://claude.ai", forHTTPHeaderField: "Origin")
+        request.setValue("same-origin", forHTTPHeaderField: "Sec-Fetch-Site")
+        request.setValue("cors", forHTTPHeaderField: "Sec-Fetch-Mode")
+        request.setValue("empty", forHTTPHeaderField: "Sec-Fetch-Dest")
+        request.setValue("desktop", forHTTPHeaderField: "x-app-shell-mode")
+        request.setValue("web_claude_ai", forHTTPHeaderField: "anthropic-client-platform")
+        request.setValue(
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Claude/OpenPulse Safari/537.36",
+            forHTTPHeaderField: "User-Agent"
+        )
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw ClaudeError.apiFailed("Missing HTTP response")
+        }
+        guard http.statusCode == 200 else {
+            let body = String(data: data, encoding: .utf8) ?? ""
+            throw ClaudeError.apiFailed("Claude desktop usage HTTP \(http.statusCode): \(body.prefix(200))")
+        }
+
+        let usage = try JSONDecoder().decode(ClaudeUsageResponse.self, from: data)
+        let remaining = usage.fiveHour?.utilization.map { Int((1.0 - $0 / 100.0) * 100) }
+
+        return ToolQuota(
+            id: Tool.claudeCode.rawValue,
+            tool: .claudeCode,
+            accountKey: nil,
+            accountLabel: nil,
+            remaining: remaining,
+            total: 100,
+            unit: .messages,
+            resetAt: usage.fiveHour?.resetDate,
+            updatedAt: Date(),
+            raw: usage
+        )
     }
 
     private func fetchSubscriptionQuota(
@@ -291,6 +372,131 @@ actor ClaudeCodeParser {
         cachedKeychainCredentials = nil
     }
 
+    private func readClaudeDesktopCookies() throws -> [String: String] {
+        let cookiesFile = claudeDesktopDir.appending(path: "Cookies")
+        guard FileManager.default.fileExists(atPath: cookiesFile.path) else {
+            throw ClaudeError.desktopSessionUnavailable("Claude desktop Cookies database not found")
+        }
+        guard let safeStorageKey = try KeychainService.retrieveGenericPassword(service: "Claude Safe Storage") else {
+            throw ClaudeError.desktopSessionUnavailable("Claude Safe Storage key not found")
+        }
+
+        let db = try Connection(.uri(cookiesFile.path, parameters: [.mode(.readOnly)]))
+        let cookiesTable = Table("cookies")
+        let hostColumn = Expression<String>("host_key")
+        let nameColumn = Expression<String>("name")
+        let valueColumn = Expression<String>("value")
+        let encryptedValueColumn = Expression<Blob>("encrypted_value")
+
+        var cookies: [String: String] = [:]
+        for row in try db.prepare(cookiesTable) {
+            let host = row[hostColumn]
+            guard host == "claude.ai" || host.hasSuffix(".claude.ai") else { continue }
+
+            let name = row[nameColumn]
+            let plainValue = row[valueColumn]
+            if !plainValue.isEmpty {
+                cookies[name] = plainValue
+                continue
+            }
+
+            let encryptedValue = Data(row[encryptedValueColumn].bytes)
+            guard let decrypted = decryptChromiumCookie(
+                encryptedValue,
+                host: host,
+                safeStorageKey: safeStorageKey
+            ) else { continue }
+            cookies[name] = decrypted
+        }
+        return cookies
+    }
+
+    private func decryptChromiumCookie(_ encryptedValue: Data, host: String, safeStorageKey: String) -> String? {
+        guard encryptedValue.starts(with: Data("v10".utf8)) else { return nil }
+
+        guard let key = pbkdf2SHA1(
+            password: Data(safeStorageKey.utf8),
+            salt: Data("saltysalt".utf8),
+            rounds: 1003,
+            keyByteCount: kCCKeySizeAES128
+        ) else { return nil }
+
+        let encryptedPayload = encryptedValue.dropFirst(3)
+        guard var decrypted = aesCBCDecrypt(
+            Data(encryptedPayload),
+            key: key,
+            iv: Data(repeating: 0x20, count: kCCBlockSizeAES128)
+        ) else { return nil }
+
+        let hostHash = Data(SHA256.hash(data: Data(host.utf8)))
+        if decrypted.starts(with: hostHash) {
+            decrypted.removeFirst(hostHash.count)
+        } else if String(data: decrypted, encoding: .utf8) == nil, decrypted.count > hostHash.count {
+            decrypted.removeFirst(hostHash.count)
+        }
+
+        return String(data: decrypted, encoding: .utf8)
+    }
+
+    private func pbkdf2SHA1(password: Data, salt: Data, rounds: Int, keyByteCount: Int) -> Data? {
+        var derived = Data(repeating: 0, count: keyByteCount)
+        let status = derived.withUnsafeMutableBytes { derivedBytes in
+            password.withUnsafeBytes { passwordBytes in
+                salt.withUnsafeBytes { saltBytes in
+                    CCKeyDerivationPBKDF(
+                        CCPBKDFAlgorithm(kCCPBKDF2),
+                        passwordBytes.bindMemory(to: Int8.self).baseAddress,
+                        password.count,
+                        saltBytes.bindMemory(to: UInt8.self).baseAddress,
+                        salt.count,
+                        CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA1),
+                        UInt32(rounds),
+                        derivedBytes.bindMemory(to: UInt8.self).baseAddress,
+                        keyByteCount
+                    )
+                }
+            }
+        }
+        return status == kCCSuccess ? derived : nil
+    }
+
+    private func aesCBCDecrypt(_ data: Data, key: Data, iv: Data) -> Data? {
+        var output = Data(repeating: 0, count: data.count + kCCBlockSizeAES128)
+        let outputCapacity = output.count
+        var outputLength = 0
+        let status = output.withUnsafeMutableBytes { outputBytes in
+            data.withUnsafeBytes { dataBytes in
+                key.withUnsafeBytes { keyBytes in
+                    iv.withUnsafeBytes { ivBytes in
+                        CCCrypt(
+                            CCOperation(kCCDecrypt),
+                            CCAlgorithm(kCCAlgorithmAES),
+                            CCOptions(kCCOptionPKCS7Padding),
+                            keyBytes.bindMemory(to: UInt8.self).baseAddress,
+                            key.count,
+                            ivBytes.bindMemory(to: UInt8.self).baseAddress,
+                            dataBytes.bindMemory(to: UInt8.self).baseAddress,
+                            data.count,
+                            outputBytes.bindMemory(to: UInt8.self).baseAddress,
+                            outputCapacity,
+                            &outputLength
+                        )
+                    }
+                }
+            }
+        }
+        guard status == kCCSuccess else { return nil }
+        output.removeSubrange(outputLength..<output.count)
+        return output
+    }
+
+    private func makeCookieHeader(_ cookies: [String: String]) -> String {
+        cookies
+            .sorted { $0.key < $1.key }
+            .map { "\($0.key)=\($0.value)" }
+            .joined(separator: "; ")
+    }
+
     private func extractPreferredAccountLabel(from object: Any?) -> String? {
         guard let object else { return nil }
         if let email = firstMatchingString(in: object, preferredKeys: ["email", "account_email"]) {
@@ -423,6 +629,7 @@ enum ClaudeError: Error, LocalizedError {
     case bridgeDataUnavailable
     case bridgeDataStale
     case bridgeRateLimitsMissing
+    case desktopSessionUnavailable(String)
 
     var errorDescription: String? {
         switch self {
@@ -436,6 +643,8 @@ enum ClaudeError: Error, LocalizedError {
             "Claude Code bridge rate limit data is stale."
         case .bridgeRateLimitsMissing:
             "Claude Code bridge payload updated without usable rate limit windows."
+        case .desktopSessionUnavailable(let msg):
+            "Claude desktop session unavailable: \(msg)"
         }
     }
 }
@@ -470,6 +679,18 @@ struct ClaudeAccountInfo: Sendable {
 private struct ClaudeCredentialSource {
     let data: Data
     let accountLabel: String?
+}
+
+private struct ClaudeDesktopBuddyTokens: Decodable {
+    let tokensToday: TokensToday
+
+    enum CodingKeys: String, CodingKey {
+        case tokensToday = "tokens-today"
+    }
+
+    struct TokensToday: Decodable {
+        let tokens: Int
+    }
 }
 
 struct ClaudeUsageResponse: Codable, Sendable {

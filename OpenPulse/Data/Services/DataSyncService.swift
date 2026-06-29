@@ -92,6 +92,8 @@ final class DataSyncService {
     private static let claudeBridgeRoot: String = ClaudeCodeBridgeInstaller.cacheURL
         .deletingLastPathComponent().path
     private static let claudeBridgeCachePath: String = ClaudeCodeBridgeInstaller.cacheURL.path
+    private static let claudeDesktopRoot: String = .homeDirectory + "/Library/Application Support/Claude"
+    private static let claudeDesktopBuddyTokensPath: String = claudeDesktopRoot + "/buddy-tokens.json"
 
     // MARK: - Private state
 
@@ -219,8 +221,9 @@ final class DataSyncService {
         let todayStart = Calendar.current.startOfDay(for: Date())
         let (sessions, cacheStats) = try await Task.detached(priority: .utility) {
             let sessions  = try await self.claudeParser.parseSessions(since: since)
-            let stats     = (try? await self.claudeParser.parseDailyStatsFromCache()) ?? []
-            return (sessions, stats)
+            let cliStats  = (try? await self.claudeParser.parseDailyStatsFromCache()) ?? []
+            let desktopStats = (try? await self.claudeParser.parseDailyStatsFromClaudeDesktop()) ?? []
+            return (sessions, cliStats + desktopStats)
         }.value
 
         upsertSessions(sessions, context: context)
@@ -274,6 +277,19 @@ final class DataSyncService {
         }
 
         // API fallback when bridge cache is unavailable
+        do {
+            let quota = try await claudeParser.fetchSubscriptionQuotaFromClaudeDesktop()
+            if let usage = quota.raw as? ClaudeUsageResponse {
+                latestClaudeUsage = usage
+                persistClaudeUsageCache(usage)
+            }
+            upsertQuota(quota, context: context)
+            return
+        } catch {
+            AppLogger.shared.info("[claude] desktop quota unavailable: \(error.localizedDescription); falling back to CLI OAuth API")
+        }
+
+        // CLI OAuth API fallback when desktop usage is unavailable
         do {
             let quota = try await claudeParser.fetchSubscriptionQuota()
             if let usage = quota.raw as? ClaudeUsageResponse {
@@ -582,8 +598,15 @@ final class DataSyncService {
             entry.count     += 1
             sessionMap[day] = entry
         }
-        // Start from cache stats
-        var resultMap: [Date: DailyStats] = Dictionary(uniqueKeysWithValues: cacheStats.map { ($0.date, $0) })
+        // Start from cache stats. Multiple local sources can report the same day
+        // (Claude CLI cache + Claude Desktop buddy-tokens); keep the larger total.
+        var resultMap: [Date: DailyStats] = [:]
+        for stat in cacheStats {
+            let existingTotal = resultMap[stat.date]?.totalTokens ?? 0
+            if stat.totalTokens > existingTotal {
+                resultMap[stat.date] = stat
+            }
+        }
         // Fill in / overwrite with session data for days where sessions have more tokens
         for (day, agg) in sessionMap {
             let existing = resultMap[day]
@@ -778,6 +801,9 @@ final class DataSyncService {
         if FileManager.default.fileExists(atPath: Self.claudeBridgeRoot) {
             watchPaths.append(Self.claudeBridgeRoot)
         }
+        if FileManager.default.fileExists(atPath: Self.claudeDesktopRoot) {
+            watchPaths.append(Self.claudeDesktopRoot)
+        }
         guard !watchPaths.isEmpty else { return }
 
         AppLogger.shared.info("[fs] watching: \(watchPaths)")
@@ -797,6 +823,11 @@ final class DataSyncService {
             // Bridge dir: only the specific status cache file matters
             if path.hasPrefix(Self.claudeBridgeRoot) {
                 return path == Self.claudeBridgeCachePath
+            }
+            if path.hasPrefix(Self.claudeDesktopRoot) {
+                return path == Self.claudeDesktopRoot
+                    || path == Self.claudeDesktopBuddyTokensPath
+                    || path.hasPrefix(Self.claudeDesktopRoot + "/claude-code-sessions")
             }
             return true
         }
