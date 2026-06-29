@@ -625,6 +625,9 @@ struct CodexAccountQuotaCard: View {
                     accountPanel(label: "5小时余量", isFiveHour: true, window: limits.fiveHourWindow)
                     accountPanel(label: "本周余量", isFiveHour: false, window: limits.oneWeekWindow)
                 }
+                if let resetCredits = limits.resetCredits {
+                    CodexResetCreditsLine(resetCredits: resetCredits)
+                }
             } else if let error = account.usageError {
                 Text(error).font(.caption2).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
             } else {
@@ -645,6 +648,60 @@ struct CodexAccountQuotaCard: View {
             countdown: isStale ? "数据已过期" : window?.resetDate.map { isFiveHour ? menuBarTimeOnlyResetString(for: $0) : menuBarShortResetString(for: $0) },
             footer: nil
         )
+    }
+}
+
+private struct CodexResetCreditsLine: View {
+    let resetCredits: CodexResetCredits
+
+    private var availableCredits: [CodexResetCredit] {
+        (resetCredits.credits ?? [])
+            .filter { ($0.status ?? "").caseInsensitiveCompare("available") == .orderedSame }
+            .sorted { lhs, rhs in
+            switch (lhs.expiresAt, rhs.expiresAt) {
+            case let (left?, right?): return left < right
+            case (.some, .none): return true
+            case (.none, .some): return false
+            case (.none, .none): return (lhs.title ?? "") < (rhs.title ?? "")
+            }
+        }
+    }
+
+    private var availableCount: Int {
+        resetCredits.availableCount ?? availableCredits.count
+    }
+
+    private var expiryText: String? {
+        let values = availableCredits.compactMap { credit in
+            credit.expiresAt.map { menuBarShortResetString(for: $0) }
+        }
+        guard !values.isEmpty else { return nil }
+        return values.joined(separator: ", ")
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "arrow.counterclockwise.circle.fill")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.green)
+            Text("可用重置券")
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(.secondary)
+            Text("\(availableCount)")
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .foregroundStyle(.primary)
+            if let expiryText {
+                Text("过期 \(expiryText)")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.primary.opacity(0.045), in: Capsule())
     }
 }
 

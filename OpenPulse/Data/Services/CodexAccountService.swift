@@ -253,8 +253,9 @@ actor CodexAccountService {
 
         if let currentAccountID,
            let index = store.accounts.firstIndex(where: { $0.accountID == currentAccountID }) {
-            store.accounts[index].lastUsage = limits
-            store.accounts[index].planType = limits.planType ?? store.accounts[index].planType
+            let mergedLimits = limits.preservingResetCredits(from: store.accounts[index].lastUsage)
+            store.accounts[index].lastUsage = mergedLimits
+            store.accounts[index].planType = mergedLimits.planType ?? store.accounts[index].planType
             store.accounts[index].lastFetchedAt = now
             store.accounts[index].updatedAt = now
             store.accounts[index].usageError = nil
@@ -262,6 +263,15 @@ actor CodexAccountService {
         }
 
         return await listAccounts()
+    }
+
+    func currentAccountHasResetCreditDetails() async -> Bool {
+        let store = reconcileCurrentAuthIntoStore()
+        guard let currentAccountID = currentAccountID(from: store),
+              let account = store.accounts.first(where: { $0.accountID == currentAccountID }) else {
+            return false
+        }
+        return account.lastUsage?.resetCredits?.credits?.isEmpty == false
     }
 
     func refreshStaleUsage(excludingCurrentAccount: Bool) async -> [CodexAccountSnapshot] {
@@ -1003,14 +1013,72 @@ actor CodexAccountService {
                     let body = String(decoding: data, as: UTF8.self)
                     throw ServiceError.callbackFailed("Codex usage 获取失败: HTTP \(http.statusCode) \(String(body.prefix(120)))")
                 }
-                let payload = try JSONDecoder().decode(CodexUsageAPIResponse.self, from: data)
-                return payload.toRateLimits()
+                let decoder = JSONDecoder()
+                decoder.dateDecodingStrategy = .iso8601
+                let payload = try decoder.decode(CodexUsageAPIResponse.self, from: data)
+                let limits = payload.toRateLimits()
+                let resetCredits: CodexResetCredits?
+                do {
+                    resetCredits = try await fetchResetCredits(
+                        accessToken: accessToken,
+                        accountID: accountID,
+                        session: session,
+                        usageURL: url,
+                        decoder: decoder
+                    )
+                } catch {
+                    resetCredits = nil
+                    await AppLogger.shared.recordDiagnostic(scope: "codex.resetCredits", message: error.localizedDescription)
+                }
+                return limits.replacingResetCredits(resetCredits ?? limits.resetCredits)
             } catch {
                 lastError = error
             }
         }
 
         throw lastError ?? ServiceError.callbackFailed("Codex usage 获取失败。")
+    }
+
+    private static func fetchResetCredits(
+        accessToken: String,
+        accountID: String,
+        session: URLSession,
+        usageURL: URL,
+        decoder: JSONDecoder
+    ) async throws -> CodexResetCredits {
+        guard let url = resetCreditsURL(for: usageURL) else {
+            throw ServiceError.callbackFailed("Codex reset credits 地址无效。")
+        }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 18
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue(accountID, forHTTPHeaderField: "ChatGPT-Account-Id")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("codex-tools-swift/0.1", forHTTPHeaderField: "User-Agent")
+
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw ServiceError.callbackFailed("Codex reset credits 响应无效。")
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            if http.statusCode == 401 {
+                throw ServiceError.callbackFailed("Codex reset credits 获取失败: HTTP 401，凭证失效或 Authorization header 缺失。")
+            }
+            throw ServiceError.callbackFailed("Codex reset credits 获取失败: HTTP \(http.statusCode)")
+        }
+        return try decoder.decode(CodexResetCredits.self, from: data)
+    }
+
+    private static func resetCreditsURL(for usageURL: URL) -> URL? {
+        let path = usageURL.path
+        guard path.contains("/wham/usage") else {
+            return nil
+        }
+        var components = URLComponents(url: usageURL, resolvingAgainstBaseURL: false)
+        components?.path = path.replacingOccurrences(of: "/wham/usage", with: "/wham/rate-limit-reset-credits")
+        components?.query = nil
+        return components?.url
     }
 
     private static func extractAuth(from jsonString: String) throws -> ExtractedAuth {
@@ -1164,12 +1232,14 @@ private struct CodexUsageAPIResponse: Decodable {
     let rateLimit: CodexUsageRateLimit?
     let additionalRateLimits: [CodexUsageAdditionalRateLimit]?
     let credits: CodexCredits?
+    let resetCredits: CodexResetCredits?
 
     enum CodingKeys: String, CodingKey {
         case planType = "plan_type"
         case rateLimit = "rate_limit"
         case additionalRateLimits = "additional_rate_limits"
         case credits
+        case resetCredits = "rate_limit_reset_credits"
     }
 
     func toRateLimits() -> CodexRateLimits {
@@ -1183,7 +1253,13 @@ private struct CodexUsageAPIResponse: Decodable {
 
         let primary = windows.min { abs($0.durationSeconds - 5 * 60 * 60) < abs($1.durationSeconds - 5 * 60 * 60) }
         let secondary = windows.min { abs($0.durationSeconds - 7 * 24 * 60 * 60) < abs($1.durationSeconds - 7 * 24 * 60 * 60) }
-        return CodexRateLimits(primary: primary, secondary: secondary, credits: credits, planType: planType)
+        return CodexRateLimits(
+            primary: primary,
+            secondary: secondary,
+            credits: credits,
+            resetCredits: resetCredits,
+            planType: planType
+        )
     }
 }
 

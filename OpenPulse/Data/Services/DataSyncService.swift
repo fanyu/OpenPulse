@@ -325,9 +325,11 @@ final class DataSyncService {
         await codexAccountService.syncCurrentSelectionFromAuthFile()
         let smartSwitch = UserDefaults.standard.bool(forKey: "codex.smartSwitch.enabled")
         let knownCount  = await codexAccountService.listAccounts().count
+        let currentHasResetCreditDetails = await codexAccountService.currentAccountHasResetCreditDetails()
 
         var accounts: [CodexAccountSnapshot]
         if !smartSwitch,
+           currentHasResetCreditDetails,
            let snapshot = rateLimitSnapshot,
            shouldPreferLocalCodexLimits(snapshot, accountCount: knownCount)
         {

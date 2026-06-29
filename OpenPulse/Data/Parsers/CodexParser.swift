@@ -315,10 +315,12 @@ struct CodexRateLimits: Codable, Sendable {
     let primary: CodexWindow?
     let secondary: CodexWindow?
     let credits: CodexCredits?
+    let resetCredits: CodexResetCredits?
     let planType: String?
 
     enum CodingKeys: String, CodingKey {
         case primary, secondary, credits
+        case resetCredits = "rate_limit_reset_credits"
         case planType = "plan_type"
     }
 
@@ -328,6 +330,23 @@ struct CodexRateLimits: Codable, Sendable {
 
     var oneWeekWindow: CodexWindow? {
         selectNearestWindow(targetSeconds: 7 * 24 * 60 * 60)
+    }
+
+    func preservingResetCredits(from fallback: CodexRateLimits?) -> CodexRateLimits {
+        guard resetCredits == nil, let fallbackResetCredits = fallback?.resetCredits else {
+            return self
+        }
+        return replacingResetCredits(fallbackResetCredits)
+    }
+
+    func replacingResetCredits(_ resetCredits: CodexResetCredits?) -> CodexRateLimits {
+        return CodexRateLimits(
+            primary: primary,
+            secondary: secondary,
+            credits: credits,
+            resetCredits: resetCredits,
+            planType: planType
+        )
     }
 
     private func selectNearestWindow(targetSeconds: Int) -> CodexWindow? {
@@ -412,6 +431,71 @@ struct CodexCredits: Codable, Sendable {
     enum CodingKeys: String, CodingKey {
         case hasCredits = "has_credits"
         case unlimited, balance
+    }
+}
+
+struct CodexResetCredits: Codable, Sendable {
+    let availableCount: Int?
+    let credits: [CodexResetCredit]?
+
+    enum CodingKeys: String, CodingKey {
+        case availableCount = "available_count"
+        case credits
+    }
+}
+
+struct CodexResetCredit: Codable, Sendable, Identifiable {
+    private let rawID: String?
+    let status: String?
+    let title: String?
+    let grantedAt: Date?
+    let expiresAt: Date?
+
+    enum CodingKeys: String, CodingKey {
+        case rawID = "id"
+        case status, title
+        case grantedAt = "granted_at"
+        case expiresAt = "expires_at"
+    }
+
+    var id: String {
+        rawID ?? [status, title, grantedAt?.timeIntervalSince1970.description, expiresAt?.timeIntervalSince1970.description]
+            .compactMap { $0 }
+            .joined(separator: ":")
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        rawID = try container.decodeIfPresent(String.self, forKey: .rawID)
+        status = try container.decodeIfPresent(String.self, forKey: .status)
+        title = try container.decodeIfPresent(String.self, forKey: .title)
+        grantedAt = Self.decodeDate(from: container, forKey: .grantedAt)
+        expiresAt = Self.decodeDate(from: container, forKey: .expiresAt)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(rawID, forKey: .rawID)
+        try container.encodeIfPresent(status, forKey: .status)
+        try container.encodeIfPresent(title, forKey: .title)
+        try container.encodeIfPresent(grantedAt, forKey: .grantedAt)
+        try container.encodeIfPresent(expiresAt, forKey: .expiresAt)
+    }
+
+    private static func decodeDate(from container: KeyedDecodingContainer<CodingKeys>, forKey key: CodingKeys) -> Date? {
+        if let date = try? container.decodeIfPresent(Date.self, forKey: key) {
+            return date
+        }
+        guard let raw = try? container.decodeIfPresent(String.self, forKey: key) else {
+            return nil
+        }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: raw) {
+            return date
+        }
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: raw)
     }
 }
 

@@ -394,6 +394,10 @@ struct CodexDetailCard: View {
                     CodexDetailRow(label: "5h Session", window: limits.fiveHourWindow)
                     Divider().opacity(0.5)
                     CodexDetailRow(label: "7d Weekly", window: limits.oneWeekWindow)
+                    if let resetCredits = limits.resetCredits {
+                        Divider().opacity(0.5)
+                        CodexResetCreditsDetailRow(resetCredits: resetCredits)
+                    }
                 }
             } else if let q = fallbackQuota, let r = q.remaining, let t = q.total, t > 0 {
                 let frac = Double(r) / Double(t)
@@ -467,6 +471,10 @@ struct CodexAccountDetailRow: View {
                 CodexDetailRow(label: "5h Session", window: limits.fiveHourWindow)
                 Divider().opacity(0.5)
                 CodexDetailRow(label: "7d Weekly", window: limits.oneWeekWindow)
+                if let resetCredits = limits.resetCredits {
+                    Divider().opacity(0.5)
+                    CodexResetCreditsDetailRow(resetCredits: resetCredits)
+                }
             } else if let error = account.usageError {
                 Text(error).foregroundStyle(.secondary)
             } else {
@@ -510,6 +518,49 @@ struct CodexDetailRow: View {
             primaryValue: isStale ? "—" : rem.map { "\($0)%" },
             secondaryValue: isStale ? "数据已过期" : used.map { "\($0)% used" },
             countdown: footer
+        )
+    }
+}
+
+struct CodexResetCreditsDetailRow: View {
+    let resetCredits: CodexResetCredits
+
+    private var availableCredits: [CodexResetCredit] {
+        (resetCredits.credits ?? [])
+            .filter { ($0.status ?? "").caseInsensitiveCompare("available") == .orderedSame }
+            .sorted { lhs, rhs in
+            switch (lhs.expiresAt, rhs.expiresAt) {
+            case let (left?, right?): return left < right
+            case (.some, .none): return true
+            case (.none, .some): return false
+            case (.none, .none): return (lhs.title ?? "") < (rhs.title ?? "")
+            }
+        }
+    }
+
+    private var availableCount: Int {
+        resetCredits.availableCount ?? availableCredits.count
+    }
+
+    private var detailText: String {
+        let values = availableCredits.compactMap { credit in
+            credit.expiresAt.map {
+                $0.formatted(.dateTime.month(.twoDigits).day(.twoDigits).hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
+            }
+        }
+        guard !values.isEmpty else {
+            return "服务端未返回明细"
+        }
+        return "分别过期于 " + values.joined(separator: "、")
+    }
+
+    var body: some View {
+        UnifiedQuotaRow(
+            title: "可用重置券",
+            fraction: nil,
+            primaryValue: "\(availableCount)",
+            secondaryValue: detailText,
+            countdown: nil
         )
     }
 }
