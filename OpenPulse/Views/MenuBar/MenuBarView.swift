@@ -430,6 +430,45 @@ private func menuBarShortResetString(for date: Date) -> String {
     return date.formatted(.dateTime.month(.defaultDigits).day(.defaultDigits).hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
 }
 
+private struct CodexMenuBarWindowDisplayState {
+    let fraction: Double?
+    let primaryValue: String
+    let countdown: String?
+    let footer: String?
+}
+
+private func codexMenuBarDisplayState(for window: CodexWindow?, isFiveHour: Bool) -> CodexMenuBarWindowDisplayState {
+    guard let window else {
+        return CodexMenuBarWindowDisplayState(
+            fraction: nil,
+            primaryValue: "—",
+            countdown: nil,
+            footer: nil
+        )
+    }
+
+    let countdown = window.resetDate.map {
+        isFiveHour ? menuBarTimeOnlyResetString(for: $0) : menuBarShortResetString(for: $0)
+    }
+
+    if let resetDate = window.resetDate, resetDate < Date() {
+        return CodexMenuBarWindowDisplayState(
+            fraction: 1,
+            primaryValue: "100%",
+            countdown: countdown,
+            footer: "已重置"
+        )
+    }
+
+    let fraction = window.usedPercent.map { max(0, min(1, (100 - $0) / 100)) }
+    return CodexMenuBarWindowDisplayState(
+        fraction: fraction,
+        primaryValue: fraction.map { "\(Int(($0 * 100).rounded()))%" } ?? "—",
+        countdown: countdown,
+        footer: nil
+    )
+}
+
 // MARK: - Claude Code
 
 struct ClaudeQuotaCard: View {
@@ -556,15 +595,13 @@ struct CodexQuotaCard: View {
 
     @ViewBuilder
     private func codexPanel(label: String, isFiveHour: Bool, window: CodexWindow?) -> some View {
-        let isStale = window?.resetDate.map { $0 < Date() } ?? false
-        let fraction = isStale ? nil : window?.usedPercent.map { max(0, min(1, (100 - $0) / 100)) }
-        let primary = isStale ? "—" : fraction.map { "\(Int(($0 * 100).rounded()))%" } ?? "—"
+        let state = codexMenuBarDisplayState(for: window, isFiveHour: isFiveHour)
         MenuBarQuotaPanel(
             title: label,
-            fraction: fraction,
-            primaryValue: primary,
-            countdown: isStale ? "数据已过期" : window?.resetDate.map { isFiveHour ? menuBarTimeOnlyResetString(for: $0) : menuBarShortResetString(for: $0) },
-            footer: nil
+            fraction: state.fraction,
+            primaryValue: state.primaryValue,
+            countdown: state.countdown,
+            footer: state.footer
         )
     }
 }
@@ -638,15 +675,13 @@ struct CodexAccountQuotaCard: View {
 
     @ViewBuilder
     private func accountPanel(label: String, isFiveHour: Bool, window: CodexWindow?) -> some View {
-        let isStale = window?.resetDate.map { $0 < Date() } ?? false
-        let fraction = isStale ? nil : window?.usedPercent.map { max(0, min(1, (100 - $0) / 100)) }
-        let primary = isStale ? "—" : fraction.map { "\(Int(($0 * 100).rounded()))%" } ?? "—"
+        let state = codexMenuBarDisplayState(for: window, isFiveHour: isFiveHour)
         MenuBarQuotaPanel(
             title: label,
-            fraction: fraction,
-            primaryValue: primary,
-            countdown: isStale ? "数据已过期" : window?.resetDate.map { isFiveHour ? menuBarTimeOnlyResetString(for: $0) : menuBarShortResetString(for: $0) },
-            footer: nil
+            fraction: state.fraction,
+            primaryValue: state.primaryValue,
+            countdown: state.countdown,
+            footer: state.footer
         )
     }
 }
@@ -691,9 +726,12 @@ private struct CodexResetCreditsLine: View {
                 .font(.system(size: 10, weight: .bold, design: .monospaced))
                 .foregroundStyle(.primary)
             if let expiryText {
-                Text("过期 \(expiryText)")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.tertiary)
+                Text("过期")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.secondary)
+                Text(expiryText)
+                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(Color.primary.opacity(0.78))
                     .lineLimit(1)
                     .truncationMode(.middle)
             }

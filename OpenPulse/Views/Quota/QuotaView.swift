@@ -496,14 +496,15 @@ struct CodexDetailRow: View {
     }
 
     private var frac: Double? {
-        guard !isStale, let u = window?.usedPercent else { return nil }
+        if isStale { return 1 }
+        guard let u = window?.usedPercent else { return nil }
         return max(0, min(1, (100 - u) / 100))
     }
 
     var body: some View {
         let isLong = (window?.windowMinutes ?? 0) > 1440
         let used = window?.usedPercent.map { Int($0.rounded()) }
-        let rem = used.map { max(0, 100 - $0) }
+        let rem = isStale ? 100 : used.map { max(0, 100 - $0) }
         let footer: String? = isStale
             ? "已重置"
             : window?.resetDate.map {
@@ -515,8 +516,8 @@ struct CodexDetailRow: View {
         UnifiedQuotaRow(
             title: label,
             fraction: frac,
-            primaryValue: isStale ? "—" : rem.map { "\($0)%" },
-            secondaryValue: isStale ? "数据已过期" : used.map { "\($0)% used" },
+            primaryValue: rem.map { "\($0)%" },
+            secondaryValue: isStale ? "0% used" : used.map { "\($0)% used" },
             countdown: footer
         )
     }
