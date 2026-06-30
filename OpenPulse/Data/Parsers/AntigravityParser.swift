@@ -152,7 +152,11 @@ actor AntigravityParser {
             let fallbackCatalog = try await fetchModelCatalog(token: token, projectId: nil)
             catalog = mergeModelCatalogs(primary: catalog, secondary: fallbackCatalog)
         }
-        let quotaBuckets = try await fetchQuotaBuckets(token: token, projectId: projectId)
+        var quotaBuckets = try await fetchQuotaBuckets(token: token, projectId: projectId)
+        if projectId != nil {
+            let fallbackBuckets = try await fetchQuotaBuckets(token: token, projectId: nil)
+            quotaBuckets = mergeQuotaBuckets(primary: quotaBuckets, secondary: fallbackBuckets)
+        }
         let models = mergeQuotaBuckets(quotaBuckets, with: catalog)
 
         return AGAccountQuota(email: email, models: models)
@@ -327,6 +331,25 @@ actor AntigravityParser {
         }
 
         return AGModelCatalog(orderedIDs: orderedIDs, displayNamesByID: displayNamesByID)
+    }
+
+    private func mergeQuotaBuckets(primary: [AGQuotaBucket], secondary: [AGQuotaBucket]) -> [AGQuotaBucket] {
+        var orderedModelIDs: [String] = []
+        var bestByModelID: [String: AGQuotaBucket] = [:]
+
+        for bucket in primary + secondary {
+            if bestByModelID[bucket.modelID] == nil {
+                orderedModelIDs.append(bucket.modelID)
+                bestByModelID[bucket.modelID] = bucket
+                continue
+            }
+
+            if let existing = bestByModelID[bucket.modelID], bucket.isPreferred(over: existing) {
+                bestByModelID[bucket.modelID] = bucket
+            }
+        }
+
+        return orderedModelIDs.compactMap { bestByModelID[$0] }
     }
 
     private func mergeQuotaBuckets(_ buckets: [AGQuotaBucket], with catalog: AGModelCatalog) -> [AGModelQuota] {
@@ -618,6 +641,37 @@ private struct AGQuotaBucket: Decodable {
 
     var clampedRemainingFraction: Double? {
         remainingFraction.map { min(1.0, max(0.0, $0)) }
+    }
+
+    private var qualityScore: Int {
+        var score = 0
+        if clampedRemainingFraction != nil { score += 2 }
+        if let resetTime, parseISO8601Flexible(resetTime) != nil { score += 1 }
+        return score
+    }
+
+    func isPreferred(over other: AGQuotaBucket) -> Bool {
+        if qualityScore != other.qualityScore { return qualityScore > other.qualityScore }
+
+        switch (clampedRemainingFraction, other.clampedRemainingFraction) {
+        case let (left?, right?) where left != right:
+            return left > right
+        case (.some, .none):
+            return true
+        case (.none, .some):
+            return false
+        default:
+            break
+        }
+
+        switch (parseISO8601Flexible(resetTime ?? ""), parseISO8601Flexible(other.resetTime ?? "")) {
+        case let (left?, right?) where left != right:
+            return left > right
+        case (.some, .none):
+            return true
+        default:
+            return false
+        }
     }
 }
 
