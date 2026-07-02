@@ -265,6 +265,31 @@ actor CodexAccountService {
         return await listAccounts()
     }
 
+    func refreshCurrentUsage(force: Bool = true) async -> [CodexAccountSnapshot] {
+        let now = Date()
+        var store = reconcileCurrentAuthIntoStore()
+        guard let activeAccountID = currentAccountID(from: store),
+              let account = store.accounts.first(where: { $0.accountID == activeAccountID }) else {
+            saveStore(store)
+            return await listAccounts()
+        }
+
+        let refreshed = await Self.refreshAccount(
+            account,
+            now: now,
+            forceRefresh: force,
+            session: session,
+            usageURLs: resolveUsageURLs()
+        )
+
+        if let index = store.accounts.firstIndex(where: { $0.accountID == activeAccountID }) {
+            store.accounts[index] = refreshed
+        }
+        store.currentAccountID = currentAccountID(from: store)
+        saveStore(store)
+        return await listAccounts()
+    }
+
     func currentAccountHasResetCreditDetails() async -> Bool {
         let store = reconcileCurrentAuthIntoStore()
         guard let currentAccountID = currentAccountID(from: store),

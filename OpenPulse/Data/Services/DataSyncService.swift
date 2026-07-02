@@ -333,6 +333,7 @@ final class DataSyncService {
            let snapshot = rateLimitSnapshot,
            shouldPreferLocalCodexLimits(snapshot, accountCount: knownCount)
         {
+            _ = await codexAccountService.refreshCurrentUsage(force: true)
             _ = await codexAccountService.applyLocalRateLimitsToCurrentAccount(snapshot.limits)
             accounts = await codexAccountService.refreshStaleUsage(excludingCurrentAccount: true)
         } else {

@@ -914,6 +914,7 @@ private struct CodexProviderMenuButton: View {
         }
         .buttonStyle(.plain)
         .controlSize(.mini)
+        .focusEffectDisabled()
         .task {
             if providerState == nil {
                 await reloadState()
