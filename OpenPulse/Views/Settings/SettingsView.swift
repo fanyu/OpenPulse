@@ -22,6 +22,7 @@ struct SettingsView: View {
     @AppStorage("menubar.hiddenTools")      private var hiddenToolsRaw = ""
     @AppStorage("menubar.titleQuotaTools")  private var titleQuotaToolsRaw = ""
     @AppStorage("menubar.antigravityDisplayMode") private var antigravityDisplayMode = "accounts"
+    @AppStorage("menubar.displayStyle") private var displayStyle = "compact"
 
     // MARK: - Hotkey
     @AppStorage("menubar.hotkey.keyCode")    private var hotkeyKeyCode    = 0
@@ -166,6 +167,22 @@ struct SettingsView: View {
                 // 菜单栏设置
                 SettingsCard(title: "菜单栏显示", icon: "menubar.rectangle") {
                     VStack(alignment: .leading, spacing: 16) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("状态栏样式")
+                                .font(.subheadline.weight(.medium))
+                            Text("精简模式直接显示工具图标和周余量；经典模式显示应用图标和 5H/7D 额度摘要。")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Picker("状态栏样式", selection: $displayStyle) {
+                                Text("精简模式").tag("compact")
+                                Text("经典模式").tag("classic")
+                            }
+                            .pickerStyle(.segmented)
+                            .labelsHidden()
+                        }
+
+                        Divider()
+
                         VStack(alignment: .leading, spacing: 8) {
                             Text("菜单栏标题额度")
                                 .font(.subheadline.weight(.medium))

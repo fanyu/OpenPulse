@@ -45,6 +45,16 @@ enum Tool: String, Codable, CaseIterable, Sendable {
         }
     }
 
+    /// Menu bar icon asset name (small template image for status bar)
+    var menuBarIconName: String {
+        switch self {
+        case .claudeCode: "claude-menubar"
+        case .codex: "codex-menubar"
+        case .copilot: "CopilotLogo"
+        case .antigravity: "AntigravityLogo"
+        }
+    }
+
     /// true = only quota is supported, no local session files
     var isQuotaOnly: Bool {
         false

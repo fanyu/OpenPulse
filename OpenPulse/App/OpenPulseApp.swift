@@ -210,14 +210,64 @@ private struct StatusBarRenderedImage {
 
 @MainActor
 private final class StatusBarImageRenderer {
-    private let iconSize = NSSize(width: 17, height: 17)
+    private let iconSize = NSSize(width: 14, height: 14)
+    private let itemSpacing: CGFloat = 10
+    private let iconTextSpacing: CGFloat = 2
     private let horizontalPadding: CGFloat = 7
-    private let spacing: CGFloat = 6
+    private let textFont = NSFont.monospacedSystemFont(ofSize: 11, weight: .medium)
     private let topFont = NSFont.monospacedSystemFont(ofSize: 9, weight: .bold)
     private let bottomFont = NSFont.monospacedSystemFont(ofSize: 9, weight: .bold)
 
     func render(snapshot: StatusBarSnapshot) -> StatusBarRenderedImage {
-        let lines = Array(snapshot.lines.prefix(2))
+        switch snapshot {
+        case .compact(items: let items):
+            return renderCompact(items: items)
+        case .classic(lines: let lines):
+            return renderClassic(lines: lines)
+        }
+    }
+
+    private func renderCompact(items: [StatusBarCompactItem]) -> StatusBarRenderedImage {
+        var totalWidth = horizontalPadding * 2
+        for (index, item) in items.enumerated() {
+            if index > 0 { totalWidth += itemSpacing }
+            totalWidth += iconSize.width + iconTextSpacing
+            let text = item.weeklyPercent as NSString
+            totalWidth += ceil(text.size(withAttributes: textAttributes).width)
+        }
+
+        let height = NSStatusBar.system.thickness
+        let image = NSImage(size: NSSize(width: max(28, totalWidth), height: height))
+        image.lockFocus()
+        defer { image.unlockFocus() }
+
+        let rect = NSRect(origin: .zero, size: image.size)
+        NSColor.clear.set()
+        rect.fill()
+
+        var x = horizontalPadding
+        for item in items {
+            if let icon = NSImage(named: item.logoImageName) {
+                let iconRect = NSRect(
+                    origin: NSPoint(x: x, y: floor((height - iconSize.height) / 2)),
+                    size: iconSize
+                )
+                icon.draw(in: iconRect, from: .zero, operation: .sourceOver, fraction: 1)
+            }
+            x += iconSize.width + iconTextSpacing
+
+            let text = item.weeklyPercent as NSString
+            let textSize = text.size(withAttributes: textAttributes)
+            let textY = floor((height - textSize.height) / 2)
+            text.draw(at: NSPoint(x: x, y: textY), withAttributes: textAttributes)
+            x += ceil(textSize.width) + itemSpacing
+        }
+
+        image.isTemplate = true
+        return StatusBarRenderedImage(image: image, size: NSSize(width: totalWidth, height: height))
+    }
+
+    private func renderClassic(lines: [String]) -> StatusBarRenderedImage {
         let topText = lines[safe: 0] ?? ""
         let bottomText = lines[safe: 1] ?? ""
         let hasText = !topText.isEmpty || !bottomText.isEmpty
@@ -228,7 +278,9 @@ private final class StatusBarImageRenderer {
         let bottomSize = (bottomText as NSString).size(withAttributes: bottomAttributes)
         let textWidth = ceil(max(topSize.width, bottomSize.width))
 
-        let width = max(28, horizontalPadding + iconSize.width + (hasText ? spacing + textWidth : 0) + horizontalPadding)
+        let appIconSize = NSSize(width: 17, height: 17)
+        let spacing: CGFloat = 6
+        let width = max(28, horizontalPadding + appIconSize.width + (hasText ? spacing + textWidth : 0) + horizontalPadding)
         let height = NSStatusBar.system.thickness
         let image = NSImage(size: NSSize(width: width, height: height))
         image.lockFocus()
@@ -238,14 +290,14 @@ private final class StatusBarImageRenderer {
         NSColor.clear.set()
         rect.fill()
 
-        let iconOrigin = NSPoint(x: horizontalPadding, y: floor((rect.height - iconSize.height) / 2))
+        let iconOrigin = NSPoint(x: horizontalPadding, y: floor((rect.height - appIconSize.height) / 2))
         if let icon = NSImage(named: "MenuBarIcon") {
-            let iconRect = NSRect(origin: iconOrigin, size: iconSize)
+            let iconRect = NSRect(origin: iconOrigin, size: appIconSize)
             icon.draw(in: iconRect, from: .zero, operation: .sourceOver, fraction: 1)
         }
 
         if hasText {
-            let textX = horizontalPadding + iconSize.width + spacing
+            let textX = horizontalPadding + appIconSize.width + spacing
             let topY = floor(rect.midY + 1.5)
             let bottomY = floor(rect.midY - bottomSize.height - 1.5)
             (topText as NSString).draw(at: NSPoint(x: textX, y: topY), withAttributes: topAttributes)
@@ -255,13 +307,31 @@ private final class StatusBarImageRenderer {
         image.isTemplate = true
         return StatusBarRenderedImage(image: image, size: NSSize(width: width, height: height))
     }
+
+    private var textAttributes: [NSAttributedString.Key: Any] {
+        [.font: textFont, .foregroundColor: NSColor.black]
+    }
 }
 
 @MainActor
-private struct StatusBarSnapshot: Equatable {
-    let lines: [String]
+private enum StatusBarSnapshot: Equatable {
+    case compact(items: [StatusBarCompactItem])
+    case classic(lines: [String])
 
     static func build(appStore: AppStore) -> StatusBarSnapshot {
+        let style = UserDefaults.standard.string(forKey: "menubar.displayStyle") ?? "compact"
+
+        if style == "compact" {
+            let orderRaw = UserDefaults.standard.string(forKey: "menubar.toolOrder") ?? Tool.defaultOrderRaw
+            let orderedTools = orderRaw.components(separatedBy: ",").compactMap { Tool(rawValue: $0) }
+            let tools = (orderedTools + Tool.allCases.filter { !orderedTools.contains($0) })
+                .filter(\.supportsMenuBarFiveHourDisplay)
+
+            let items = tools.map { StatusBarCompactItem.build(tool: $0, appStore: appStore) }
+            return .compact(items: items)
+        }
+
+        // classic
         let selected = Set(
             (UserDefaults.standard.string(forKey: "menubar.titleQuotaTools") ?? "")
                 .components(separatedBy: ",")
@@ -272,9 +342,7 @@ private struct StatusBarSnapshot: Equatable {
         let tools = (orderedTools + Tool.allCases.filter { !orderedTools.contains($0) })
             .filter { selected.contains($0.rawValue) && $0.supportsMenuBarFiveHourDisplay }
 
-        let items = tools.map { tool in
-            StatusBarQuotaItem.build(tool: tool, appStore: appStore)
-        }
+        let items = tools.map { StatusBarClassicItem.build(tool: $0, appStore: appStore) }
 
         let lines: [String]
         if let item = items.first, items.count == 1 {
@@ -282,30 +350,56 @@ private struct StatusBarSnapshot: Equatable {
         } else {
             lines = items.map { "\($0.shortLabel) \($0.fiveHourText) \($0.sevenDayText)" }
         }
-        return StatusBarSnapshot(lines: lines)
+        return .classic(lines: lines)
     }
 }
 
 @MainActor
-private struct StatusBarQuotaItem: Equatable {
+private struct StatusBarCompactItem: Equatable {
+    let logoImageName: String
+    let weeklyPercent: String
+
+    static func build(tool: Tool, appStore: AppStore) -> StatusBarCompactItem {
+        switch tool {
+        case .codex:
+            let account = appStore.syncService?.latestCodexAccounts.first(where: \.isCurrent)
+                ?? appStore.syncService?.latestCodexAccounts.first
+            let sevenDay = account?.limits?.oneWeekWindow?.usedPercent.map { max(0, 100 - Int($0.rounded())) }
+            return StatusBarCompactItem(logoImageName: tool.menuBarIconName, weeklyPercent: format(sevenDay))
+        case .claudeCode:
+            let sevenDay = appStore.syncService?.latestClaudeUsage?.sevenDay?.utilization.map { max(0, 100 - Int($0.rounded())) }
+            return StatusBarCompactItem(logoImageName: tool.menuBarIconName, weeklyPercent: format(sevenDay))
+        case .copilot, .antigravity:
+            return StatusBarCompactItem(logoImageName: tool.menuBarIconName, weeklyPercent: " --%")
+        }
+    }
+
+    private static func format(_ value: Int?) -> String {
+        guard let value else { return " --%" }
+        return String(format: "%3d%%", value)
+    }
+}
+
+@MainActor
+private struct StatusBarClassicItem: Equatable {
     let shortLabel: String
     let fiveHourText: String
     let sevenDayText: String
 
-    static func build(tool: Tool, appStore: AppStore) -> StatusBarQuotaItem {
+    static func build(tool: Tool, appStore: AppStore) -> StatusBarClassicItem {
         switch tool {
         case .codex:
             let account = appStore.syncService?.latestCodexAccounts.first(where: \.isCurrent)
                 ?? appStore.syncService?.latestCodexAccounts.first
             let fiveHour = account?.limits?.fiveHourWindow?.usedPercent.map { max(0, 100 - Int($0.rounded())) }
             let sevenDay = account?.limits?.oneWeekWindow?.usedPercent.map { max(0, 100 - Int($0.rounded())) }
-            return StatusBarQuotaItem(shortLabel: "CX", fiveHourText: format(fiveHour), sevenDayText: format(sevenDay))
+            return StatusBarClassicItem(shortLabel: "CX", fiveHourText: format(fiveHour), sevenDayText: format(sevenDay))
         case .claudeCode:
             let fiveHour = appStore.syncService?.latestClaudeUsage?.fiveHour?.utilization.map { max(0, 100 - Int($0.rounded())) }
             let sevenDay = appStore.syncService?.latestClaudeUsage?.sevenDay?.utilization.map { max(0, 100 - Int($0.rounded())) }
-            return StatusBarQuotaItem(shortLabel: "CC", fiveHourText: format(fiveHour), sevenDayText: format(sevenDay))
+            return StatusBarClassicItem(shortLabel: "CC", fiveHourText: format(fiveHour), sevenDayText: format(sevenDay))
         case .copilot, .antigravity:
-            return StatusBarQuotaItem(shortLabel: tool.displayName.prefix(1).uppercased(), fiveHourText: "--", sevenDayText: "--")
+            return StatusBarClassicItem(shortLabel: tool.displayName.prefix(1).uppercased(), fiveHourText: "--", sevenDayText: "--")
         }
     }
 
@@ -320,3 +414,4 @@ private extension Collection {
         indices.contains(index) ? self[index] : nil
     }
 }
+
