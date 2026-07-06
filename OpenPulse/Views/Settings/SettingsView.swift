@@ -170,7 +170,7 @@ struct SettingsView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("状态栏样式")
                                 .font(.subheadline.weight(.medium))
-                            Text("精简模式直接显示工具图标和周余量；经典模式显示应用图标和 5H/7D 额度摘要。")
+                            Text("精简模式直接显示工具图标和 5h 余量；经典模式显示应用图标和 5H/7D 额度摘要。")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                             Picker("状态栏样式", selection: $displayStyle) {

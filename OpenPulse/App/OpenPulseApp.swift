@@ -232,7 +232,7 @@ private final class StatusBarImageRenderer {
         for (index, item) in items.enumerated() {
             if index > 0 { totalWidth += itemSpacing }
             totalWidth += iconSize.width + iconTextSpacing
-            let text = item.weeklyPercent as NSString
+            let text = item.fiveHourPercent as NSString
             totalWidth += ceil(text.size(withAttributes: textAttributes).width)
         }
 
@@ -256,7 +256,7 @@ private final class StatusBarImageRenderer {
             }
             x += iconSize.width + iconTextSpacing
 
-            let text = item.weeklyPercent as NSString
+            let text = item.fiveHourPercent as NSString
             let textSize = text.size(withAttributes: textAttributes)
             let textY = floor((height - textSize.height) / 2)
             text.draw(at: NSPoint(x: x, y: textY), withAttributes: textAttributes)
@@ -357,20 +357,20 @@ private enum StatusBarSnapshot: Equatable {
 @MainActor
 private struct StatusBarCompactItem: Equatable {
     let logoImageName: String
-    let weeklyPercent: String
+    let fiveHourPercent: String
 
     static func build(tool: Tool, appStore: AppStore) -> StatusBarCompactItem {
         switch tool {
         case .codex:
             let account = appStore.syncService?.latestCodexAccounts.first(where: \.isCurrent)
                 ?? appStore.syncService?.latestCodexAccounts.first
-            let sevenDay = account?.limits?.oneWeekWindow?.usedPercent.map { max(0, 100 - Int($0.rounded())) }
-            return StatusBarCompactItem(logoImageName: tool.menuBarIconName, weeklyPercent: format(sevenDay))
+            let fiveHour = account?.limits?.fiveHourWindow?.usedPercent.map { max(0, 100 - Int($0.rounded())) }
+            return StatusBarCompactItem(logoImageName: tool.menuBarIconName, fiveHourPercent: format(fiveHour))
         case .claudeCode:
-            let sevenDay = appStore.syncService?.latestClaudeUsage?.sevenDay?.utilization.map { max(0, 100 - Int($0.rounded())) }
-            return StatusBarCompactItem(logoImageName: tool.menuBarIconName, weeklyPercent: format(sevenDay))
+            let fiveHour = appStore.syncService?.latestClaudeUsage?.fiveHour?.utilization.map { max(0, 100 - Int($0.rounded())) }
+            return StatusBarCompactItem(logoImageName: tool.menuBarIconName, fiveHourPercent: format(fiveHour))
         case .copilot, .antigravity:
-            return StatusBarCompactItem(logoImageName: tool.menuBarIconName, weeklyPercent: " --%")
+            return StatusBarCompactItem(logoImageName: tool.menuBarIconName, fiveHourPercent: " --%")
         }
     }
 
