@@ -344,7 +344,10 @@ actor AntigravityParser {
                 continue
             }
 
-            if let existing = bestByModelID[bucket.modelID], bucket.isPreferred(over: existing) {
+            // Keep the project-scoped bucket when it already has usable quota data.
+            // The fallback no-project response often reports `remainingFraction = 1`
+            // for every model, which would otherwise overwrite the real per-project quota.
+            if let existing = bestByModelID[bucket.modelID], bucket.improvesMissingFields(over: existing) {
                 bestByModelID[bucket.modelID] = bucket
             }
         }
@@ -643,35 +646,11 @@ private struct AGQuotaBucket: Decodable {
         remainingFraction.map { min(1.0, max(0.0, $0)) }
     }
 
-    private var qualityScore: Int {
-        var score = 0
-        if clampedRemainingFraction != nil { score += 2 }
-        if let resetTime, parseISO8601Flexible(resetTime) != nil { score += 1 }
-        return score
-    }
-
-    func isPreferred(over other: AGQuotaBucket) -> Bool {
-        if qualityScore != other.qualityScore { return qualityScore > other.qualityScore }
-
-        switch (clampedRemainingFraction, other.clampedRemainingFraction) {
-        case let (left?, right?) where left != right:
-            return left > right
-        case (.some, .none):
-            return true
-        case (.none, .some):
-            return false
-        default:
-            break
-        }
-
-        switch (parseISO8601Flexible(resetTime ?? ""), parseISO8601Flexible(other.resetTime ?? "")) {
-        case let (left?, right?) where left != right:
-            return left > right
-        case (.some, .none):
-            return true
-        default:
-            return false
-        }
+    func improvesMissingFields(over other: AGQuotaBucket) -> Bool {
+        let addsFraction = other.clampedRemainingFraction == nil && clampedRemainingFraction != nil
+        let addsReset = parseISO8601Flexible(other.resetTime ?? "") == nil
+            && parseISO8601Flexible(resetTime ?? "") != nil
+        return addsFraction || addsReset
     }
 }
 
