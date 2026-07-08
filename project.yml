@@ -88,6 +88,8 @@ targets:
       - path: OpenPulse/Models/Tool.swift
       - path: OpenPulseiPhone/App
       - path: OpenPulseiPhone/Data
+      - path: OpenPulseiPhone/Models
+      - path: OpenPulseiPhone/Views
     info:
       path: OpenPulseiPhone/Info.plist
       properties:

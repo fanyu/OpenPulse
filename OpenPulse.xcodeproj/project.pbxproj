@@ -9,6 +9,10 @@
 /* Begin PBXBuildFile section */
 		000AF411127AC50853A8733E /* SessionRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7086BEBA8F024D0188556DD4 /* SessionRecord.swift */; };
 		0A44D17A8CC53A181FEDC6E8 /* DeskPetPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D60FF5D45C3DDEB2606CDFD /* DeskPetPresentationTests.swift */; };
+		0D1A4A7C1E2F300100000001 /* DeskPetPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D1A4A7C1E2F300100000101 /* DeskPetPresentation.swift */; };
+		0D1A4A7C1E2F300100000002 /* DeskModeRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D1A4A7C1E2F300100000102 /* DeskModeRootView.swift */; };
+		0D1A4A7C1E2F300100000003 /* TwinCockpitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D1A4A7C1E2F300100000103 /* TwinCockpitView.swift */; };
+		0D1A4A7C1E2F300100000004 /* ToolCockpitPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D1A4A7C1E2F300100000104 /* ToolCockpitPanel.swift */; };
 		0FDD15454877FF1BB808BA5E /* TrendsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44D51BF89557135F70FF6F47 /* TrendsView.swift */; };
 		0FE6E17E5BBE5306AB2F1D04 /* DeskSnapshotRecordCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBBC6CEAD1FDBCFC5BFBEE38 /* DeskSnapshotRecordCodec.swift */; };
 		120AD94708EC0E85F8D859AE /* DailyStatsRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCCDA4DF0EC129A5D3945AA3 /* DailyStatsRecord.swift */; };
@@ -92,6 +96,10 @@
 
 /* Begin PBXFileReference section */
 		002E5778BE7AC8F60942BA31 /* SessionHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionHistoryView.swift; sourceTree = "<group>"; };
+		0D1A4A7C1E2F300100000101 /* DeskPetPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeskPetPresentation.swift; sourceTree = "<group>"; };
+		0D1A4A7C1E2F300100000102 /* DeskModeRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeskModeRootView.swift; sourceTree = "<group>"; };
+		0D1A4A7C1E2F300100000103 /* TwinCockpitView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TwinCockpitView.swift; sourceTree = "<group>"; };
+		0D1A4A7C1E2F300100000104 /* ToolCockpitPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolCockpitPanel.swift; sourceTree = "<group>"; };
 		1495475A35ED9D5528C01B35 /* ClaudeCodeParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeCodeParser.swift; sourceTree = "<group>"; };
 		1697B77668B01C0DED7FD802 /* OpenPulseiPhoneTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = OpenPulseiPhoneTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		17E651D1FDFFE5962CFE6F74 /* DeskSnapshotStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeskSnapshotStatus.swift; sourceTree = "<group>"; };
@@ -178,6 +186,24 @@
 				17E651D1FDFFE5962CFE6F74 /* DeskSnapshotStatus.swift */,
 			);
 			path = DeskSnapshot;
+			sourceTree = "<group>";
+		};
+		0D1A4A7C1E2F300100000201 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				0D1A4A7C1E2F300100000101 /* DeskPetPresentation.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		0D1A4A7C1E2F300100000202 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				0D1A4A7C1E2F300100000102 /* DeskModeRootView.swift */,
+				0D1A4A7C1E2F300100000103 /* TwinCockpitView.swift */,
+				0D1A4A7C1E2F300100000104 /* ToolCockpitPanel.swift */,
+			);
+			path = Views;
 			sourceTree = "<group>";
 		};
 		061AD5EB3E63EE118CA82061 /* Providers */ = {
@@ -413,6 +439,8 @@
 			children = (
 				241B7A1242B003AAF7B23C2A /* App */,
 				AEC0A3A2CAF9B0171FB49680 /* Data */,
+				0D1A4A7C1E2F300100000201 /* Models */,
+				0D1A4A7C1E2F300100000202 /* Views */,
 			);
 			path = OpenPulseiPhone;
 			sourceTree = "<group>";
@@ -683,6 +711,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0D1A4A7C1E2F300100000001 /* DeskPetPresentation.swift in Sources */,
+				0D1A4A7C1E2F300100000002 /* DeskModeRootView.swift in Sources */,
 				F9CED1BCE8F2D85F21019532 /* DeskModeAppStore.swift in Sources */,
 				563CD8915C320F49A4EC6453 /* DeskSnapshot.swift in Sources */,
 				F184CC454DB542C6C3ABB2EA /* DeskSnapshotBuilder.swift in Sources */,
@@ -690,6 +720,8 @@
 				0FE6E17E5BBE5306AB2F1D04 /* DeskSnapshotRecordCodec.swift in Sources */,
 				66BEC6D1E8C8A0B536C20116 /* DeskSnapshotStatus.swift in Sources */,
 				9EE166A477B452E864116449 /* OpenPulseiPhoneApp.swift in Sources */,
+				0D1A4A7C1E2F300100000004 /* ToolCockpitPanel.swift in Sources */,
+				0D1A4A7C1E2F300100000003 /* TwinCockpitView.swift in Sources */,
 				8E0141CA966C633B87D21889 /* Tool.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
