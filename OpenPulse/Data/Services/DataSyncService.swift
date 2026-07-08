@@ -120,6 +120,7 @@ final class DataSyncService {
     private var fsEventStream: FSEventStream?
     private var fsDebounceTask: Task<Void, Never>?
     private var pendingFSPaths: Set<String> = []
+    @ObservationIgnored private var isRefreshAllInFlight = false
 
     // Tracks the last sync cutoff date used per-tool for incremental parsing
     private var lastParsedAt: [Tool: Date] = [:]
@@ -128,7 +129,8 @@ final class DataSyncService {
     private var codexBackfillDone = false
 
     // Dot-text push debounce
-    private var dotTextPushTask: Task<Void, Never>?
+    @ObservationIgnored private var dotTextPushTask: Task<Void, Never>?
+    @ObservationIgnored private var deskSnapshotPublishDebouncer: DeskSnapshotPublishDebouncer?
 
     // MARK: - Init / lifecycle
 
@@ -143,6 +145,11 @@ final class DataSyncService {
         let ctx = ModelContext(modelContainer)
         ctx.autosaveEnabled = false
         self.readContext = ctx
+        if deskSnapshotPublisher != nil {
+            self.deskSnapshotPublishDebouncer = DeskSnapshotPublishDebouncer(delay: .milliseconds(500)) { [weak self] in
+                await self?.publishDeskSnapshotIfNeeded()
+            }
+        }
     }
 
     func start() {
@@ -161,17 +168,23 @@ final class DataSyncService {
         fsEventStream = nil
         fsDebounceTask?.cancel()
         dotTextPushTask?.cancel()
+        Task { await deskSnapshotPublishDebouncer?.cancel() }
     }
 
     // MARK: - Public refresh API
 
     /// Refresh all tools concurrently. This is the primary entry point.
     func refreshAll() async {
+        isRefreshAllInFlight = true
+        defer {
+            isRefreshAllInFlight = false
+        }
         await withTaskGroup(of: Void.self) { group in
             for tool in Tool.allCases {
                 group.addTask { await self.refreshTool(tool) }
             }
         }
+        await scheduleDeskSnapshotPublishIfNeeded()
         scheduleDotTextPush(force: true)
         checkQuotaNotifications()
     }
@@ -186,8 +199,8 @@ final class DataSyncService {
             states[tool].recordSuccess()
             failureGates[tool]?.recordSuccess()
             lastParsedAt[tool] = Date()
-            if tool == .codex || tool == .claudeCode {
-                await publishDeskSnapshotIfNeeded()
+            if !isRefreshAllInFlight {
+                await scheduleDeskSnapshotPublishIfNeeded(for: tool)
             }
         } catch {
             let hasPriorData = hasStoredData(for: tool)
@@ -460,6 +473,10 @@ final class DataSyncService {
         // Quick FSEvents-driven Codex quota update (local rate-limit JSONL only)
         if paths.contains(where: { $0.contains("/.codex/") }) {
             await refreshCodexLocalQuotaFromFile()
+        }
+
+        if bridgeTriggered || affectedTools.contains(.codex) || affectedTools.contains(.claudeCode) {
+            await scheduleDeskSnapshotPublishIfNeeded()
         }
 
         scheduleDotTextPush(force: false)
@@ -885,6 +902,13 @@ final class DataSyncService {
             return
         }
         await deskSnapshotPublisher.publishIfNeeded(snapshot: snapshot)
+    }
+
+    private func scheduleDeskSnapshotPublishIfNeeded(for tool: Tool? = nil) async {
+        if let tool, tool != .codex && tool != .claudeCode {
+            return
+        }
+        await deskSnapshotPublishDebouncer?.schedule()
     }
 
     // MARK: - Quota notifications

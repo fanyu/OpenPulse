@@ -48,7 +48,7 @@ targets:
       path: OpenPulse/OpenPulse.entitlements
       properties:
         com.apple.developer.icloud-container-identifiers:
-          - iCloud.com.fanyu.openpulse.shared
+          - iCloud.com.fanyu.openpulse
         com.apple.developer.icloud-services:
           - CloudKit
         keychain-access-groups:
@@ -101,7 +101,7 @@ targets:
       path: OpenPulseiPhone/OpenPulseiPhone.entitlements
       properties:
         com.apple.developer.icloud-container-identifiers:
-          - iCloud.com.fanyu.openpulse.shared
+          - iCloud.com.fanyu.openpulse
         com.apple.developer.icloud-services:
           - CloudKit
     settings:

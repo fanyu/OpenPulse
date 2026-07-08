@@ -4,7 +4,7 @@ import Foundation
 import Security
 
 actor DeskSnapshotPublisher {
-    private static let sharedContainerIdentifier = "iCloud.com.fanyu.openpulse.shared"
+    private static let sharedContainerIdentifier = "iCloud.com.fanyu.openpulse"
 
     private let saveRecord: (@Sendable (CKRecord) async throws -> Void)?
     private let publishStore: DeskSnapshotPublishStore
@@ -128,5 +128,33 @@ actor DeskSnapshotPublisher {
         }
         guard let identifiers = value as? [String] else { return false }
         return identifiers.contains(sharedContainerIdentifier)
+    }
+}
+
+actor DeskSnapshotPublishDebouncer {
+    private let delay: Duration
+    private let operation: @Sendable () async -> Void
+    private var pendingTask: Task<Void, Never>?
+
+    init(
+        delay: Duration,
+        operation: @escaping @Sendable () async -> Void
+    ) {
+        self.delay = delay
+        self.operation = operation
+    }
+
+    func schedule() {
+        pendingTask?.cancel()
+        pendingTask = Task {
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled else { return }
+            await operation()
+        }
+    }
+
+    func cancel() {
+        pendingTask?.cancel()
+        pendingTask = nil
     }
 }

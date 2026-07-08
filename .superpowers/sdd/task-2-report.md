@@ -71,3 +71,34 @@ Runtime fix-pass verification:
 
 Runtime fix-pass concern:
 - The repo now preserves the shared CloudKit container and allows a signed Debug app to use the real publisher path, but exact local test/build verification still requires an Apple account plus a provisioning profile for `com.fanyu.openpulse` that includes CloudKit and the shared container `iCloud.com.fanyu.openpulse.shared`.
+
+---
+
+Shared-container + debounce fix pass:
+- Replaced the custom container identifier `iCloud.com.fanyu.openpulse.shared` with the app-family shared container `iCloud.com.fanyu.openpulse` in `project.yml`, `OpenPulse/OpenPulse.entitlements`, `OpenPulseiPhone/OpenPulseiPhone.entitlements`, and the macOS publisher runtime check.
+- Added a minimal `DeskSnapshotPublishDebouncer` and moved desk snapshot triggering in `DataSyncService` to a debounced scheduler so concurrent `refreshAll()` tool refreshes collapse into one publish after the batch settles instead of publishing partial codex/claude generations independently.
+- Kept single-tool and local-file refreshes eligible for publish by routing them through the same debounced scheduler, while skipping non-Codex/Claude refreshes.
+- Added `publishDebouncerCollapsesBurstSchedules()` to prove burst schedules collapse to one publish, and verified the existing failed-publish retry regression still passes.
+
+Shared-container + debounce verification:
+1. Red step:
+   - Ran `xcodebuild test -project OpenPulse.xcodeproj -scheme OpenPulseTests -destination 'platform=macOS' -only-testing:OpenPulseTests/DeskSnapshotBuilderTests/publishDebouncerCollapsesBurstSchedules CODE_SIGNING_ALLOWED=NO`
+   - Result: failed as expected with `Cannot find 'DeskSnapshotPublishDebouncer' in scope`.
+2. Green local verification:
+   - Ran `xcodebuild test -project OpenPulse.xcodeproj -scheme OpenPulseTests -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO`
+   - Result: `TEST SUCCEEDED` with 9 tests passed, including `publishDebouncerCollapsesBurstSchedules()` and `failedPublishDoesNotThrottleRetry()`.
+   - Ran `xcodebuild -project OpenPulse.xcodeproj -scheme OpenPulse -configuration Debug build CODE_SIGNING_ALLOWED=NO`
+   - Result: `BUILD SUCCEEDED`.
+3. Exact required commands after the fix:
+   - Ran `xcodegen generate`
+   - Result: failed in this shell with `zsh:1: command not found: xcodegen`.
+   - Ran `xcodebuild test -project OpenPulse.xcodeproj -scheme OpenPulseTests -destination 'platform=macOS'`
+   - Result: failed because the local `Mac Team Provisioning Profile: com.fanyu.openpulse` still lacks CloudKit, does not support `iCloud.com.fanyu.openpulse`, and does not include the required iCloud entitlements.
+   - Ran `xcodebuild -project OpenPulse.xcodeproj -scheme OpenPulse -configuration Debug build`
+   - Result: failed for the same provisioning-profile reason.
+4. Repo output sync:
+   - Ran `/opt/homebrew/bin/xcodegen generate`
+   - Result: succeeded and regenerated `OpenPulse.xcodeproj` from the updated `project.yml`.
+
+Shared-container + debounce concern:
+- Aligning the container to `iCloud.com.fanyu.openpulse` improved the entitlement path, but this machine still lacks a CloudKit-enabled provisioning profile for `com.fanyu.openpulse`, so the exact signed Debug test/build commands remain blocked by local signing state rather than repo code.

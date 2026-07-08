@@ -415,4 +415,19 @@ struct DeskSnapshotBuilderTests {
         #expect(await attempts.count == 2)
         #expect(await store.load() == nil)
     }
+
+    @Test
+    func publishDebouncerCollapsesBurstSchedules() async throws {
+        let attempts = DeskSnapshotPublishAttemptCounter()
+        let debouncer = DeskSnapshotPublishDebouncer(delay: .milliseconds(20)) {
+            await attempts.increment()
+        }
+
+        await debouncer.schedule()
+        await debouncer.schedule()
+
+        try await Task.sleep(for: .milliseconds(60))
+
+        #expect(await attempts.count == 1)
+    }
 }
