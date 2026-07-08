@@ -86,8 +86,8 @@ targets:
     sources:
       - path: OpenPulse/Shared
       - path: OpenPulse/Models/Tool.swift
-      - path: OpenPulseiPhone
-        optional: true
+      - path: OpenPulseiPhone/App
+      - path: OpenPulseiPhone/Data
     info:
       path: OpenPulseiPhone/Info.plist
       properties:
