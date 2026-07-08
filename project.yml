@@ -47,6 +47,8 @@ targets:
     entitlements:
       path: OpenPulse/OpenPulse.entitlements
       properties:
+        com.apple.developer.icloud-services:
+          - CloudKit
         keychain-access-groups:
           - $(AppIdentifierPrefix)com.fanyu.openpulse
     settings:
@@ -55,6 +57,9 @@ targets:
         INFOPLIST_FILE: OpenPulse/Info.plist
         CODE_SIGN_ENTITLEMENTS: OpenPulse/OpenPulse.entitlements
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+      configs:
+        Debug:
+          CODE_SIGNING_ALLOWED: NO
     dependencies:
       - package: SQLite.swift
         product: SQLite
@@ -69,6 +74,9 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
+      configs:
+        Debug:
+          CODE_SIGNING_ALLOWED: NO
     dependencies:
       - target: OpenPulse
 

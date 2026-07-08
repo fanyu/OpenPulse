@@ -349,6 +349,51 @@ struct DeskSnapshotBuilderTests {
         )
 
         #expect(await publisher.shouldPublish(hash: "same-hash") == true)
+        await publisher.markPublished(hash: "same-hash")
         #expect(await publisher.shouldPublish(hash: "same-hash") == false)
+    }
+
+    @Test
+    func failedPublishDoesNotThrottleRetry() async throws {
+        let defaults = UserDefaults(suiteName: "DeskSnapshotBuilderTests.failedPublishDoesNotThrottleRetry")!
+        defaults.removePersistentDomain(forName: "DeskSnapshotBuilderTests.failedPublishDoesNotThrottleRetry")
+
+        let store = DeskSnapshotPublishStore(
+            userDefaults: defaults,
+            key: "test.publish.state.failed"
+        )
+        let publisher = DeskSnapshotPublisher(
+            publishStore: store,
+            now: { Date(timeIntervalSince1970: 2_000) }
+        )
+        let snapshot = DeskSnapshot(
+            snapshotID: "desk-current",
+            sourceDeviceID: "mac",
+            schemaVersion: 1,
+            updatedAt: Date(timeIntervalSince1970: 2_000),
+            codex: .init(
+                tool: .codex,
+                displayLabel: "Codex",
+                remaining: 68,
+                total: 100,
+                fraction: 0.68,
+                resetAt: Date(timeIntervalSince1970: 2_500),
+                status: .healthy,
+                petState: .patrol
+            ),
+            claude: .init(
+                tool: .claudeCode,
+                displayLabel: "Claude",
+                remaining: 19,
+                total: 100,
+                fraction: 0.19,
+                resetAt: Date(timeIntervalSince1970: 3_000),
+                status: .critical,
+                petState: .alert
+            )
+        )
+
+        await publisher.publishIfNeeded(snapshot: snapshot)
+        #expect(await store.load() == nil)
     }
 }

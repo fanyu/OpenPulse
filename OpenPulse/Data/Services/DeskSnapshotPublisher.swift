@@ -32,19 +32,9 @@ actor DeskSnapshotPublisher {
 
     func shouldPublish(hash: String) async -> Bool {
         let publishedAt = now()
-        guard let state = await publishStore.load() else {
-            await publishStore.save(.init(lastHash: hash, lastPublishedAt: publishedAt))
-            return true
-        }
-        if state.lastHash != hash {
-            await publishStore.save(.init(lastHash: hash, lastPublishedAt: publishedAt))
-            return true
-        }
-        if publishedAt.timeIntervalSince(state.lastPublishedAt) >= 30 {
-            await publishStore.save(.init(lastHash: hash, lastPublishedAt: publishedAt))
-            return true
-        }
-        return false
+        guard let state = await publishStore.load() else { return true }
+        if state.lastHash != hash { return true }
+        return publishedAt.timeIntervalSince(state.lastPublishedAt) >= 30
     }
 
     func publishIfNeeded(
@@ -72,9 +62,17 @@ actor DeskSnapshotPublisher {
         do {
             let record = DeskSnapshotRecordCodec.makeRecord(snapshot: snapshot, zoneID: nil)
             _ = try await database.save(record)
+            await markPublished(hash: hash)
         } catch {
             await AppLogger.shared.warning("[desk-snapshot] publish failed: \(error.localizedDescription)")
         }
+    }
+
+    func markPublished(hash: String) async {
+        await publishStore.save(.init(
+            lastHash: hash,
+            lastPublishedAt: now()
+        ))
     }
 
     private func snapshotHash(_ snapshot: DeskSnapshot) -> String {
