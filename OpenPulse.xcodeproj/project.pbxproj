@@ -9,9 +9,11 @@
 /* Begin PBXBuildFile section */
 		000AF411127AC50853A8733E /* SessionRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7086BEBA8F024D0188556DD4 /* SessionRecord.swift */; };
 		0FDD15454877FF1BB808BA5E /* TrendsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44D51BF89557135F70FF6F47 /* TrendsView.swift */; };
+		0FE6E17E5BBE5306AB2F1D04 /* DeskSnapshotRecordCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBBC6CEAD1FDBCFC5BFBEE38 /* DeskSnapshotRecordCodec.swift */; };
 		120AD94708EC0E85F8D859AE /* DailyStatsRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCCDA4DF0EC129A5D3945AA3 /* DailyStatsRecord.swift */; };
 		14430807CC94A6DC009B7688 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E19C33043EDF71F1F02B80A /* SettingsView.swift */; };
 		15AC55FA0DD8FAE2E6ACD525 /* ToolSyncState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A861A46E5DC496FBF634333 /* ToolSyncState.swift */; };
+		1849468AE6964F666C0B0D94 /* DeskSnapshotRecordCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBBC6CEAD1FDBCFC5BFBEE38 /* DeskSnapshotRecordCodec.swift */; };
 		293CDACA7222D9FF8E6F0FC1 /* ToolLogoImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94FD8AE1EE05A1ACE40E370B /* ToolLogoImage.swift */; };
 		2B82DB8B5FDD88D24079D486 /* ModelPricing.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD19B5E14DF8670708D6A8C0 /* ModelPricing.swift */; };
 		301E60B6321C36303453A64E /* LogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D058DCA8091F77E73442094 /* LogView.swift */; };
@@ -21,9 +23,11 @@
 		3E86B004DEBEBA5D9B0AE530 /* Provider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B225807FEB6829DD500E63EB /* Provider.swift */; };
 		43F0E34C09A23184A9BF94FE /* CodexParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C9B26FE7E06E64EC6892CF3 /* CodexParser.swift */; };
 		4B5F4624D23EE82803A69FE6 /* MainWindowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A6B0992BD6928565C0BFBA4 /* MainWindowView.swift */; };
+		563CD8915C320F49A4EC6453 /* DeskSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF29881A5F817072F5E1D8BA /* DeskSnapshot.swift */; };
 		5E5248E69F836344E19E268A /* ToolAnalysisViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8918557F1ECC6689CA035E80 /* ToolAnalysisViews.swift */; };
 		62576FBA949602EE4F6F0B8F /* ClaudeCodeBridgeInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDD4CF2C5EDE7491AE3E099C /* ClaudeCodeBridgeInstaller.swift */; };
 		668A3DB6EA2D53B5ED39F244 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 286B3F5BD5A8E159BD60C5BC /* Assets.xcassets */; };
+		66BEC6D1E8C8A0B536C20116 /* DeskSnapshotStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17E651D1FDFFE5962CFE6F74 /* DeskSnapshotStatus.swift */; };
 		699729054FEE00973226B4D7 /* ToolSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 291DCA8660FE30EBF6BCD172 /* ToolSession.swift */; };
 		735412533A94EA74BB0EDD74 /* DailyStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA613E3CB91EF6FF4D66FE15 /* DailyStats.swift */; };
 		7C004E6EC2DBCB001E80E0A8 /* CopilotAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40AC44480FE7CED374FE367D /* CopilotAPIClient.swift */; };
@@ -33,7 +37,9 @@
 		8DCA34358535ACF567C1B86B /* CodexAccountService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70978988BAE12EE3FFBBB75A /* CodexAccountService.swift */; };
 		9237BBED7F7DEB34F008A597 /* GlobalHotkeyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 342E886F9BF540A62FBE8BC7 /* GlobalHotkeyService.swift */; };
 		96950433BB59A1B34ED7AF1B /* CodexAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00887B511AFC8B11A0DCBC2 /* CodexAccount.swift */; };
+		9B3399EEB8EDBE10BC0BAFB3 /* DeskSnapshotStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17E651D1FDFFE5962CFE6F74 /* DeskSnapshotStatus.swift */; };
 		9B55BE0FE4AF691EB7E7DB4B /* QuotaView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42286951DA0BA5C7591060C1 /* QuotaView.swift */; };
+		A3B98E5E9F03105E78B007DB /* DeskSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF29881A5F817072F5E1D8BA /* DeskSnapshot.swift */; };
 		A7F5BB96B28B86404C636C2C /* AntigravityParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17FF3012B7E2288F242C0B7 /* AntigravityParser.swift */; };
 		ACFE41DA09FDB63087A5CC73 /* CommonUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = E44DFE8B1FF414DC177BEF99 /* CommonUI.swift */; };
 		B366739390D07B800F0310F7 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A57ADBD61505E897EDD99EBF /* Localizable.xcstrings */; };
@@ -41,6 +47,7 @@
 		B982FBAAD4916F4E4C91BB5D /* ConsecutiveFailureGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61CD85C3F8BBB34FF33E71F5 /* ConsecutiveFailureGate.swift */; };
 		BD5D47BFAF4E61E50078D3A0 /* TaskItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F162B140D2651A261556DD6 /* TaskItem.swift */; };
 		BE64B3C5DC2E6873017231B5 /* CodexProviderManagerViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 371D33D59B140913108C77AB /* CodexProviderManagerViewModel.swift */; };
+		BF06B609A4E880A4B563C576 /* DeskSnapshotBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46B3675E70F8FE20C314691D /* DeskSnapshotBuilderTests.swift */; };
 		CD22A05AB603DA1198DA8B79 /* QuotaRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62113CA5D975C1A71899C037 /* QuotaRecord.swift */; };
 		D6D35E8BE1BF0D02FE6B7A64 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AC7AD8BD5E6F4A728B429D9 /* NotificationService.swift */; };
 		D74481B801D4B7B1822ADAB3 /* SessionHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 002E5778BE7AC8F60942BA31 /* SessionHistoryView.swift */; };
@@ -52,14 +59,36 @@
 		E3D22434697CAD1DCBCD0436 /* SwiftZSTD in Frameworks */ = {isa = PBXBuildFile; productRef = A34676B78475615CA09E7538 /* SwiftZSTD */; };
 		E455166A3CA2CA28F1A6E1C2 /* DotTextAPIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C462CDABE8B53296DB5A87C1 /* DotTextAPIService.swift */; };
 		EE4954ADE342C53CAC9CC50E /* OpenPulseApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A9237E27AFD4475905CE152 /* OpenPulseApp.swift */; };
+		F12774C3DABC41A52F34F307 /* DeskSnapshotBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 199D2DFFAF60BC90631B3364 /* DeskSnapshotBuilder.swift */; };
+		F184CC454DB542C6C3ABB2EA /* DeskSnapshotBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 199D2DFFAF60BC90631B3364 /* DeskSnapshotBuilder.swift */; };
 		F2718A377932E806F99575EB /* CodexProviderConfigService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E04A866D990E3DF49C46F407 /* CodexProviderConfigService.swift */; };
 		FC608AD2FF7457A67AB70153 /* ClaudeCodeParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1495475A35ED9D5528C01B35 /* ClaudeCodeParser.swift */; };
 		FE99542E14E79742B1569A6B /* WindowCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D300FEA511990F4AFED88925 /* WindowCoordinator.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		39878962008EC0EC4302FA94 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 72D3C59A4AB2C0726D222AFB /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 21DE71877164FBA218D63715;
+			remoteInfo = OpenPulse;
+		};
+		8A9E7C0F1710AC468C52FE53 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 72D3C59A4AB2C0726D222AFB /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 13301A739F51563F59AC8798;
+			remoteInfo = OpenPulseiPhone;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		002E5778BE7AC8F60942BA31 /* SessionHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionHistoryView.swift; sourceTree = "<group>"; };
 		1495475A35ED9D5528C01B35 /* ClaudeCodeParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeCodeParser.swift; sourceTree = "<group>"; };
+		1697B77668B01C0DED7FD802 /* OpenPulseiPhoneTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = OpenPulseiPhoneTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		17E651D1FDFFE5962CFE6F74 /* DeskSnapshotStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeskSnapshotStatus.swift; sourceTree = "<group>"; };
+		199D2DFFAF60BC90631B3364 /* DeskSnapshotBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeskSnapshotBuilder.swift; sourceTree = "<group>"; };
 		1A9237E27AFD4475905CE152 /* OpenPulseApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenPulseApp.swift; sourceTree = "<group>"; };
 		2237CFB3C8BF55FB591ED0E6 /* Tool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tool.swift; sourceTree = "<group>"; };
 		286B3F5BD5A8E159BD60C5BC /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -67,12 +96,15 @@
 		2AE026BA016FC15C87C4607F /* OpenPulse.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = OpenPulse.entitlements; sourceTree = "<group>"; };
 		2C9B26FE7E06E64EC6892CF3 /* CodexParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexParser.swift; sourceTree = "<group>"; };
 		2F162B140D2651A261556DD6 /* TaskItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskItem.swift; sourceTree = "<group>"; };
+		31FC5A147840E55374381149 /* OpenPulseTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OpenPulseTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		342E886F9BF540A62FBE8BC7 /* GlobalHotkeyService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalHotkeyService.swift; sourceTree = "<group>"; };
 		371D33D59B140913108C77AB /* CodexProviderManagerViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexProviderManagerViewModel.swift; sourceTree = "<group>"; };
+		379AE97E923F5C819A8C37C2 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		3927C3E82783459157AE7A2D /* ToolQuota.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolQuota.swift; sourceTree = "<group>"; };
 		40AC44480FE7CED374FE367D /* CopilotAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopilotAPIClient.swift; sourceTree = "<group>"; };
 		42286951DA0BA5C7591060C1 /* QuotaView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuotaView.swift; sourceTree = "<group>"; };
 		44D51BF89557135F70FF6F47 /* TrendsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrendsView.swift; sourceTree = "<group>"; };
+		46B3675E70F8FE20C314691D /* DeskSnapshotBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeskSnapshotBuilderTests.swift; sourceTree = "<group>"; };
 		4A93BD64C3AD9D4606D9A6C9 /* OpenPulse.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OpenPulse.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		56E1620B2EC31FA6AC86BB62 /* ProviderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderView.swift; sourceTree = "<group>"; };
 		5A6B0992BD6928565C0BFBA4 /* MainWindowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowView.swift; sourceTree = "<group>"; };
@@ -101,11 +133,14 @@
 		C00887B511AFC8B11A0DCBC2 /* CodexAccount.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexAccount.swift; sourceTree = "<group>"; };
 		C462CDABE8B53296DB5A87C1 /* DotTextAPIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DotTextAPIService.swift; sourceTree = "<group>"; };
 		CDD4CF2C5EDE7491AE3E099C /* ClaudeCodeBridgeInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeCodeBridgeInstaller.swift; sourceTree = "<group>"; };
+		CF29881A5F817072F5E1D8BA /* DeskSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeskSnapshot.swift; sourceTree = "<group>"; };
 		D05939178581C41AF8FC17BF /* CompareView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompareView.swift; sourceTree = "<group>"; };
 		D300FEA511990F4AFED88925 /* WindowCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowCoordinator.swift; sourceTree = "<group>"; };
 		E04A866D990E3DF49C46F407 /* CodexProviderConfigService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexProviderConfigService.swift; sourceTree = "<group>"; };
 		E44DFE8B1FF414DC177BEF99 /* CommonUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommonUI.swift; sourceTree = "<group>"; };
+		EBBC6CEAD1FDBCFC5BFBEE38 /* DeskSnapshotRecordCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeskSnapshotRecordCodec.swift; sourceTree = "<group>"; };
 		F1E0BA47A399C82114B0BE45 /* ConfigsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigsView.swift; sourceTree = "<group>"; };
+		F9D6958E1A6594912C924872 /* OpenPulseiPhone.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = OpenPulseiPhone.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		FA613E3CB91EF6FF4D66FE15 /* DailyStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyStats.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -122,6 +157,17 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		002F534F0BF0E865AF5ED3EE /* DeskSnapshot */ = {
+			isa = PBXGroup;
+			children = (
+				CF29881A5F817072F5E1D8BA /* DeskSnapshot.swift */,
+				199D2DFFAF60BC90631B3364 /* DeskSnapshotBuilder.swift */,
+				EBBC6CEAD1FDBCFC5BFBEE38 /* DeskSnapshotRecordCodec.swift */,
+				17E651D1FDFFE5962CFE6F74 /* DeskSnapshotStatus.swift */,
+			);
+			path = DeskSnapshot;
+			sourceTree = "<group>";
+		};
 		061AD5EB3E63EE118CA82061 /* Providers */ = {
 			isa = PBXGroup;
 			children = (
@@ -132,10 +178,20 @@
 			path = Providers;
 			sourceTree = "<group>";
 		};
+		0C5B7988C675DE3466F23BCE /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				002F534F0BF0E865AF5ED3EE /* DeskSnapshot */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
 		259F6CFA96D2EC24F6BD224D = {
 			isa = PBXGroup;
 			children = (
 				4532A69D53AB1C94ED7C7B51 /* OpenPulse */,
+				DAB19CC4433B3413057D780A /* OpenPulseiPhone */,
+				68CCC27517777277E2542509 /* OpenPulseTests */,
 				57461CE580BF7C982EEEA8AA /* Products */,
 			);
 			sourceTree = "<group>";
@@ -203,6 +259,7 @@
 				8093BAC98CB713748D175DB9 /* Data */,
 				ADC55ED6D79B662A4454414A /* Models */,
 				AB35F7FE3669503CF6A8B4A7 /* Resources */,
+				0C5B7988C675DE3466F23BCE /* Shared */,
 				C9655C2ED82322239077A2D8 /* Views */,
 			);
 			path = OpenPulse;
@@ -220,6 +277,9 @@
 			isa = PBXGroup;
 			children = (
 				4A93BD64C3AD9D4606D9A6C9 /* OpenPulse.app */,
+				F9D6958E1A6594912C924872 /* OpenPulseiPhone.app */,
+				1697B77668B01C0DED7FD802 /* OpenPulseiPhoneTests.xctest */,
+				31FC5A147840E55374381149 /* OpenPulseTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -230,6 +290,14 @@
 				002E5778BE7AC8F60942BA31 /* SessionHistoryView.swift */,
 			);
 			path = History;
+			sourceTree = "<group>";
+		};
+		68CCC27517777277E2542509 /* OpenPulseTests */ = {
+			isa = PBXGroup;
+			children = (
+				46B3675E70F8FE20C314691D /* DeskSnapshotBuilderTests.swift */,
+			);
+			path = OpenPulseTests;
 			sourceTree = "<group>";
 		};
 		8093BAC98CB713748D175DB9 /* Data */ = {
@@ -300,6 +368,14 @@
 			path = Views;
 			sourceTree = "<group>";
 		};
+		DAB19CC4433B3413057D780A /* OpenPulseiPhone */ = {
+			isa = PBXGroup;
+			children = (
+				379AE97E923F5C819A8C37C2 /* Info.plist */,
+			);
+			path = OpenPulseiPhone;
+			sourceTree = "<group>";
+		};
 		DB0B4A8045325C19ECD75F6A /* Parsers */ = {
 			isa = PBXGroup;
 			children = (
@@ -348,6 +424,23 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		13301A739F51563F59AC8798 /* OpenPulseiPhone */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1A696621DDF6B6C0758B05EE /* Build configuration list for PBXNativeTarget "OpenPulseiPhone" */;
+			buildPhases = (
+				E765264BB842CAC0C3304EAB /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = OpenPulseiPhone;
+			packageProductDependencies = (
+			);
+			productName = OpenPulseiPhone;
+			productReference = F9D6958E1A6594912C924872 /* OpenPulseiPhone.app */;
+			productType = "com.apple.product-type.application";
+		};
 		21DE71877164FBA218D63715 /* OpenPulse */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 484166F095EC6AA033D78558 /* Build configuration list for PBXNativeTarget "OpenPulse" */;
@@ -369,6 +462,42 @@
 			productReference = 4A93BD64C3AD9D4606D9A6C9 /* OpenPulse.app */;
 			productType = "com.apple.product-type.application";
 		};
+		3275978BCDD1DE4E90C65D4B /* OpenPulseiPhoneTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 95151F18FBE5EB3F0E29C719 /* Build configuration list for PBXNativeTarget "OpenPulseiPhoneTests" */;
+			buildPhases = (
+				9523A955F299698B400D4E5C /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				59552188A69D1E6E2A3EDA5E /* PBXTargetDependency */,
+			);
+			name = OpenPulseiPhoneTests;
+			packageProductDependencies = (
+			);
+			productName = OpenPulseiPhoneTests;
+			productReference = 1697B77668B01C0DED7FD802 /* OpenPulseiPhoneTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		93B117D6747A2F0ED954CACE /* OpenPulseTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = FCEE8F1AAE0F29C5102E3E4A /* Build configuration list for PBXNativeTarget "OpenPulseTests" */;
+			buildPhases = (
+				92992281A1F05AADDC02B43F /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				2D6A62C14A03B732212E3988 /* PBXTargetDependency */,
+			);
+			name = OpenPulseTests;
+			packageProductDependencies = (
+			);
+			productName = OpenPulseTests;
+			productReference = 31FC5A147840E55374381149 /* OpenPulseTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -378,7 +507,19 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 2600;
 				TargetAttributes = {
+					13301A739F51563F59AC8798 = {
+						DevelopmentTeam = 33M7V22L6Y;
+						ProvisioningStyle = Automatic;
+					};
 					21DE71877164FBA218D63715 = {
+						DevelopmentTeam = 33M7V22L6Y;
+						ProvisioningStyle = Automatic;
+					};
+					3275978BCDD1DE4E90C65D4B = {
+						DevelopmentTeam = 33M7V22L6Y;
+						ProvisioningStyle = Automatic;
+					};
+					93B117D6747A2F0ED954CACE = {
 						DevelopmentTeam = 33M7V22L6Y;
 						ProvisioningStyle = Automatic;
 					};
@@ -404,6 +545,9 @@
 			projectRoot = "";
 			targets = (
 				21DE71877164FBA218D63715 /* OpenPulse */,
+				93B117D6747A2F0ED954CACE /* OpenPulseTests */,
+				13301A739F51563F59AC8798 /* OpenPulseiPhone */,
+				3275978BCDD1DE4E90C65D4B /* OpenPulseiPhoneTests */,
 			);
 		};
 /* End PBXProject section */
@@ -421,6 +565,21 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		92992281A1F05AADDC02B43F /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BF06B609A4E880A4B563C576 /* DeskSnapshotBuilderTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9523A955F299698B400D4E5C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		96874CBDAC2C2D4FA657890E /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -443,6 +602,10 @@
 				735412533A94EA74BB0EDD74 /* DailyStats.swift in Sources */,
 				120AD94708EC0E85F8D859AE /* DailyStatsRecord.swift in Sources */,
 				D814DB95A555D315E4E2F328 /* DataSyncService.swift in Sources */,
+				A3B98E5E9F03105E78B007DB /* DeskSnapshot.swift in Sources */,
+				F12774C3DABC41A52F34F307 /* DeskSnapshotBuilder.swift in Sources */,
+				1849468AE6964F666C0B0D94 /* DeskSnapshotRecordCodec.swift in Sources */,
+				9B3399EEB8EDBE10BC0BAFB3 /* DeskSnapshotStatus.swift in Sources */,
 				E455166A3CA2CA28F1A6E1C2 /* DotTextAPIService.swift in Sources */,
 				9237BBED7F7DEB34F008A597 /* GlobalHotkeyService.swift in Sources */,
 				DA3DEB8874BEACF4CF1A51F5 /* KeychainService.swift in Sources */,
@@ -472,9 +635,101 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		E765264BB842CAC0C3304EAB /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				563CD8915C320F49A4EC6453 /* DeskSnapshot.swift in Sources */,
+				F184CC454DB542C6C3ABB2EA /* DeskSnapshotBuilder.swift in Sources */,
+				0FE6E17E5BBE5306AB2F1D04 /* DeskSnapshotRecordCodec.swift in Sources */,
+				66BEC6D1E8C8A0B536C20116 /* DeskSnapshotStatus.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		2D6A62C14A03B732212E3988 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 21DE71877164FBA218D63715 /* OpenPulse */;
+			targetProxy = 39878962008EC0EC4302FA94 /* PBXContainerItemProxy */;
+		};
+		59552188A69D1E6E2A3EDA5E /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 13301A739F51563F59AC8798 /* OpenPulseiPhone */;
+			targetProxy = 8A9E7C0F1710AC468C52FE53 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		099EE9584F70B888DB3DF885 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = OpenPulseiPhone/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.fanyu.OpenPulseiPhone;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		22D9B307752436AEC9CC0C2E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.fanyu.OpenPulseTests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OpenPulse.app/Contents/MacOS/OpenPulse";
+			};
+			name = Release;
+		};
+		2F2AF27AD875B407964391C7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.fanyu.OpenPulseiPhoneTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OpenPulseiPhone.app/OpenPulseiPhone";
+			};
+			name = Release;
+		};
+		8EA63F68EF9EC315BE153A69 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.fanyu.OpenPulseTests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OpenPulse.app/Contents/MacOS/OpenPulse";
+			};
+			name = Debug;
+		};
 		9E4B13FED5BD3EEC753EB493 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -488,6 +743,40 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.fanyu.openpulse;
 				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		A331F5EFF08C24F6A1A64489 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = OpenPulseiPhone/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.fanyu.OpenPulseiPhone;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		BB8A2BC21EC718B062427051 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.fanyu.OpenPulseiPhoneTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OpenPulseiPhone.app/OpenPulseiPhone";
 			};
 			name = Debug;
 		};
@@ -550,7 +839,6 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = macosx;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_STRICT_CONCURRENCY = complete;
@@ -610,7 +898,6 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = macosx;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_STRICT_CONCURRENCY = complete;
@@ -637,11 +924,38 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		1A696621DDF6B6C0758B05EE /* Build configuration list for PBXNativeTarget "OpenPulseiPhone" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				099EE9584F70B888DB3DF885 /* Debug */,
+				A331F5EFF08C24F6A1A64489 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		484166F095EC6AA033D78558 /* Build configuration list for PBXNativeTarget "OpenPulse" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				9E4B13FED5BD3EEC753EB493 /* Debug */,
 				E7C44A9467FB648BC845F30C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		95151F18FBE5EB3F0E29C719 /* Build configuration list for PBXNativeTarget "OpenPulseiPhoneTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BB8A2BC21EC718B062427051 /* Debug */,
+				2F2AF27AD875B407964391C7 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		FCEE8F1AAE0F29C5102E3E4A /* Build configuration list for PBXNativeTarget "OpenPulseTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8EA63F68EF9EC315BE153A69 /* Debug */,
+				22D9B307752436AEC9CC0C2E /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

@@ -60,3 +60,44 @@ targets:
         product: SQLite
       - package: SwiftZSTD
         product: SwiftZSTD
+
+  OpenPulseTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - OpenPulseTests
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+    dependencies:
+      - target: OpenPulse
+
+  OpenPulseiPhone:
+    type: application
+    platform: iOS
+    deploymentTarget: "27.0"
+    sources:
+      - path: OpenPulse/Shared
+      - path: OpenPulseiPhone
+        optional: true
+    info:
+      path: OpenPulseiPhone/Info.plist
+      properties:
+        CFBundleName: OpenPulse iPhone
+        CFBundleDisplayName: OpenPulse
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+
+  OpenPulseiPhoneTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: OpenPulseiPhoneTests
+        optional: true
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+    dependencies:
+      - target: OpenPulseiPhone
