@@ -152,4 +152,79 @@ struct DeskSnapshotBuilderTests {
         let decoded = try DeskSnapshotRecordCodec.decode(record)
         #expect(decoded == snapshot)
     }
+
+    @Test
+    func buildUsesNewestRelevantFallbackQuotaRecords() {
+        let now = Date(timeIntervalSince1970: 1_500)
+
+        let codexScopedNewest = QuotaRecord(
+            tool: .codex,
+            accountKey: "codex-account",
+            accountLabel: "Account scoped",
+            remaining: 5,
+            total: 100,
+            resetAt: Date(timeIntervalSince1970: 20_000)
+        )
+        codexScopedNewest.updatedAt = Date(timeIntervalSince1970: 900)
+
+        let codexGenericOlder = QuotaRecord(
+            tool: .codex,
+            accountKey: nil,
+            accountLabel: "Generic older",
+            remaining: 21,
+            total: 100,
+            resetAt: Date(timeIntervalSince1970: 21_000)
+        )
+        codexGenericOlder.updatedAt = Date(timeIntervalSince1970: 1_000)
+
+        let codexGenericNewest = QuotaRecord(
+            tool: .codex,
+            accountKey: nil,
+            accountLabel: "Generic newest",
+            remaining: 63,
+            total: 100,
+            resetAt: Date(timeIntervalSince1970: 22_000)
+        )
+        codexGenericNewest.updatedAt = Date(timeIntervalSince1970: 1_100)
+
+        let claudeOlder = QuotaRecord(
+            tool: .claudeCode,
+            accountKey: nil,
+            accountLabel: "Claude older",
+            remaining: 18,
+            total: 100,
+            resetAt: Date(timeIntervalSince1970: 23_000)
+        )
+        claudeOlder.updatedAt = Date(timeIntervalSince1970: 1_200)
+
+        let claudeNewest = QuotaRecord(
+            tool: .claudeCode,
+            accountKey: nil,
+            accountLabel: "Claude newest",
+            remaining: 74,
+            total: 100,
+            resetAt: Date(timeIntervalSince1970: 24_000)
+        )
+        claudeNewest.updatedAt = Date(timeIntervalSince1970: 1_300)
+
+        let snapshot = DeskSnapshotBuilder.build(
+            now: now,
+            codexAccounts: [],
+            claudeUsage: nil,
+            fallbackQuotas: [
+                codexScopedNewest,
+                codexGenericOlder,
+                claudeOlder,
+                codexGenericNewest,
+                claudeNewest
+            ]
+        )
+
+        #expect(snapshot?.codex.remaining == 63)
+        #expect(snapshot?.codex.resetAt == Date(timeIntervalSince1970: 22_000))
+        #expect(snapshot?.codex.status == .healthy)
+        #expect(snapshot?.claude.remaining == 74)
+        #expect(snapshot?.claude.resetAt == Date(timeIntervalSince1970: 24_000))
+        #expect(snapshot?.claude.status == .healthy)
+    }
 }

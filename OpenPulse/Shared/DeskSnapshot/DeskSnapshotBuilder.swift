@@ -10,9 +10,9 @@ enum DeskSnapshotBuilder {
     ) -> DeskSnapshot? {
         guard
             let codexQuota = codexAccounts.first(where: \.isCurrent)?.quota
-                ?? fallbackQuotas.first(where: { $0.tool == .codex })?.toModel(),
+                ?? fallbackQuota(for: .codex, in: fallbackQuotas)?.toModel(),
             let claudeQuota = toolQuota(from: claudeUsage, now: now)
-                ?? fallbackQuotas.first(where: { $0.tool == .claudeCode })?.toModel()
+                ?? fallbackQuota(for: .claudeCode, in: fallbackQuotas)?.toModel()
         else {
             return nil
         }
@@ -63,6 +63,23 @@ enum DeskSnapshotBuilder {
             status: status,
             petState: petState(for: status)
         )
+    }
+
+    private static func fallbackQuota(for tool: Tool, in fallbackQuotas: [QuotaRecord]) -> QuotaRecord? {
+        fallbackQuotas
+            .filter { record in
+                guard record.tool == tool else { return false }
+                if tool == .codex {
+                    return record.accountKey == nil
+                }
+                return true
+            }
+            .max { lhs, rhs in
+                if lhs.updatedAt != rhs.updatedAt {
+                    return lhs.updatedAt < rhs.updatedAt
+                }
+                return (lhs.resetAt ?? .distantPast) < (rhs.resetAt ?? .distantPast)
+            }
     }
 
     private static func petState(for status: DeskQuotaStatus) -> DeskPetState {
