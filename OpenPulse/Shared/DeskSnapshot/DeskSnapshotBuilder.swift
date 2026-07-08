@@ -8,11 +8,19 @@ enum DeskSnapshotBuilder {
         claudeUsage: ClaudeUsageResponse?,
         fallbackQuotas: [QuotaRecord]
     ) -> DeskSnapshot? {
+        let currentCodexQuota = codexAccounts
+            .first(where: \.isCurrent)?
+            .quota
+
         guard
-            let codexQuota = codexAccounts.first(where: \.isCurrent)?.quota
-                ?? fallbackQuota(for: .codex, in: fallbackQuotas)?.toModel(),
-            let claudeQuota = toolQuota(from: claudeUsage, now: now)
-                ?? fallbackQuota(for: .claudeCode, in: fallbackQuotas)?.toModel()
+            let codexQuota = preferredQuota(
+                currentCodexQuota,
+                fallback: fallbackQuota(for: .codex, in: fallbackQuotas)?.toModel()
+            ),
+            let claudeQuota = preferredQuota(
+                toolQuota(from: claudeUsage, now: now),
+                fallback: fallbackQuota(for: .claudeCode, in: fallbackQuotas)?.toModel()
+            )
         else {
             return nil
         }
@@ -45,6 +53,27 @@ enum DeskSnapshotBuilder {
         )
     }
 
+    private static func preferredQuota(_ primary: ToolQuota?, fallback: ToolQuota?) -> ToolQuota? {
+        if let primary, isUsable(primary) {
+            return primary
+        }
+        if let fallback, isUsable(fallback) {
+            return fallback
+        }
+        return nil
+    }
+
+    private static func isUsable(_ quota: ToolQuota) -> Bool {
+        guard let remaining = quota.remaining,
+              let total = quota.total,
+              total > 0,
+              quota.resetAt != nil else {
+            return false
+        }
+
+        return remaining >= 0
+    }
+
     private static func makeToolSnapshot(from quota: ToolQuota, label: String, now: Date) -> DeskToolSnapshot {
         let status = DeskQuotaStatus.resolve(
             remaining: quota.remaining,
@@ -74,6 +103,7 @@ enum DeskSnapshotBuilder {
                 }
                 return true
             }
+            .filter { isUsable($0.toModel()) }
             .max { lhs, rhs in
                 if lhs.updatedAt != rhs.updatedAt {
                     return lhs.updatedAt < rhs.updatedAt

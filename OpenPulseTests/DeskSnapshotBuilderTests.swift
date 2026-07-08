@@ -154,6 +154,48 @@ struct DeskSnapshotBuilderTests {
     }
 
     @Test
+    func recordCodecRejectsMissingRequiredTopLevelMetadata() throws {
+        let snapshot = DeskSnapshot(
+            snapshotID: "desk",
+            sourceDeviceID: "mac",
+            schemaVersion: 1,
+            updatedAt: Date(timeIntervalSince1970: 1_000),
+            codex: .init(
+                tool: .codex,
+                displayLabel: "Codex",
+                remaining: 68,
+                total: 100,
+                fraction: 0.68,
+                resetAt: Date(timeIntervalSince1970: 2_000),
+                status: .healthy,
+                petState: .patrol
+            ),
+            claude: .init(
+                tool: .claudeCode,
+                displayLabel: "Claude",
+                remaining: 42,
+                total: 100,
+                fraction: 0.42,
+                resetAt: Date(timeIntervalSince1970: 3_000),
+                status: .warning,
+                petState: .pause
+            )
+        )
+
+        for field in ["snapshotID", "sourceDeviceID", "schemaVersion", "updatedAt"] {
+            let record = DeskSnapshotRecordCodec.makeRecord(snapshot: snapshot, zoneID: nil)
+            record[field] = nil
+
+            do {
+                _ = try DeskSnapshotRecordCodec.decode(record)
+                #expect(Bool(false), "Decoding should fail when \(field) is missing")
+            } catch {
+                #expect(Bool(true))
+            }
+        }
+    }
+
+    @Test
     func buildUsesNewestRelevantFallbackQuotaRecords() {
         let now = Date(timeIntervalSince1970: 1_500)
 
@@ -226,5 +268,69 @@ struct DeskSnapshotBuilderTests {
         #expect(snapshot?.claude.remaining == 74)
         #expect(snapshot?.claude.resetAt == Date(timeIntervalSince1970: 24_000))
         #expect(snapshot?.claude.status == .healthy)
+    }
+
+    @Test
+    func buildFallsBackWhenCurrentCodexQuotaIsUnusable() {
+        let now = Date(timeIntervalSince1970: 1_600)
+
+        let fallbackCodex = QuotaRecord(
+            tool: .codex,
+            accountKey: nil,
+            accountLabel: "Persisted Codex",
+            remaining: 57,
+            total: 100,
+            resetAt: Date(timeIntervalSince1970: 10_000)
+        )
+        fallbackCodex.updatedAt = Date(timeIntervalSince1970: 1_500)
+
+        let fallbackClaude = QuotaRecord(
+            tool: .claudeCode,
+            accountKey: nil,
+            accountLabel: "Persisted Claude",
+            remaining: 73,
+            total: 100,
+            resetAt: Date(timeIntervalSince1970: 11_000)
+        )
+        fallbackClaude.updatedAt = Date(timeIntervalSince1970: 1_550)
+
+        let snapshot = DeskSnapshotBuilder.build(
+            now: now,
+            codexAccounts: [
+                .init(
+                    id: "current-account",
+                    label: "Current",
+                    email: "current@example.com",
+                    accountID: "codex-current",
+                    planType: "pro",
+                    teamName: nil,
+                    addedAt: .distantPast,
+                    updatedAt: now,
+                    lastFetchedAt: now,
+                    limits: .init(
+                        primary: .init(
+                            usedPercent: nil,
+                            windowMinutes: 300,
+                            windowSeconds: nil,
+                            resetsAt: nil
+                        ),
+                        secondary: nil,
+                        credits: nil,
+                        resetCredits: nil,
+                        planType: "pro"
+                    ),
+                    usageError: nil,
+                    isCurrent: true
+                )
+            ],
+            claudeUsage: nil,
+            fallbackQuotas: [fallbackCodex, fallbackClaude]
+        )
+
+        #expect(snapshot?.codex.remaining == 57)
+        #expect(snapshot?.codex.total == 100)
+        #expect(snapshot?.codex.resetAt == Date(timeIntervalSince1970: 10_000))
+        #expect(snapshot?.codex.status == .healthy)
+        #expect(snapshot?.codex.petState == .patrol)
     }
 }
