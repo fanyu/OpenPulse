@@ -35,6 +35,7 @@
 		88E842D5D0DAFD92629A68D4 /* SQLite in Frameworks */ = {isa = PBXBuildFile; productRef = 20E251EA3ACA7A06A6007A56 /* SQLite */; };
 		8A245E69560FCDDB793578B1 /* AppStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A494FF8BD7215CF0925772F8 /* AppStore.swift */; };
 		8DCA34358535ACF567C1B86B /* CodexAccountService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70978988BAE12EE3FFBBB75A /* CodexAccountService.swift */; };
+		8E0141CA966C633B87D21889 /* Tool.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2237CFB3C8BF55FB591ED0E6 /* Tool.swift */; };
 		9237BBED7F7DEB34F008A597 /* GlobalHotkeyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 342E886F9BF540A62FBE8BC7 /* GlobalHotkeyService.swift */; };
 		96950433BB59A1B34ED7AF1B /* CodexAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00887B511AFC8B11A0DCBC2 /* CodexAccount.swift */; };
 		9B3399EEB8EDBE10BC0BAFB3 /* DeskSnapshotStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17E651D1FDFFE5962CFE6F74 /* DeskSnapshotStatus.swift */; };
@@ -58,6 +59,7 @@
 		E0B47DD84E5433B04F1E56C2 /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FD375993BBFCE958374B4F4 /* MenuBarView.swift */; };
 		E3D22434697CAD1DCBCD0436 /* SwiftZSTD in Frameworks */ = {isa = PBXBuildFile; productRef = A34676B78475615CA09E7538 /* SwiftZSTD */; };
 		E455166A3CA2CA28F1A6E1C2 /* DotTextAPIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C462CDABE8B53296DB5A87C1 /* DotTextAPIService.swift */; };
+		EDEFFE929898677E6FF6BDBB /* OpenPulseiPhoneApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BE386BD5263BF51DD8C36BF /* OpenPulseiPhoneApp.swift */; };
 		EE4954ADE342C53CAC9CC50E /* OpenPulseApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A9237E27AFD4475905CE152 /* OpenPulseApp.swift */; };
 		F12774C3DABC41A52F34F307 /* DeskSnapshotBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 199D2DFFAF60BC90631B3364 /* DeskSnapshotBuilder.swift */; };
 		F184CC454DB542C6C3ABB2EA /* DeskSnapshotBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 199D2DFFAF60BC90631B3364 /* DeskSnapshotBuilder.swift */; };
@@ -85,6 +87,7 @@
 
 /* Begin PBXFileReference section */
 		002E5778BE7AC8F60942BA31 /* SessionHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionHistoryView.swift; sourceTree = "<group>"; };
+		0BE386BD5263BF51DD8C36BF /* OpenPulseiPhoneApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenPulseiPhoneApp.swift; sourceTree = "<group>"; };
 		1495475A35ED9D5528C01B35 /* ClaudeCodeParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeCodeParser.swift; sourceTree = "<group>"; };
 		1697B77668B01C0DED7FD802 /* OpenPulseiPhoneTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = OpenPulseiPhoneTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		17E651D1FDFFE5962CFE6F74 /* DeskSnapshotStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeskSnapshotStatus.swift; sourceTree = "<group>"; };
@@ -372,6 +375,7 @@
 			isa = PBXGroup;
 			children = (
 				379AE97E923F5C819A8C37C2 /* Info.plist */,
+				0BE386BD5263BF51DD8C36BF /* OpenPulseiPhoneApp.swift */,
 			);
 			path = OpenPulseiPhone;
 			sourceTree = "<group>";
@@ -643,6 +647,8 @@
 				F184CC454DB542C6C3ABB2EA /* DeskSnapshotBuilder.swift in Sources */,
 				0FE6E17E5BBE5306AB2F1D04 /* DeskSnapshotRecordCodec.swift in Sources */,
 				66BEC6D1E8C8A0B536C20116 /* DeskSnapshotStatus.swift in Sources */,
+				EDEFFE929898677E6FF6BDBB /* OpenPulseiPhoneApp.swift in Sources */,
+				8E0141CA966C633B87D21889 /* Tool.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -668,7 +674,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				INFOPLIST_FILE = OpenPulseiPhone/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -752,7 +758,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				INFOPLIST_FILE = OpenPulseiPhone/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",

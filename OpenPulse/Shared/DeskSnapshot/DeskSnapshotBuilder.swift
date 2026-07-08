@@ -1,5 +1,6 @@
 import Foundation
 
+#if os(macOS)
 enum DeskSnapshotBuilder {
     static func build(
         now: Date,
@@ -87,3 +88,4 @@ enum DeskSnapshotBuilder {
         #endif
     }
 }
+#endif

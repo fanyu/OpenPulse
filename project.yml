@@ -75,9 +75,10 @@ targets:
   OpenPulseiPhone:
     type: application
     platform: iOS
-    deploymentTarget: "27.0"
+    deploymentTarget: "26.0"
     sources:
       - path: OpenPulse/Shared
+      - path: OpenPulse/Models/Tool.swift
       - path: OpenPulseiPhone
         optional: true
     info:

@@ -5,14 +5,107 @@ import Testing
 struct DeskSnapshotBuilderTests {
     @Test
     func buildUsesCurrentCodexAccountAndClaudeUsage() throws {
-        #expect(
-            DeskSnapshotBuilder.build(
-                now: Date(timeIntervalSince1970: 1_000),
-                codexAccounts: [],
-                claudeUsage: nil,
-                fallbackQuotas: []
-            ) == nil
+        let now = Date(timeIntervalSince1970: 1_000)
+        let snapshot = DeskSnapshotBuilder.build(
+            now: now,
+            codexAccounts: [
+                .init(
+                    id: "fallback-account",
+                    label: "Fallback",
+                    email: "fallback@example.com",
+                    accountID: "codex-fallback",
+                    planType: "pro",
+                    teamName: nil,
+                    addedAt: .distantPast,
+                    updatedAt: now,
+                    lastFetchedAt: now,
+                    limits: .init(
+                        primary: .init(
+                            usedPercent: 88,
+                            windowMinutes: 300,
+                            windowSeconds: nil,
+                            resetsAt: 4_000
+                        ),
+                        secondary: nil,
+                        credits: nil,
+                        resetCredits: nil,
+                        planType: "pro"
+                    ),
+                    usageError: nil,
+                    isCurrent: false
+                ),
+                .init(
+                    id: "current-account",
+                    label: "Current",
+                    email: "current@example.com",
+                    accountID: "codex-current",
+                    planType: "pro",
+                    teamName: nil,
+                    addedAt: .distantPast,
+                    updatedAt: now,
+                    lastFetchedAt: now,
+                    limits: .init(
+                        primary: .init(
+                            usedPercent: 32,
+                            windowMinutes: 300,
+                            windowSeconds: nil,
+                            resetsAt: 2_000
+                        ),
+                        secondary: nil,
+                        credits: nil,
+                        resetCredits: nil,
+                        planType: "pro"
+                    ),
+                    usageError: nil,
+                    isCurrent: true
+                )
+            ],
+            claudeUsage: .init(
+                fiveHour: .init(utilization: 81, resetsAt: "3000"),
+                sevenDay: nil
+            ),
+            fallbackQuotas: [
+                QuotaRecord(
+                    tool: .codex,
+                    accountKey: "fallback-quota",
+                    accountLabel: "Fallback quota",
+                    remaining: 9,
+                    total: 100,
+                    resetAt: Date(timeIntervalSince1970: 9_000)
+                ),
+                QuotaRecord(
+                    tool: .claudeCode,
+                    accountKey: "claude-fallback",
+                    accountLabel: "Claude fallback",
+                    remaining: 77,
+                    total: 100,
+                    resetAt: Date(timeIntervalSince1970: 8_000)
+                )
+            ]
         )
+
+        #expect(snapshot != nil)
+        #expect(snapshot?.snapshotID == "desk-current")
+        #expect(snapshot?.updatedAt == now)
+        #expect(snapshot?.sourceDeviceID.isEmpty == false)
+
+        #expect(snapshot?.codex.tool == .codex)
+        #expect(snapshot?.codex.displayLabel == "Codex")
+        #expect(snapshot?.codex.remaining == 68)
+        #expect(snapshot?.codex.total == 100)
+        #expect(snapshot?.codex.fraction == 0.68)
+        #expect(snapshot?.codex.resetAt == Date(timeIntervalSince1970: 2_000))
+        #expect(snapshot?.codex.status == .healthy)
+        #expect(snapshot?.codex.petState == .patrol)
+
+        #expect(snapshot?.claude.tool == .claudeCode)
+        #expect(snapshot?.claude.displayLabel == "Claude")
+        #expect(snapshot?.claude.remaining == 19)
+        #expect(snapshot?.claude.total == 100)
+        #expect(snapshot?.claude.fraction == 0.19)
+        #expect(snapshot?.claude.resetAt == Date(timeIntervalSince1970: 3_000))
+        #expect(snapshot?.claude.status == .critical)
+        #expect(snapshot?.claude.petState == .alert)
     }
 
     @Test
