@@ -90,6 +90,9 @@ targets:
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
+    settings:
+      base:
+        TARGETED_DEVICE_FAMILY: "1"
 
   OpenPulseiPhoneTests:
     type: bundle.unit-test
