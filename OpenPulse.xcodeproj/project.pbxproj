@@ -136,6 +136,7 @@
 		AAE363D258692709B22F2620 /* AppLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLogger.swift; sourceTree = "<group>"; };
 		AD19B5E14DF8670708D6A8C0 /* ModelPricing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelPricing.swift; sourceTree = "<group>"; };
 		B225807FEB6829DD500E63EB /* Provider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Provider.swift; sourceTree = "<group>"; };
+		B2EE9AF5B6FE953A8046AD6F /* OpenPulseiPhone.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = OpenPulseiPhone.entitlements; sourceTree = "<group>"; };
 		BCCDA4DF0EC129A5D3945AA3 /* DailyStatsRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyStatsRecord.swift; sourceTree = "<group>"; };
 		C00887B511AFC8B11A0DCBC2 /* CodexAccount.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexAccount.swift; sourceTree = "<group>"; };
 		C462CDABE8B53296DB5A87C1 /* DotTextAPIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DotTextAPIService.swift; sourceTree = "<group>"; };
@@ -381,6 +382,7 @@
 			isa = PBXGroup;
 			children = (
 				379AE97E923F5C819A8C37C2 /* Info.plist */,
+				B2EE9AF5B6FE953A8046AD6F /* OpenPulseiPhone.entitlements */,
 				0BE386BD5263BF51DD8C36BF /* OpenPulseiPhoneApp.swift */,
 			);
 			path = OpenPulseiPhone;
@@ -680,6 +682,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = OpenPulseiPhone/OpenPulseiPhone.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				INFOPLIST_FILE = OpenPulseiPhone/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
@@ -749,7 +752,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGNING_ALLOWED = NO;
 				CODE_SIGN_ENTITLEMENTS = OpenPulse/OpenPulse.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
 				INFOPLIST_FILE = OpenPulse/Info.plist;
@@ -766,6 +768,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = OpenPulseiPhone/OpenPulseiPhone.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				INFOPLIST_FILE = OpenPulseiPhone/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;

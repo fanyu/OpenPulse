@@ -4,16 +4,27 @@ import Foundation
 import Security
 
 actor DeskSnapshotPublisher {
-    private let database: CKDatabase?
+    private static let sharedContainerIdentifier = "iCloud.com.fanyu.openpulse.shared"
+
+    private let saveRecord: (@Sendable (CKRecord) async throws -> Void)?
     private let publishStore: DeskSnapshotPublishStore
     private let now: @Sendable () -> Date
 
     init(
         database: CKDatabase? = nil,
+        saveRecord: (@Sendable (CKRecord) async throws -> Void)? = nil,
         publishStore: DeskSnapshotPublishStore = DeskSnapshotPublishStore(),
         now: @escaping @Sendable () -> Date = Date.init
     ) {
-        self.database = database
+        if let saveRecord {
+            self.saveRecord = saveRecord
+        } else if let database {
+            self.saveRecord = { record in
+                _ = try await database.save(record)
+            }
+        } else {
+            self.saveRecord = nil
+        }
         self.publishStore = publishStore
         self.now = now
     }
@@ -22,9 +33,9 @@ actor DeskSnapshotPublisher {
         publishStore: DeskSnapshotPublishStore = DeskSnapshotPublishStore(),
         now: @escaping @Sendable () -> Date = Date.init
     ) -> DeskSnapshotPublisher? {
-        guard hasCloudKitEntitlement else { return nil }
+        guard hasCloudKitEntitlement, hasSharedContainerEntitlement else { return nil }
         return DeskSnapshotPublisher(
-            database: CKContainer.default().privateCloudDatabase,
+            database: CKContainer(identifier: sharedContainerIdentifier).privateCloudDatabase,
             publishStore: publishStore,
             now: now
         )
@@ -57,18 +68,18 @@ actor DeskSnapshotPublisher {
     func publishIfNeeded(snapshot: DeskSnapshot) async {
         let hash = snapshotHash(snapshot)
         guard await shouldPublish(hash: hash) else { return }
-        guard let database else { return }
+        guard let saveRecord else { return }
 
         do {
             let record = DeskSnapshotRecordCodec.makeRecord(snapshot: snapshot, zoneID: nil)
-            _ = try await database.save(record)
+            try await saveRecord(record)
             await markPublished(hash: hash)
         } catch {
             await AppLogger.shared.warning("[desk-snapshot] publish failed: \(error.localizedDescription)")
         }
     }
 
-    func markPublished(hash: String) async {
+    private func markPublished(hash: String) async {
         await publishStore.save(.init(
             lastHash: hash,
             lastPublishedAt: now()
@@ -107,5 +118,15 @@ actor DeskSnapshotPublisher {
         }
         guard let services = value as? [String] else { return false }
         return services.contains("CloudKit")
+    }
+
+    private static var hasSharedContainerEntitlement: Bool {
+        let entitlement = "com.apple.developer.icloud-container-identifiers" as CFString
+        guard let task = SecTaskCreateFromSelf(nil),
+              let value = SecTaskCopyValueForEntitlement(task, entitlement, nil) else {
+            return false
+        }
+        guard let identifiers = value as? [String] else { return false }
+        return identifiers.contains(sharedContainerIdentifier)
     }
 }

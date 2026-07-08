@@ -48,3 +48,26 @@ Fix-pass verification:
 
 Remaining concern:
 - Debug builds/tests are now intentionally unsigned in project settings so local verification can coexist with the CloudKit entitlement on this machine. Release signing behavior was left unchanged.
+
+---
+
+Runtime review fix pass:
+- Removed the Debug-only `CODE_SIGNING_ALLOWED: NO` bypass from the macOS app target so a signed Debug build can construct a real `DeskSnapshotPublisher`.
+- Switched `DeskSnapshotPublisher.makeIfAvailable()` to the explicit shared container `iCloud.com.fanyu.openpulse.shared` and required both `com.apple.developer.icloud-services` and `com.apple.developer.icloud-container-identifiers` entitlements before constructing the publisher.
+- Added the same shared container identifier to repo source of truth for both the macOS entitlements and the iPhone target entitlements manifest so the app family stays on a shared CloudKit container path instead of target-default containers.
+- Reworked publisher save flow so publish state is persisted only after a successful CloudKit save.
+- Strengthened `failedPublishDoesNotThrottleRetry()` to inject a real save failure and verify the failed publish path remains retry-eligible across repeated attempts.
+
+Runtime fix-pass verification:
+1. `xcodegen generate`
+   - Exact command from the default shell failed because `xcodegen` is not on `PATH` in this environment (`zsh:1: command not found: xcodegen`).
+   - `/opt/homebrew/bin/xcodegen generate` succeeded and regenerated `OpenPulse.xcodeproj`.
+2. `xcodebuild test -project OpenPulse.xcodeproj -scheme OpenPulseTests -destination 'platform=macOS'`
+   - Failed during app-target signing: the local `Mac Team Provisioning Profile: com.fanyu.openpulse` does not include CloudKit, does not support `iCloud.com.fanyu.openpulse.shared`, and does not include the required iCloud entitlements.
+3. `xcodebuild -project OpenPulse.xcodeproj -scheme OpenPulse -configuration Debug build`
+   - Failed for the same provisioning-profile reason.
+4. `xcodebuild -allowProvisioningUpdates -project OpenPulse.xcodeproj -scheme OpenPulse -configuration Debug build`
+   - Failed with `No Accounts: Add a new account in Accounts settings.` and the same missing-CloudKit-profile errors, confirming the remaining blocker is local Xcode account/provisioning state rather than repo configuration.
+
+Runtime fix-pass concern:
+- The repo now preserves the shared CloudKit container and allows a signed Debug app to use the real publisher path, but exact local test/build verification still requires an Apple account plus a provisioning profile for `com.fanyu.openpulse` that includes CloudKit and the shared container `iCloud.com.fanyu.openpulse.shared`.

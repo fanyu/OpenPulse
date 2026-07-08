@@ -2,6 +2,14 @@ import CloudKit
 import Testing
 @testable import OpenPulse
 
+private actor DeskSnapshotPublishAttemptCounter {
+    private(set) var count = 0
+
+    func increment() {
+        count += 1
+    }
+}
+
 struct DeskSnapshotBuilderTests {
     @Test
     func buildUsesCurrentCodexAccountAndClaudeUsage() throws {
@@ -349,7 +357,10 @@ struct DeskSnapshotBuilderTests {
         )
 
         #expect(await publisher.shouldPublish(hash: "same-hash") == true)
-        await publisher.markPublished(hash: "same-hash")
+        await store.save(.init(
+            lastHash: "same-hash",
+            lastPublishedAt: Date(timeIntervalSince1970: 1_000)
+        ))
         #expect(await publisher.shouldPublish(hash: "same-hash") == false)
     }
 
@@ -362,7 +373,13 @@ struct DeskSnapshotBuilderTests {
             userDefaults: defaults,
             key: "test.publish.state.failed"
         )
+        let attempts = DeskSnapshotPublishAttemptCounter()
         let publisher = DeskSnapshotPublisher(
+            saveRecord: { _ in
+                await attempts.increment()
+                struct SaveFailure: Error {}
+                throw SaveFailure()
+            },
             publishStore: store,
             now: { Date(timeIntervalSince1970: 2_000) }
         )
@@ -394,6 +411,8 @@ struct DeskSnapshotBuilderTests {
         )
 
         await publisher.publishIfNeeded(snapshot: snapshot)
+        await publisher.publishIfNeeded(snapshot: snapshot)
+        #expect(await attempts.count == 2)
         #expect(await store.load() == nil)
     }
 }
