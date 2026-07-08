@@ -102,6 +102,7 @@ final class DataSyncService {
     private let antigravityParser = AntigravityParser()
     private let copilotClient = CopilotAPIClient()
     private let codexAccountService: CodexAccountService
+    private let deskSnapshotPublisher: DeskSnapshotPublisher?
     private var dotTextAPIService = DotTextAPIService()
 
     private let modelContainer: ModelContainer
@@ -131,9 +132,14 @@ final class DataSyncService {
 
     // MARK: - Init / lifecycle
 
-    init(modelContainer: ModelContainer, codexAccountService: CodexAccountService) {
+    init(
+        modelContainer: ModelContainer,
+        codexAccountService: CodexAccountService,
+        deskSnapshotPublisher: DeskSnapshotPublisher? = DeskSnapshotPublisher.makeIfAvailable()
+    ) {
         self.modelContainer = modelContainer
         self.codexAccountService = codexAccountService
+        self.deskSnapshotPublisher = deskSnapshotPublisher
         let ctx = ModelContext(modelContainer)
         ctx.autosaveEnabled = false
         self.readContext = ctx
@@ -180,6 +186,9 @@ final class DataSyncService {
             states[tool].recordSuccess()
             failureGates[tool]?.recordSuccess()
             lastParsedAt[tool] = Date()
+            if tool == .codex || tool == .claudeCode {
+                await publishDeskSnapshotIfNeeded()
+            }
         } catch {
             let hasPriorData = hasStoredData(for: tool)
             let shouldSurface = failureGates[tool]?.shouldSurfaceError(onFailureWithPriorData: hasPriorData) ?? true
@@ -859,6 +868,23 @@ final class DataSyncService {
             fallbackQuotas: fallback,
             force: force
         )
+    }
+
+    private func publishDeskSnapshotIfNeeded() async {
+        guard let deskSnapshotPublisher else { return }
+        let codexRaw = Tool.codex.rawValue
+        let claudeRaw = Tool.claudeCode.rawValue
+        let desc = FetchDescriptor<QuotaRecord>(predicate: #Predicate { $0.toolRaw == codexRaw || $0.toolRaw == claudeRaw })
+        let fallbackQuotas = (try? readContext.fetch(desc)) ?? []
+        guard let snapshot = DeskSnapshotBuilder.build(
+            now: Date(),
+            codexAccounts: latestCodexAccounts,
+            claudeUsage: latestClaudeUsage,
+            fallbackQuotas: fallbackQuotas
+        ) else {
+            return
+        }
+        await deskSnapshotPublisher.publishIfNeeded(snapshot: snapshot)
     }
 
     // MARK: - Quota notifications

@@ -333,4 +333,22 @@ struct DeskSnapshotBuilderTests {
         #expect(snapshot?.codex.status == .healthy)
         #expect(snapshot?.codex.petState == .patrol)
     }
+
+    @Test
+    func publisherSkipsUnchangedSnapshotsWithinThrottleWindow() async throws {
+        let defaults = UserDefaults(suiteName: "DeskSnapshotBuilderTests.publisherSkipsUnchangedSnapshotsWithinThrottleWindow")!
+        defaults.removePersistentDomain(forName: "DeskSnapshotBuilderTests.publisherSkipsUnchangedSnapshotsWithinThrottleWindow")
+
+        let store = DeskSnapshotPublishStore(
+            userDefaults: defaults,
+            key: "test.publish.state"
+        )
+        let publisher = DeskSnapshotPublisher(
+            publishStore: store,
+            now: { Date(timeIntervalSince1970: 1_000) }
+        )
+
+        #expect(await publisher.shouldPublish(hash: "same-hash") == true)
+        #expect(await publisher.shouldPublish(hash: "same-hash") == false)
+    }
 }

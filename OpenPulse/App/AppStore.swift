@@ -34,7 +34,11 @@ final class AppStore {
         // Sync writes use short-lived dedicated contexts to avoid the main context
         // retaining a huge registered object graph after long-running imports.
         modelContainer.mainContext.autosaveEnabled = false
-        let service = DataSyncService(modelContainer: modelContainer, codexAccountService: codexAccountService)
+        let service = DataSyncService(
+            modelContainer: modelContainer,
+            codexAccountService: codexAccountService,
+            deskSnapshotPublisher: DeskSnapshotPublisher.makeIfAvailable()
+        )
         syncService = service
         service.start()
     }
