@@ -24,7 +24,11 @@ struct DeskModeRootView: View {
                     )
                     .ignoresSafeArea()
 
-                    VStack(spacing: 12) {
+                    VStack(spacing: 14) {
+                        ProgressView()
+                            .controlSize(.large)
+                            .tint(.white.opacity(0.85))
+
                         Text(appStore.statusText)
                             .font(.system(size: 28, weight: .bold, design: .rounded))
                             .foregroundStyle(.white)
@@ -35,6 +39,15 @@ struct DeskModeRootView: View {
                     }
                     .padding(24)
                 }
+            }
+        }
+        .task {
+            appStore.tick()
+
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled else { break }
+                appStore.tick()
             }
         }
     }

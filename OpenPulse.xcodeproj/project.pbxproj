@@ -9,10 +9,6 @@
 /* Begin PBXBuildFile section */
 		000AF411127AC50853A8733E /* SessionRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7086BEBA8F024D0188556DD4 /* SessionRecord.swift */; };
 		0A44D17A8CC53A181FEDC6E8 /* DeskPetPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D60FF5D45C3DDEB2606CDFD /* DeskPetPresentationTests.swift */; };
-		0D1A4A7C1E2F300100000001 /* DeskPetPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D1A4A7C1E2F300100000101 /* DeskPetPresentation.swift */; };
-		0D1A4A7C1E2F300100000002 /* DeskModeRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D1A4A7C1E2F300100000102 /* DeskModeRootView.swift */; };
-		0D1A4A7C1E2F300100000003 /* TwinCockpitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D1A4A7C1E2F300100000103 /* TwinCockpitView.swift */; };
-		0D1A4A7C1E2F300100000004 /* ToolCockpitPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D1A4A7C1E2F300100000104 /* ToolCockpitPanel.swift */; };
 		0FDD15454877FF1BB808BA5E /* TrendsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44D51BF89557135F70FF6F47 /* TrendsView.swift */; };
 		0FE6E17E5BBE5306AB2F1D04 /* DeskSnapshotRecordCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBBC6CEAD1FDBCFC5BFBEE38 /* DeskSnapshotRecordCodec.swift */; };
 		120AD94708EC0E85F8D859AE /* DailyStatsRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCCDA4DF0EC129A5D3945AA3 /* DailyStatsRecord.swift */; };
@@ -27,11 +23,14 @@
 		345BC4F265674FE27DD25DEC /* ProviderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56E1620B2EC31FA6AC86BB62 /* ProviderView.swift */; };
 		3D2E1FCC20A790060EFF484B /* ConfigsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E0BA47A399C82114B0BE45 /* ConfigsView.swift */; };
 		3E86B004DEBEBA5D9B0AE530 /* Provider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B225807FEB6829DD500E63EB /* Provider.swift */; };
+		437F7F9DEA739E7EE43A7638 /* DeskModeRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D8371D29411F17BCBCEE341 /* DeskModeRootView.swift */; };
 		43F0E34C09A23184A9BF94FE /* CodexParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C9B26FE7E06E64EC6892CF3 /* CodexParser.swift */; };
 		4B5F4624D23EE82803A69FE6 /* MainWindowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A6B0992BD6928565C0BFBA4 /* MainWindowView.swift */; };
 		563CD8915C320F49A4EC6453 /* DeskSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF29881A5F817072F5E1D8BA /* DeskSnapshot.swift */; };
+		5C53CE0021550017EA1E4699 /* CodexPetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2369838855B15995B1F518A4 /* CodexPetView.swift */; };
 		5E5248E69F836344E19E268A /* ToolAnalysisViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8918557F1ECC6689CA035E80 /* ToolAnalysisViews.swift */; };
 		62576FBA949602EE4F6F0B8F /* ClaudeCodeBridgeInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDD4CF2C5EDE7491AE3E099C /* ClaudeCodeBridgeInstaller.swift */; };
+		66426C741594FD0FAB7DD274 /* PetMotion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11A27406725668E5D228E646 /* PetMotion.swift */; };
 		668A3DB6EA2D53B5ED39F244 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 286B3F5BD5A8E159BD60C5BC /* Assets.xcassets */; };
 		66BEC6D1E8C8A0B536C20116 /* DeskSnapshotStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17E651D1FDFFE5962CFE6F74 /* DeskSnapshotStatus.swift */; };
 		699729054FEE00973226B4D7 /* ToolSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 291DCA8660FE30EBF6BCD172 /* ToolSession.swift */; };
@@ -44,6 +43,7 @@
 		8DCA34358535ACF567C1B86B /* CodexAccountService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70978988BAE12EE3FFBBB75A /* CodexAccountService.swift */; };
 		8E0141CA966C633B87D21889 /* Tool.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2237CFB3C8BF55FB591ED0E6 /* Tool.swift */; };
 		9237BBED7F7DEB34F008A597 /* GlobalHotkeyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 342E886F9BF540A62FBE8BC7 /* GlobalHotkeyService.swift */; };
+		9425BA0C6F79627B5F997082 /* TwinCockpitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB866DDFA50543294192F4E7 /* TwinCockpitView.swift */; };
 		96950433BB59A1B34ED7AF1B /* CodexAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00887B511AFC8B11A0DCBC2 /* CodexAccount.swift */; };
 		9B3399EEB8EDBE10BC0BAFB3 /* DeskSnapshotStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17E651D1FDFFE5962CFE6F74 /* DeskSnapshotStatus.swift */; };
 		9B55BE0FE4AF691EB7E7DB4B /* QuotaView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42286951DA0BA5C7591060C1 /* QuotaView.swift */; };
@@ -58,6 +58,7 @@
 		BD5D47BFAF4E61E50078D3A0 /* TaskItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F162B140D2651A261556DD6 /* TaskItem.swift */; };
 		BE64B3C5DC2E6873017231B5 /* CodexProviderManagerViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 371D33D59B140913108C77AB /* CodexProviderManagerViewModel.swift */; };
 		BF06B609A4E880A4B563C576 /* DeskSnapshotBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46B3675E70F8FE20C314691D /* DeskSnapshotBuilderTests.swift */; };
+		C999929649EA60CABD0D71C2 /* ToolCockpitPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 407876C6D385DDD4B5D0339E /* ToolCockpitPanel.swift */; };
 		CD22A05AB603DA1198DA8B79 /* QuotaRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62113CA5D975C1A71899C037 /* QuotaRecord.swift */; };
 		D6D35E8BE1BF0D02FE6B7A64 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AC7AD8BD5E6F4A728B429D9 /* NotificationService.swift */; };
 		D74481B801D4B7B1822ADAB3 /* SessionHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 002E5778BE7AC8F60942BA31 /* SessionHistoryView.swift */; };
@@ -68,6 +69,8 @@
 		E0B47DD84E5433B04F1E56C2 /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FD375993BBFCE958374B4F4 /* MenuBarView.swift */; };
 		E3D22434697CAD1DCBCD0436 /* SwiftZSTD in Frameworks */ = {isa = PBXBuildFile; productRef = A34676B78475615CA09E7538 /* SwiftZSTD */; };
 		E455166A3CA2CA28F1A6E1C2 /* DotTextAPIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C462CDABE8B53296DB5A87C1 /* DotTextAPIService.swift */; };
+		EBFD335F3509D2CFAEB9B960 /* ClaudePetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45EC7E0167EB7C38A94497B5 /* ClaudePetView.swift */; };
+		ECFB8FFAA04201A292572A81 /* DeskPetPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A36419BC2DA101C7B0D091D6 /* DeskPetPresentation.swift */; };
 		EE4954ADE342C53CAC9CC50E /* OpenPulseApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A9237E27AFD4475905CE152 /* OpenPulseApp.swift */; };
 		F12774C3DABC41A52F34F307 /* DeskSnapshotBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 199D2DFFAF60BC90631B3364 /* DeskSnapshotBuilder.swift */; };
 		F184CC454DB542C6C3ABB2EA /* DeskSnapshotBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 199D2DFFAF60BC90631B3364 /* DeskSnapshotBuilder.swift */; };
@@ -96,16 +99,14 @@
 
 /* Begin PBXFileReference section */
 		002E5778BE7AC8F60942BA31 /* SessionHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionHistoryView.swift; sourceTree = "<group>"; };
-		0D1A4A7C1E2F300100000101 /* DeskPetPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeskPetPresentation.swift; sourceTree = "<group>"; };
-		0D1A4A7C1E2F300100000102 /* DeskModeRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeskModeRootView.swift; sourceTree = "<group>"; };
-		0D1A4A7C1E2F300100000103 /* TwinCockpitView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TwinCockpitView.swift; sourceTree = "<group>"; };
-		0D1A4A7C1E2F300100000104 /* ToolCockpitPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolCockpitPanel.swift; sourceTree = "<group>"; };
+		11A27406725668E5D228E646 /* PetMotion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PetMotion.swift; sourceTree = "<group>"; };
 		1495475A35ED9D5528C01B35 /* ClaudeCodeParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeCodeParser.swift; sourceTree = "<group>"; };
 		1697B77668B01C0DED7FD802 /* OpenPulseiPhoneTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = OpenPulseiPhoneTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		17E651D1FDFFE5962CFE6F74 /* DeskSnapshotStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeskSnapshotStatus.swift; sourceTree = "<group>"; };
 		199D2DFFAF60BC90631B3364 /* DeskSnapshotBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeskSnapshotBuilder.swift; sourceTree = "<group>"; };
 		1A9237E27AFD4475905CE152 /* OpenPulseApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenPulseApp.swift; sourceTree = "<group>"; };
 		2237CFB3C8BF55FB591ED0E6 /* Tool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tool.swift; sourceTree = "<group>"; };
+		2369838855B15995B1F518A4 /* CodexPetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexPetView.swift; sourceTree = "<group>"; };
 		286B3F5BD5A8E159BD60C5BC /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		291DCA8660FE30EBF6BCD172 /* ToolSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolSession.swift; sourceTree = "<group>"; };
 		2AE026BA016FC15C87C4607F /* OpenPulse.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = OpenPulse.entitlements; sourceTree = "<group>"; };
@@ -115,9 +116,12 @@
 		342E886F9BF540A62FBE8BC7 /* GlobalHotkeyService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalHotkeyService.swift; sourceTree = "<group>"; };
 		371D33D59B140913108C77AB /* CodexProviderManagerViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexProviderManagerViewModel.swift; sourceTree = "<group>"; };
 		3927C3E82783459157AE7A2D /* ToolQuota.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolQuota.swift; sourceTree = "<group>"; };
+		3D8371D29411F17BCBCEE341 /* DeskModeRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeskModeRootView.swift; sourceTree = "<group>"; };
+		407876C6D385DDD4B5D0339E /* ToolCockpitPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolCockpitPanel.swift; sourceTree = "<group>"; };
 		40AC44480FE7CED374FE367D /* CopilotAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopilotAPIClient.swift; sourceTree = "<group>"; };
 		42286951DA0BA5C7591060C1 /* QuotaView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuotaView.swift; sourceTree = "<group>"; };
 		44D51BF89557135F70FF6F47 /* TrendsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrendsView.swift; sourceTree = "<group>"; };
+		45EC7E0167EB7C38A94497B5 /* ClaudePetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudePetView.swift; sourceTree = "<group>"; };
 		46B3675E70F8FE20C314691D /* DeskSnapshotBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeskSnapshotBuilderTests.swift; sourceTree = "<group>"; };
 		4A93BD64C3AD9D4606D9A6C9 /* OpenPulse.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OpenPulse.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		4A9AE21683AF7CC1231E7F06 /* DeskSnapshotPublisher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeskSnapshotPublisher.swift; sourceTree = "<group>"; };
@@ -141,6 +145,7 @@
 		9AC7AD8BD5E6F4A728B429D9 /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
 		9C298F3CBB422846FB83A5FF /* ProviderComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderComponents.swift; sourceTree = "<group>"; };
 		A17FF3012B7E2288F242C0B7 /* AntigravityParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AntigravityParser.swift; sourceTree = "<group>"; };
+		A36419BC2DA101C7B0D091D6 /* DeskPetPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeskPetPresentation.swift; sourceTree = "<group>"; };
 		A3BA6F0CC3FDD8DFCCCF7CD5 /* KeychainService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainService.swift; sourceTree = "<group>"; };
 		A494FF8BD7215CF0925772F8 /* AppStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStore.swift; sourceTree = "<group>"; };
 		A57ADBD61505E897EDD99EBF /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
@@ -149,6 +154,7 @@
 		AEAF18F33337B779D4773E08 /* DeskSnapshotCloudKitClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeskSnapshotCloudKitClient.swift; sourceTree = "<group>"; };
 		B225807FEB6829DD500E63EB /* Provider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Provider.swift; sourceTree = "<group>"; };
 		B4C4C93A9C7C926692B04B3B /* DeskModeAppStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeskModeAppStore.swift; sourceTree = "<group>"; };
+		BB866DDFA50543294192F4E7 /* TwinCockpitView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TwinCockpitView.swift; sourceTree = "<group>"; };
 		BCCDA4DF0EC129A5D3945AA3 /* DailyStatsRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyStatsRecord.swift; sourceTree = "<group>"; };
 		C00887B511AFC8B11A0DCBC2 /* CodexAccount.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexAccount.swift; sourceTree = "<group>"; };
 		C462CDABE8B53296DB5A87C1 /* DotTextAPIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DotTextAPIService.swift; sourceTree = "<group>"; };
@@ -186,24 +192,6 @@
 				17E651D1FDFFE5962CFE6F74 /* DeskSnapshotStatus.swift */,
 			);
 			path = DeskSnapshot;
-			sourceTree = "<group>";
-		};
-		0D1A4A7C1E2F300100000201 /* Models */ = {
-			isa = PBXGroup;
-			children = (
-				0D1A4A7C1E2F300100000101 /* DeskPetPresentation.swift */,
-			);
-			path = Models;
-			sourceTree = "<group>";
-		};
-		0D1A4A7C1E2F300100000202 /* Views */ = {
-			isa = PBXGroup;
-			children = (
-				0D1A4A7C1E2F300100000102 /* DeskModeRootView.swift */,
-				0D1A4A7C1E2F300100000103 /* TwinCockpitView.swift */,
-				0D1A4A7C1E2F300100000104 /* ToolCockpitPanel.swift */,
-			);
-			path = Views;
 			sourceTree = "<group>";
 		};
 		061AD5EB3E63EE118CA82061 /* Providers */ = {
@@ -334,6 +322,14 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+		5E5DDBBB1573912E0DC1D01D /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				A36419BC2DA101C7B0D091D6 /* DeskPetPresentation.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
 		617B7B4FAE91222EA7F90C1F /* History */ = {
 			isa = PBXGroup;
 			children = (
@@ -348,6 +344,16 @@
 				46B3675E70F8FE20C314691D /* DeskSnapshotBuilderTests.swift */,
 			);
 			path = OpenPulseTests;
+			sourceTree = "<group>";
+		};
+		808646B167D308521BBD1710 /* Pets */ = {
+			isa = PBXGroup;
+			children = (
+				45EC7E0167EB7C38A94497B5 /* ClaudePetView.swift */,
+				2369838855B15995B1F518A4 /* CodexPetView.swift */,
+				11A27406725668E5D228E646 /* PetMotion.swift */,
+			);
+			path = Pets;
 			sourceTree = "<group>";
 		};
 		8093BAC98CB713748D175DB9 /* Data */ = {
@@ -374,6 +380,17 @@
 				5A6B0992BD6928565C0BFBA4 /* MainWindowView.swift */,
 			);
 			path = Dashboard;
+			sourceTree = "<group>";
+		};
+		A1411E72F1112ABC17F51835 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				3D8371D29411F17BCBCEE341 /* DeskModeRootView.swift */,
+				407876C6D385DDD4B5D0339E /* ToolCockpitPanel.swift */,
+				BB866DDFA50543294192F4E7 /* TwinCockpitView.swift */,
+				808646B167D308521BBD1710 /* Pets */,
+			);
+			path = Views;
 			sourceTree = "<group>";
 		};
 		AB35F7FE3669503CF6A8B4A7 /* Resources */ = {
@@ -439,8 +456,8 @@
 			children = (
 				241B7A1242B003AAF7B23C2A /* App */,
 				AEC0A3A2CAF9B0171FB49680 /* Data */,
-				0D1A4A7C1E2F300100000201 /* Models */,
-				0D1A4A7C1E2F300100000202 /* Views */,
+				5E5DDBBB1573912E0DC1D01D /* Models */,
+				A1411E72F1112ABC17F51835 /* Views */,
 			);
 			path = OpenPulseiPhone;
 			sourceTree = "<group>";
@@ -574,7 +591,7 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
-				LastUpgradeCheck = 2600;
+				LastUpgradeCheck = 1600;
 				TargetAttributes = {
 					13301A739F51563F59AC8798 = {
 						DevelopmentTeam = 33M7V22L6Y;
@@ -711,18 +728,21 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				0D1A4A7C1E2F300100000001 /* DeskPetPresentation.swift in Sources */,
-				0D1A4A7C1E2F300100000002 /* DeskModeRootView.swift in Sources */,
+				EBFD335F3509D2CFAEB9B960 /* ClaudePetView.swift in Sources */,
+				5C53CE0021550017EA1E4699 /* CodexPetView.swift in Sources */,
 				F9CED1BCE8F2D85F21019532 /* DeskModeAppStore.swift in Sources */,
+				437F7F9DEA739E7EE43A7638 /* DeskModeRootView.swift in Sources */,
+				ECFB8FFAA04201A292572A81 /* DeskPetPresentation.swift in Sources */,
 				563CD8915C320F49A4EC6453 /* DeskSnapshot.swift in Sources */,
 				F184CC454DB542C6C3ABB2EA /* DeskSnapshotBuilder.swift in Sources */,
 				12CE3979652F6D0171CE6BB3 /* DeskSnapshotCloudKitClient.swift in Sources */,
 				0FE6E17E5BBE5306AB2F1D04 /* DeskSnapshotRecordCodec.swift in Sources */,
 				66BEC6D1E8C8A0B536C20116 /* DeskSnapshotStatus.swift in Sources */,
 				9EE166A477B452E864116449 /* OpenPulseiPhoneApp.swift in Sources */,
-				0D1A4A7C1E2F300100000004 /* ToolCockpitPanel.swift in Sources */,
-				0D1A4A7C1E2F300100000003 /* TwinCockpitView.swift in Sources */,
+				66426C741594FD0FAB7DD274 /* PetMotion.swift in Sources */,
 				8E0141CA966C633B87D21889 /* Tool.swift in Sources */,
+				C999929649EA60CABD0D71C2 /* ToolCockpitPanel.swift in Sources */,
+				9425BA0C6F79627B5F997082 /* TwinCockpitView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -745,9 +765,7 @@
 		099EE9584F70B888DB3DF885 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = OpenPulseiPhone/OpenPulseiPhone.entitlements;
-				CODE_SIGN_IDENTITY = "iPhone Developer";
 				INFOPLIST_FILE = OpenPulseiPhone/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -756,6 +774,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.fanyu.OpenPulseiPhone;
 				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
@@ -764,7 +783,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
-				COMBINE_HIDPI_IMAGES = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -773,6 +791,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.fanyu.OpenPulseTests;
 				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OpenPulse.app/Contents/MacOS/OpenPulse";
 			};
 			name = Release;
@@ -789,6 +808,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.fanyu.OpenPulseiPhoneTests;
 				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OpenPulseiPhone.app/OpenPulseiPhone";
 			};
@@ -799,7 +819,6 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGNING_ALLOWED = NO;
-				COMBINE_HIDPI_IMAGES = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -808,6 +827,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.fanyu.OpenPulseTests;
 				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OpenPulse.app/Contents/MacOS/OpenPulse";
 			};
 			name = Debug;
@@ -817,7 +837,6 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = OpenPulse/OpenPulse.entitlements;
-				COMBINE_HIDPI_IMAGES = YES;
 				INFOPLIST_FILE = OpenPulse/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -825,15 +844,14 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.fanyu.openpulse;
 				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
 			};
 			name = Debug;
 		};
 		A331F5EFF08C24F6A1A64489 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = OpenPulseiPhone/OpenPulseiPhone.entitlements;
-				CODE_SIGN_IDENTITY = "iPhone Developer";
 				INFOPLIST_FILE = OpenPulseiPhone/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -842,6 +860,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.fanyu.OpenPulseiPhone;
 				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
@@ -858,6 +877,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.fanyu.OpenPulseiPhoneTests;
 				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OpenPulseiPhone.app/OpenPulseiPhone";
 			};
@@ -867,59 +887,14 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				CLANG_ANALYZER_NONNULL = YES;
-				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
-				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
-				CLANG_CXX_LIBRARY = "libc++";
-				CLANG_ENABLE_MODULES = YES;
-				CLANG_ENABLE_OBJC_ARC = YES;
-				CLANG_ENABLE_OBJC_WEAK = YES;
-				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
-				CLANG_WARN_BOOL_CONVERSION = YES;
-				CLANG_WARN_COMMA = YES;
-				CLANG_WARN_CONSTANT_CONVERSION = YES;
-				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
-				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
-				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
-				CLANG_WARN_EMPTY_BODY = YES;
-				CLANG_WARN_ENUM_CONVERSION = YES;
-				CLANG_WARN_INFINITE_RECURSION = YES;
-				CLANG_WARN_INT_CONVERSION = YES;
-				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
-				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
-				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
-				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
-				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
-				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
-				CLANG_WARN_STRICT_PROTOTYPES = YES;
-				CLANG_WARN_SUSPICIOUS_MOVE = YES;
-				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
-				CLANG_WARN_UNREACHABLE_CODE = YES;
-				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = 33M7V22L6Y;
 				ENABLE_HARDENED_RUNTIME = YES;
-				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
-				GCC_C_LANGUAGE_STANDARD = gnu11;
-				GCC_DYNAMIC_NO_PIC = NO;
-				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_OPTIMIZATION_LEVEL = 0;
-				GCC_PREPROCESSOR_DEFINITIONS = (
-					"$(inherited)",
-					"DEBUG=1",
-				);
-				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
-				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
-				GCC_WARN_UNDECLARED_SELECTOR = YES;
-				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
-				GCC_WARN_UNUSED_FUNCTION = YES;
-				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
-				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
@@ -933,53 +908,11 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				CLANG_ANALYZER_NONNULL = YES;
-				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
-				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
-				CLANG_CXX_LIBRARY = "libc++";
-				CLANG_ENABLE_MODULES = YES;
-				CLANG_ENABLE_OBJC_ARC = YES;
-				CLANG_ENABLE_OBJC_WEAK = YES;
-				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
-				CLANG_WARN_BOOL_CONVERSION = YES;
-				CLANG_WARN_COMMA = YES;
-				CLANG_WARN_CONSTANT_CONVERSION = YES;
-				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
-				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
-				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
-				CLANG_WARN_EMPTY_BODY = YES;
-				CLANG_WARN_ENUM_CONVERSION = YES;
-				CLANG_WARN_INFINITE_RECURSION = YES;
-				CLANG_WARN_INT_CONVERSION = YES;
-				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
-				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
-				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
-				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
-				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
-				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
-				CLANG_WARN_STRICT_PROTOTYPES = YES;
-				CLANG_WARN_SUSPICIOUS_MOVE = YES;
-				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
-				CLANG_WARN_UNREACHABLE_CODE = YES;
-				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
-				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = 33M7V22L6Y;
 				ENABLE_HARDENED_RUNTIME = YES;
-				ENABLE_NS_ASSERTIONS = NO;
-				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				GCC_C_LANGUAGE_STANDARD = gnu11;
-				GCC_NO_COMMON_BLOCKS = YES;
-				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
-				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
-				GCC_WARN_UNDECLARED_SELECTOR = YES;
-				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
-				GCC_WARN_UNUSED_FUNCTION = YES;
-				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MTL_ENABLE_DEBUG_INFO = NO;
-				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
@@ -993,7 +926,6 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = OpenPulse/OpenPulse.entitlements;
-				COMBINE_HIDPI_IMAGES = YES;
 				INFOPLIST_FILE = OpenPulse/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1001,6 +933,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.fanyu.openpulse;
 				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
 			};
 			name = Release;
 		};

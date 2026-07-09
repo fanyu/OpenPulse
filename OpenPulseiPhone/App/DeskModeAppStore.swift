@@ -28,10 +28,20 @@ final class DeskModeAppStore {
         self.now = now
     }
 
+    func tick(now: Date = .now) {
+        guard let snapshot else {
+            statusText = "Waiting for Mac"
+            return
+        }
+
+        let age = max(0, Int(now.timeIntervalSince(snapshot.updatedAt)))
+        statusText = age > 600 ? "Sync delayed" : "Synced \(age)s ago"
+    }
+
     func refresh() async {
         do {
             snapshot = try await client.fetchCurrent()
-            statusText = snapshot == nil ? "Waiting for Mac" : "Synced just now"
+            tick(now: now())
         } catch {
             statusText = "Cloud sync unavailable"
         }
