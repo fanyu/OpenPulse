@@ -29,14 +29,7 @@ struct ToolCockpitPanel: View {
                     .fill(.white.opacity(0.06))
 
                 VStack(spacing: 12) {
-                    Circle()
-                        .fill(tint.opacity(0.9))
-                        .frame(width: 96, height: 96)
-                        .overlay {
-                            Text(symbol)
-                                .font(.system(size: 36, weight: .bold, design: .rounded))
-                                .foregroundStyle(.white)
-                        }
+                    petStage
 
                     Text(motionLabel)
                         .font(.system(size: 14, weight: .semibold, design: .rounded))
@@ -93,6 +86,25 @@ struct ToolCockpitPanel: View {
             return "G"
         case .antigravity:
             return "O"
+        }
+    }
+
+    @ViewBuilder
+    private var petStage: some View {
+        switch presentation.tool {
+        case .codex:
+            CodexPetView(motion: presentation.motion)
+        case .claudeCode:
+            ClaudePetView(motion: presentation.motion)
+        case .copilot, .antigravity:
+            Circle()
+                .fill(tint.opacity(0.9))
+                .frame(width: 96, height: 96)
+                .overlay {
+                    Text(symbol)
+                        .font(.system(size: 36, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                }
         }
     }
 

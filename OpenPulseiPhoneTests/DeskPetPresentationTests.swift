@@ -43,6 +43,21 @@ struct DeskPetPresentationTests {
         #expect(presentation.isStale)
     }
 
+    @Test
+    func exhaustedPresentationMapsToExhaustedMotion() {
+        let presentation = DeskPetPresentation(
+            tool: .claudeCode,
+            title: "Claude",
+            primaryText: "0%",
+            resetText: "Resets 16:05",
+            fraction: 0,
+            motion: .exhausted,
+            isStale: false
+        )
+
+        #expect(presentation.motion == .exhausted)
+    }
+
     @MainActor
     @Test
     func appStoreStartsInWaitingStateWithoutSnapshot() async throws {
