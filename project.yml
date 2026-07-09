@@ -3,7 +3,7 @@ options:
   bundleIdPrefix: com.fanyu
   deploymentTarget:
     macOS: "26.0"
-  xcodeVersion: "16.0"
+  xcodeVersion: "26.0"
   createIntermediateGroups: true
 
 settings:

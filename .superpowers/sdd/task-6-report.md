@@ -114,3 +114,28 @@ The remaining blocker is local Apple signing/provisioning state for the macOS ap
 - The selected provisioning profile for `com.fanyu.openpulse` does not include the iCloud capability/container entitlements required by `OpenPulse/OpenPulse.entitlements`.
 - Repo-side entitlements, target wiring, and unsigned build/test paths are consistent and working.
 - I did not disable CloudKit/runtime functionality to force a green signed build.
+
+## Fix Pass: Xcode 26 baseline restore
+
+- Restored the repo metadata baseline from the temporary Xcode 16 downgrade back to the stated Xcode 26 configuration:
+  - `project.yml`: `xcodeVersion: "26.0"`
+  - regenerated project metadata: `LastUpgradeCheck = 2600`
+  - regenerated shared schemes: `LastUpgradeVersion = 2600`
+- Preserved the working iPhone simulator scheme/test path while doing the metadata cleanup; no platform wiring was reverted.
+
+### Verification rerun after restore
+
+1. `xcodegen generate`
+   - PASS
+
+2. `xcodebuild test -project OpenPulse.xcodeproj -scheme OpenPulseiPhoneTests -destination 'platform=iOS Simulator,name=iPhone 17'`
+   - PASS
+   - Swift Testing run: 6 tests passed.
+
+3. `xcodebuild -project OpenPulse.xcodeproj -scheme OpenPulseiPhone -destination 'platform=iOS Simulator,name=iPhone 17' build`
+   - PASS
+   - `BUILD SUCCEEDED`
+
+### Remaining concern
+
+- The signed macOS CloudKit verification remains blocked by the same external local provisioning/profile state documented above. Repo-side cleanup in this pass does not change that blocker.
