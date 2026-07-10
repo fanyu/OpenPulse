@@ -422,7 +422,7 @@ private func menuBarShortResetString(for date: Date) -> String {
     if Calendar.current.isDateInToday(date) {
         return menuBarTimeOnlyResetString(for: date)
     }
-    return date.formatted(.dateTime.month(.defaultDigits).day(.defaultDigits).hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
+    return date.formatted(.dateTime.month(.twoDigits).day(.twoDigits).hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
 }
 
 private struct CodexMenuBarWindowDisplayState {
@@ -1051,15 +1051,15 @@ private struct AGMenuBarGroupCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(group.displayName)
-                .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(.primary.opacity(0.85))
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
             
             HStack(spacing: 8) {
                 MenuBarQuotaPanel(
                     title: "5小时余量",
                     fraction: group.fiveHour?.remainingFraction,
                     primaryValue: group.fiveHour?.remainingPercentText ?? "—",
-                    countdown: group.fiveHour?.resetCountdown,
+                    countdown: group.fiveHour?.validatedResetDate.map { menuBarTimeOnlyResetString(for: $0) },
                     footer: nil
                 )
                 
@@ -1067,13 +1067,11 @@ private struct AGMenuBarGroupCard: View {
                     title: "本周余量",
                     fraction: group.weekly?.remainingFraction,
                     primaryValue: group.weekly?.remainingPercentText ?? "—",
-                    countdown: group.weekly?.resetCountdown,
+                    countdown: group.weekly?.validatedResetDate.map { menuBarShortResetString(for: $0) },
                     footer: nil
                 )
             }
         }
-        .padding(10)
-        .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 10))
     }
 }
 
@@ -1082,7 +1080,7 @@ private struct AGMenuBarAccountQuotaBody: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                Text(account.email).font(.system(size: 13, weight: .bold)).lineLimit(1)
+                Text(account.email).font(.system(size: 11, weight: .semibold)).lineLimit(1)
                 AGTierBadge(tier: account.tier)
                 Spacer()
             }

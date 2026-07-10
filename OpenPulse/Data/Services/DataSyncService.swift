@@ -553,6 +553,7 @@ final class DataSyncService {
 
     private func shouldPreferLocalCodexLimits(_ snapshot: CodexParser.LocalRateLimitSnapshot, accountCount: Int) -> Bool {
         guard isUsableCodexLimits(snapshot.limits) else { return false }
+        guard CodexLocalQuotaFreshness.shouldPrefer(snapshotModifiedAt: snapshot.modifiedAt) else { return false }
         return accountCount <= 1
     }
 

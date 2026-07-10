@@ -8,6 +8,18 @@ struct OpenPulseApp: App {
     private let appStore = AppStore.shared
 
     init() {
+        let defaults = UserDefaults.standard
+        if let currentOrder = defaults.string(forKey: "menubar.toolOrder") {
+            var parts = currentOrder.components(separatedBy: ",")
+            if let claudeIndex = parts.firstIndex(of: "claude"),
+               let codexIndex = parts.firstIndex(of: "codex") {
+                if claudeIndex < codexIndex {
+                    parts.swapAt(claudeIndex, codexIndex)
+                    defaults.set(parts.joined(separator: ","), forKey: "menubar.toolOrder")
+                }
+            }
+        }
+
         Task { @MainActor in
             AppStore.shared.startSync()
             GlobalHotkeyService.shared.applyFromDefaults()

@@ -3,8 +3,8 @@ import Foundation
 /// Represents an AI coding tool provider. Carries metadata about
 /// the provider's auth requirements and data source paths.
 enum Provider: String, CaseIterable, Identifiable {
-    case claudeCode  = "claude"
     case codex       = "codex"
+    case claudeCode  = "claude"
     case copilot     = "copilot"
     case antigravity = "antigravity"
 

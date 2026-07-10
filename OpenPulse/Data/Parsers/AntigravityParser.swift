@@ -368,7 +368,7 @@ struct AGWindow: Sendable {
         case .fiveHour:
             return date.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
         case .weekly:
-            return countdownString(to: date)
+            return date.formatted(.dateTime.month(.twoDigits).day(.twoDigits).hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
         }
     }
 }

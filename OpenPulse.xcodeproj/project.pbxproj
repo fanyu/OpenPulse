@@ -37,6 +37,7 @@
 		66BEC6D1E8C8A0B536C20116 /* DeskSnapshotStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17E651D1FDFFE5962CFE6F74 /* DeskSnapshotStatus.swift */; };
 		699729054FEE00973226B4D7 /* ToolSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 291DCA8660FE30EBF6BCD172 /* ToolSession.swift */; };
 		6B768D8C546F760D596E69B2 /* DeskSnapshotPublishStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8642E4FD57B2DE5BF7B8B591 /* DeskSnapshotPublishStore.swift */; };
+		7196AC5A6482EFDDF6C53451 /* CodexLocalQuotaFreshnessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B000B01D6393DAD7166E79C /* CodexLocalQuotaFreshnessTests.swift */; };
 		735412533A94EA74BB0EDD74 /* DailyStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA613E3CB91EF6FF4D66FE15 /* DailyStats.swift */; };
 		7852146B209E224FD8BD3233 /* DeskSnapshotJSONCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96089A98393D51DDBAC6CA5E /* DeskSnapshotJSONCodec.swift */; };
 		7C004E6EC2DBCB001E80E0A8 /* CopilotAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40AC44480FE7CED374FE367D /* CopilotAPIClient.swift */; };
@@ -116,6 +117,7 @@
 		17E651D1FDFFE5962CFE6F74 /* DeskSnapshotStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeskSnapshotStatus.swift; sourceTree = "<group>"; };
 		199D2DFFAF60BC90631B3364 /* DeskSnapshotBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeskSnapshotBuilder.swift; sourceTree = "<group>"; };
 		1A9237E27AFD4475905CE152 /* OpenPulseApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenPulseApp.swift; sourceTree = "<group>"; };
+		1B000B01D6393DAD7166E79C /* CodexLocalQuotaFreshnessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexLocalQuotaFreshnessTests.swift; sourceTree = "<group>"; };
 		2237CFB3C8BF55FB591ED0E6 /* Tool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tool.swift; sourceTree = "<group>"; };
 		2369838855B15995B1F518A4 /* CodexPetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexPetView.swift; sourceTree = "<group>"; };
 		286B3F5BD5A8E159BD60C5BC /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -366,6 +368,7 @@
 				0A6F7077CA0D27B6BDB61005 /* AntigravityAccountServiceTests.swift */,
 				8BEEE7CFE88630FE7AEDE1D3 /* AntigravityCredentialMergeTests.swift */,
 				4F46B64F1721A887975ED14E /* AntigravityQuotaDecodingTests.swift */,
+				1B000B01D6393DAD7166E79C /* CodexLocalQuotaFreshnessTests.swift */,
 				46B3675E70F8FE20C314691D /* DeskSnapshotBuilderTests.swift */,
 			);
 			path = OpenPulseTests;
@@ -693,6 +696,7 @@
 				AA62F58A873777530589382E /* AntigravityAccountServiceTests.swift in Sources */,
 				E614B88A600AD68CF43AEAA5 /* AntigravityCredentialMergeTests.swift in Sources */,
 				079865A4843F16AD4EB903BA /* AntigravityQuotaDecodingTests.swift in Sources */,
+				7196AC5A6482EFDDF6C53451 /* CodexLocalQuotaFreshnessTests.swift in Sources */,
 				BF06B609A4E880A4B563C576 /* DeskSnapshotBuilderTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

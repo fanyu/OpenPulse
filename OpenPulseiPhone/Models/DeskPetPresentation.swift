@@ -15,6 +15,42 @@ struct DeskUsagePresentation: Equatable, Sendable {
     let resetText: String
     let fraction: Double?
     let isAvailable: Bool
+    let remaining: Int?
+    let resetAt: Date?
+
+    init(
+        label: String,
+        percentText: String,
+        resetText: String,
+        fraction: Double?,
+        isAvailable: Bool,
+        remaining: Int? = nil,
+        resetAt: Date? = nil
+    ) {
+        self.label = label
+        self.percentText = percentText
+        self.resetText = resetText
+        self.fraction = fraction
+        self.isAvailable = isAvailable
+        self.remaining = remaining
+        self.resetAt = resetAt
+    }
+
+    func resetCountdown(at now: Date) -> DeskResetCountdownPresentation? {
+        guard isAvailable, remaining == 0, let resetAt, resetAt > now else { return nil }
+
+        let totalSeconds = Int(resetAt.timeIntervalSince(now).rounded(.down))
+        let hours = totalSeconds / 3_600
+        let minutes = (totalSeconds % 3_600) / 60
+        let seconds = totalSeconds % 60
+        return DeskResetCountdownPresentation(
+            text: String(format: "%02d:%02d:%02d", hours, minutes, seconds)
+        )
+    }
+}
+
+struct DeskResetCountdownPresentation: Equatable, Sendable {
+    let text: String
 }
 
 struct DeskPetPresentation: Equatable, Sendable {
@@ -54,7 +90,9 @@ struct DeskPetPresentation: Equatable, Sendable {
             percentText: percentText(from: resolvedFraction),
             resetText: resetText(resetAt: window?.resetAt, now: now),
             fraction: resolvedFraction,
-            isAvailable: resolvedFraction != nil
+            isAvailable: resolvedFraction != nil,
+            remaining: window?.remaining,
+            resetAt: window?.resetAt
         )
     }
 

@@ -4,6 +4,48 @@ import Testing
 
 struct DeskPetPresentationTests {
     @Test
+    func exhaustedSessionWithFutureResetShowsCountdown() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let usage = DeskUsagePresentation(
+            label: "5h limit",
+            percentText: "0%",
+            resetText: "Today 02:02",
+            fraction: 0,
+            isAvailable: true,
+            remaining: 0,
+            resetAt: Date(timeIntervalSince1970: 4_723)
+        )
+
+        #expect(usage.resetCountdown(at: now)?.text == "01:02:03")
+    }
+
+    @Test
+    func nonzeroOrExpiredSessionDoesNotShowCountdown() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let nonzero = DeskUsagePresentation(
+            label: "5h limit",
+            percentText: "1%",
+            resetText: "Today 02:02",
+            fraction: 0.01,
+            isAvailable: true,
+            remaining: 1,
+            resetAt: Date(timeIntervalSince1970: 4_723)
+        )
+        let expired = DeskUsagePresentation(
+            label: "5h limit",
+            percentText: "0%",
+            resetText: "Today 00:16",
+            fraction: 0,
+            isAvailable: true,
+            remaining: 0,
+            resetAt: Date(timeIntervalSince1970: 999)
+        )
+
+        #expect(nonzero.resetCountdown(at: now) == nil)
+        #expect(expired.resetCountdown(at: now) == nil)
+    }
+
+    @Test
     func criticalSnapshotMapsToAlertPresentation() {
         let presentation = DeskPetPresentation.make(
             from: .init(

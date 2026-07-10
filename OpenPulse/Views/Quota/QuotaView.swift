@@ -362,7 +362,11 @@ struct ClaudeDetailRow: View {
         let rem = used.map { max(0, 100 - $0) }
         let isWeekly = label.contains("7d")
         let date = window?.resetDate
-        let footer = date.map { isWeekly ? countdownString(to: $0) : $0.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits)) }
+        let footer = date.map {
+            isWeekly
+                ? $0.formatted(.dateTime.month(.twoDigits).day(.twoDigits).hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
+                : $0.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
+        }
         
         UnifiedQuotaRow(
             title: label,

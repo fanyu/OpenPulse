@@ -2,8 +2,8 @@ import Foundation
 
 /// Identifies which AI coding tool generated a session.
 enum Tool: String, Codable, CaseIterable, Sendable {
-    case claudeCode = "claude"
     case codex = "codex"
+    case claudeCode = "claude"
     case copilot = "copilot"
     case antigravity = "antigravity"
 

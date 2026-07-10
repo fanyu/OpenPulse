@@ -21,7 +21,7 @@ enum DeskQuotaStatus: String, Codable, Sendable {
         if fraction >= 0.4 {
             return .healthy
         }
-        if fraction >= 0.15 {
+        if fraction >= 0.2 {
             return .warning
         }
         return .critical

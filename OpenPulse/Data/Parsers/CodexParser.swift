@@ -309,6 +309,15 @@ actor CodexParser {
     }
 }
 
+enum CodexLocalQuotaFreshness {
+    static let maximumSnapshotAge: TimeInterval = 5 * 60
+
+    static func shouldPrefer(snapshotModifiedAt: Date?, now: Date = Date()) -> Bool {
+        guard let snapshotModifiedAt else { return false }
+        return now.timeIntervalSince(snapshotModifiedAt) <= maximumSnapshotAge
+    }
+}
+
 // MARK: - Decodable models
 
 struct CodexRateLimits: Codable, Sendable {

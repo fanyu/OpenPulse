@@ -171,29 +171,16 @@ struct ToolCockpitPanel: View {
         TimelineView(.animation(minimumInterval: 1.0 / 24.0)) { timeline in
             let phase = PetMotion.phase(at: timeline.date, for: presentation.motion)
 
-            VStack(alignment: .trailing, spacing: 1) {
-                Text(presentation.session.percentText)
-                    .font(.system(size: 30, weight: .heavy, design: .rounded))
-                    .foregroundStyle(.white)
-                    .monospacedDigit()
-
-                Text(bubbleLabel)
-                    .font(.system(size: 8, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.55))
-                    .tracking(0.9)
-                    .textCase(.uppercase)
+            if let countdown = presentation.session.resetCountdown(at: timeline.date) {
+                ExhaustedResetCountdownBubble(text: countdown.text, phase: phase)
+            } else {
+                StandardQuotaBubble(
+                    percentText: presentation.session.percentText,
+                    label: bubbleLabel,
+                    accent: accent,
+                    phase: phase
+                )
             }
-            .padding(.horizontal, 9)
-            .padding(.vertical, 7)
-            .background(accent.opacity(0.16), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(.white.opacity(0.1), lineWidth: 1)
-            }
-            .shadow(color: accent.opacity(0.22), radius: 14, y: 6)
-            .offset(x: sin(phase * 0.9) * 1.5, y: cos(phase * 1.2) * 2)
-            .scaleEffect(1 + (sin(phase * 1.6) * 0.02))
-            //.glassEffect(.regular, in: .rect(cornerRadius: 14))
         }
     }
 
@@ -212,4 +199,66 @@ struct ToolCockpitPanel: View {
         }
     }
 
+}
+
+private struct StandardQuotaBubble: View {
+    let percentText: String
+    let label: String
+    let accent: Color
+    let phase: CGFloat
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 1) {
+            Text(percentText)
+                .font(.system(size: 30, weight: .heavy, design: .rounded))
+                .foregroundStyle(.white)
+                .monospacedDigit()
+
+            Text(label)
+                .font(.system(size: 8, weight: .bold, design: .rounded))
+                .foregroundStyle(.white.opacity(0.55))
+                .tracking(0.9)
+                .textCase(.uppercase)
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 7)
+        .background(accent.opacity(0.16), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(.white.opacity(0.1), lineWidth: 1)
+        }
+        .shadow(color: accent.opacity(0.22), radius: 14, y: 6)
+        .offset(x: sin(phase * 0.9) * 1.5, y: cos(phase * 1.2) * 2)
+        .scaleEffect(1 + (sin(phase * 1.6) * 0.02))
+    }
+}
+
+private struct ExhaustedResetCountdownBubble: View {
+    let text: String
+    let phase: CGFloat
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 2) {
+            Text(text)
+                .font(.system(size: 20, weight: .heavy, design: .rounded))
+                .foregroundStyle(.white)
+                .monospacedDigit()
+
+            Text("Reset in")
+                .font(.system(size: 8, weight: .bold, design: .rounded))
+                .foregroundStyle(.red.opacity(0.84))
+                .tracking(0.9)
+                .textCase(.uppercase)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(Color.red.opacity(0.16), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Color.red.opacity(0.42), lineWidth: 1)
+        }
+        .shadow(color: Color.red.opacity(0.38), radius: 16, y: 6)
+        .offset(y: cos(phase * 1.5) * 2)
+        .scaleEffect(1 + (sin(phase * 2) * 0.025))
+    }
 }
