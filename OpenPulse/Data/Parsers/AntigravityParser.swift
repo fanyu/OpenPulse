@@ -16,15 +16,26 @@ actor AntigravityParser {
     private let brainDir: URL
     private let proxyDir: URL
     private let session: URLSession
+    private let accountService: AntigravityAccountService?
 
     private let loadCodeAssistEndpoint = "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist"
     private let retrieveUserQuotaSummaryEndpoint = "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary"
     private let userAgent = "antigravity/1.11.3 Darwin/arm64"
 
-    init(session: URLSession = .shared) {
+    init(session: URLSession = .shared, accountService: AntigravityAccountService? = AntigravityAccountService()) {
         brainDir = URL.homeDirectory.appending(path: ".gemini/antigravity/brain")
         proxyDir = URL.homeDirectory.appending(path: ".cli-proxy-api")
         self.session = session
+        self.accountService = accountService
+    }
+
+    // MARK: - Credential sources
+
+    static func mergeCredentials(cliProxy: [AGCredential], openPulse: [AGCredential]) -> [AGCredential] {
+        var byEmail: [String: AGCredential] = [:]
+        for c in cliProxy { byEmail[c.email] = c }
+        for c in openPulse { byEmail[c.email] = c }   // openPulse overwrites
+        return Array(byEmail.values).sorted { $0.email < $1.email }
     }
 
     // MARK: - Public API
@@ -97,24 +108,24 @@ actor AntigravityParser {
     // MARK: - Quota via Google Cloud Code Assist API
 
     func fetchAllAccountQuotas() async throws -> AGQuotaFetchResult {
-        let authFiles = try authFilesByEmail()
-        guard !authFiles.isEmpty else { throw AntigravityError.noAuthFile }
+        let creds = await credentials()
+        guard !creds.isEmpty else { throw AntigravityError.noAuthFile }
 
         var accounts: [AGAccountQuota] = []
         var lastError: Error?
 
-        for (_, file) in authFiles {
+        for cred in creds {
             do {
-                let account = try await fetchAccountQuota(from: file)
+                let account = try await fetchAccountQuota(for: cred)
                 accounts.append(account)
             } catch {
-                print("[OpenPulse] Antigravity account \(file.lastPathComponent) failed: \(error.localizedDescription)")
+                print("[OpenPulse] Antigravity account \(cred.email) failed: \(error.localizedDescription)")
                 lastError = error
             }
         }
 
         if accounts.isEmpty, let err = lastError { throw err }
-        return AGQuotaFetchResult(accounts: accounts, orderedEmails: authFiles.map(\.key))
+        return AGQuotaFetchResult(accounts: accounts, orderedEmails: creds.map(\.email))
     }
 
     /// Fetches quota for ALL Antigravity accounts found in ~/.cli-proxy-api/antigravity-*.json.
@@ -126,32 +137,44 @@ actor AntigravityParser {
     }
 
     func fetchQuota(forAccountEmail email: String) async throws -> AGAccountQuota {
-        let authFiles = try authFilesByEmail()
-        guard let file = authFiles.first(where: { $0.key == email })?.value else {
+        guard let cred = await credentials().first(where: { $0.email == email }) else {
             throw AntigravityError.noAuthFile
         }
-        return try await fetchAccountQuota(from: file)
+        return try await fetchAccountQuota(for: cred)
     }
 
-    /// Fetches quota for a single auth file, returns an `AGAccountQuota`.
-    private func fetchAccountQuota(from file: URL) async throws -> AGAccountQuota {
-        let rawData = try Data(contentsOf: file)
-        var auth = try JSONDecoder().decode(AntigravityAuthFile.self, from: rawData)
-        guard !auth.accessToken.isEmpty else { throw AntigravityError.tokenParseFailure }
+    /// Fetches quota for a single credential (cli-proxy auth file or OpenPulse-owned OAuth account).
+    private func fetchAccountQuota(for cred: AGCredential) async throws -> AGAccountQuota {
+        switch cred.source {
+        case .cliProxy(let file):
+            let rawData = try Data(contentsOf: file)
+            var auth = try JSONDecoder().decode(AntigravityAuthFile.self, from: rawData)
+            guard !auth.accessToken.isEmpty else { throw AntigravityError.tokenParseFailure }
 
-        if auth.isExpired, let refreshToken = auth.refreshToken, !refreshToken.isEmpty {
-            let (newToken, expiresIn) = try await refreshAccessToken(refreshToken: refreshToken)
-            auth.accessToken = newToken
-            persistRefreshedToken(at: file, originalData: rawData, newToken: newToken, expiresIn: expiresIn)
+            if auth.isExpired, let refreshToken = auth.refreshToken, !refreshToken.isEmpty {
+                let (newToken, expiresIn) = try await refreshAccessToken(refreshToken: refreshToken)
+                auth.accessToken = newToken
+                persistRefreshedToken(at: file, originalData: rawData, newToken: newToken, expiresIn: expiresIn)
+            }
+
+            let token = auth.accessToken
+            // Derive email from filename: "antigravity-user_gmail_com.json" → "user@gmail.com"
+            let email = auth.email ?? emailFromFilename(file.deletingPathExtension().lastPathComponent)
+
+            let (projectId, tier) = try await fetchProjectAndTier(token: token)
+            let groups = try await fetchQuotaSummary(token: token, projectId: projectId)
+            return AGAccountQuota(email: email, tier: tier, groups: groups)
+
+        case .openPulse:
+            guard let refreshToken = await accountService?.refreshToken(for: cred.email), !refreshToken.isEmpty else {
+                throw AntigravityError.noAuthFile
+            }
+            let (token, _) = try await refreshAccessToken(refreshToken: refreshToken)
+
+            let (projectId, tier) = try await fetchProjectAndTier(token: token)
+            let groups = try await fetchQuotaSummary(token: token, projectId: projectId)
+            return AGAccountQuota(email: cred.email, tier: tier, groups: groups)
         }
-
-        let token = auth.accessToken
-        // Derive email from filename: "antigravity-user_gmail_com.json" → "user@gmail.com"
-        let email = auth.email ?? emailFromFilename(file.deletingPathExtension().lastPathComponent)
-
-        let (projectId, tier) = try await fetchProjectAndTier(token: token)
-        let groups = try await fetchQuotaSummary(token: token, projectId: projectId)
-        return AGAccountQuota(email: email, tier: tier, groups: groups)
     }
 
     // MARK: - Auth
@@ -260,24 +283,15 @@ actor AntigravityParser {
         parseISO8601Flexible(string)
     }
 
-    private func authFilesByEmail() throws -> [(key: String, value: URL)] {
-        guard FileManager.default.fileExists(atPath: proxyDir.path) else {
-            throw AntigravityError.noAuthFile
-        }
-        let files = (try? FileManager.default.contentsOfDirectory(at: proxyDir, includingPropertiesForKeys: nil)
+    /// Merged view of Antigravity credentials from both sources: cli-proxy auth files on disk
+    /// (`~/.cli-proxy-api/antigravity-*.json`) and OpenPulse-owned OAuth accounts (Keychain-backed,
+    /// via `AntigravityAccountService`). OpenPulse wins on email collisions (see `mergeCredentials`).
+    private func credentials() async -> [AGCredential] {
+        let cli = ((try? FileManager.default.contentsOfDirectory(at: proxyDir, includingPropertiesForKeys: nil)) ?? [])
             .filter { $0.lastPathComponent.hasPrefix("antigravity-") && $0.pathExtension == "json" }
-            .sorted { $0.lastPathComponent < $1.lastPathComponent }) ?? []
-        guard !files.isEmpty else { throw AntigravityError.noAuthFile }
-
-        var items: [(key: String, value: URL)] = []
-        for file in files {
-            let rawData = try? Data(contentsOf: file)
-            let email = rawData
-                .flatMap { try? JSONDecoder().decode(AntigravityAuthFile.self, from: $0).email }
-                ?? emailFromFilename(file.deletingPathExtension().lastPathComponent)
-            items.append((key: email, value: file))
-        }
-        return items
+            .map { AGCredential(email: emailFromFilename($0.deletingPathExtension().lastPathComponent), source: .cliProxy($0)) }
+        let op = await (accountService?.listAccounts() ?? []).map { AGCredential(email: $0.email, source: .openPulse) }
+        return Self.mergeCredentials(cliProxy: cli, openPulse: op)
     }
 
     private func toolQuota(from accounts: [AGAccountQuota]) -> ToolQuota {
@@ -430,6 +444,20 @@ private struct AGLoadCodeAssistResponse: Decodable {
 struct AGQuotaFetchResult: Sendable {
     let accounts: [AGAccountQuota]
     let orderedEmails: [String]
+}
+
+/// Where an Antigravity credential's tokens live.
+enum AGCredentialSource: Sendable {
+    /// A cli-proxy-api auth file at `~/.cli-proxy-api/antigravity-*.json`.
+    case cliProxy(URL)
+    /// An OpenPulse-owned OAuth account, refresh token stored in Keychain via `AntigravityAccountService`.
+    case openPulse
+}
+
+/// A discovered Antigravity account, merged from cli-proxy scan and OpenPulse in-app login.
+struct AGCredential: Sendable {
+    let email: String
+    let source: AGCredentialSource
 }
 
 // MARK: - Decodable models (file-private)
