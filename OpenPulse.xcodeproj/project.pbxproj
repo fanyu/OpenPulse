@@ -17,6 +17,7 @@
 		14430807CC94A6DC009B7688 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E19C33043EDF71F1F02B80A /* SettingsView.swift */; };
 		15AC55FA0DD8FAE2E6ACD525 /* ToolSyncState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A861A46E5DC496FBF634333 /* ToolSyncState.swift */; };
 		1849468AE6964F666C0B0D94 /* DeskSnapshotRecordCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBBC6CEAD1FDBCFC5BFBEE38 /* DeskSnapshotRecordCodec.swift */; };
+		21CE939FE442438317191E86 /* AGQuotaViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8950C654CBB9588830CE876E /* AGQuotaViews.swift */; };
 		293CDACA7222D9FF8E6F0FC1 /* ToolLogoImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94FD8AE1EE05A1ACE40E370B /* ToolLogoImage.swift */; };
 		2B82DB8B5FDD88D24079D486 /* ModelPricing.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD19B5E14DF8670708D6A8C0 /* ModelPricing.swift */; };
 		301E60B6321C36303453A64E /* LogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D058DCA8091F77E73442094 /* LogView.swift */; };
@@ -143,6 +144,7 @@
 		81921BD303D05CDD163141CA /* OpenPulseBrandView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenPulseBrandView.swift; sourceTree = "<group>"; };
 		8642E4FD57B2DE5BF7B8B591 /* DeskSnapshotPublishStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeskSnapshotPublishStore.swift; sourceTree = "<group>"; };
 		8918557F1ECC6689CA035E80 /* ToolAnalysisViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolAnalysisViews.swift; sourceTree = "<group>"; };
+		8950C654CBB9588830CE876E /* AGQuotaViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AGQuotaViews.swift; sourceTree = "<group>"; };
 		89E51531D07B099F396C58D4 /* DataSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DataSyncService.swift; sourceTree = "<group>"; };
 		8A861A46E5DC496FBF634333 /* ToolSyncState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolSyncState.swift; sourceTree = "<group>"; };
 		8EBE61111110DE52D6658CF8 /* OpenPulseiPhoneApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenPulseiPhoneApp.swift; sourceTree = "<group>"; };
@@ -243,6 +245,7 @@
 		2DFBA3C0B6C06B106955382F /* Components */ = {
 			isa = PBXGroup;
 			children = (
+				8950C654CBB9588830CE876E /* AGQuotaViews.swift */,
 				E44DFE8B1FF414DC177BEF99 /* CommonUI.swift */,
 				8918557F1ECC6689CA035E80 /* ToolAnalysisViews.swift */,
 				94FD8AE1EE05A1ACE40E370B /* ToolLogoImage.swift */,
@@ -682,6 +685,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				21CE939FE442438317191E86 /* AGQuotaViews.swift in Sources */,
 				A7F5BB96B28B86404C636C2C /* AntigravityParser.swift in Sources */,
 				DB9441BF2084C275703BE518 /* AppLogger.swift in Sources */,
 				8A245E69560FCDDB793578B1 /* AppStore.swift in Sources */,
@@ -779,7 +783,7 @@
 		099EE9584F70B888DB3DF885 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon-iPhone";
 				CODE_SIGN_ENTITLEMENTS = OpenPulseiPhone/OpenPulseiPhone.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				INFOPLIST_FILE = OpenPulseiPhone/Info.plist;
@@ -869,7 +873,7 @@
 		A331F5EFF08C24F6A1A64489 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon-iPhone";
 				CODE_SIGN_ENTITLEMENTS = OpenPulseiPhone/OpenPulseiPhone.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				INFOPLIST_FILE = OpenPulseiPhone/Info.plist;
