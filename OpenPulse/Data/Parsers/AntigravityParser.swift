@@ -14,8 +14,7 @@ actor AntigravityParser {
     private let oauthClientSecret = "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"
     private let tokenEndpoint = "https://oauth2.googleapis.com/token"
     private let loadCodeAssistEndpoint = "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist"
-    private let fetchModelsEndpoint = "https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels"
-    private let retrieveUserQuotaEndpoint = "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota"
+    private let retrieveUserQuotaSummaryEndpoint = "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary"
     private let userAgent = "antigravity/1.11.3 Darwin/arm64"
 
     init(session: URLSession = .shared) {
@@ -146,11 +145,9 @@ actor AntigravityParser {
         // Derive email from filename: "antigravity-user_gmail_com.json" → "user@gmail.com"
         let email = auth.email ?? emailFromFilename(file.deletingPathExtension().lastPathComponent)
 
-        // ponytail: grouped-window fetch (retrieveUserQuotaSummary) + tier lookup land in Task 2/3;
-        // this keeps the module compiling for Task 1's type/decoder-only scope.
-        _ = try await fetchProjectId(token: token)
-
-        return AGAccountQuota(email: email, tier: nil, groups: [])
+        let (projectId, tier) = try await fetchProjectAndTier(token: token)
+        let groups = try await fetchQuotaSummary(token: token, projectId: projectId)
+        return AGAccountQuota(email: email, tier: tier, groups: groups)
     }
 
     // MARK: - Auth
@@ -192,7 +189,7 @@ actor AntigravityParser {
 
     // MARK: - API calls
 
-    private func fetchProjectId(token: String) async throws -> String? {
+    private func fetchProjectAndTier(token: String) async throws -> (projectId: String?, tier: AGTier?) {
         var request = URLRequest(url: URL(string: loadCodeAssistEndpoint)!)
         request.httpMethod = "POST"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -202,86 +199,37 @@ actor AntigravityParser {
         request.timeoutInterval = 10
 
         let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else { return nil }
+        guard let http = response as? HTTPURLResponse else { return (nil, nil) }
         guard (200..<300).contains(http.statusCode) else {
             let body = String(data: data, encoding: .utf8) ?? ""
             throw AntigravityError.apiFailed("loadCodeAssist HTTP \(http.statusCode): \(body.prefix(200))")
         }
-
-        let info = (try? JSONDecoder().decode(AGLoadCodeAssistResponse.self, from: data))
-        return info?.cloudaicompanionProject
+        let info = try? JSONDecoder().decode(AGLoadCodeAssistResponse.self, from: data)
+        let tier = Self.decodeTier(from: data)
+        return (info?.cloudaicompanionProject, tier)
     }
 
-    private func fetchModelCatalog(token: String, projectId: String?) async throws -> AGModelCatalog {
-        var request = URLRequest(url: URL(string: fetchModelsEndpoint)!)
+    private func fetchQuotaSummary(token: String, projectId: String?) async throws -> [AGQuotaGroup] {
+        var request = URLRequest(url: URL(string: retrieveUserQuotaSummaryEndpoint)!)
         request.httpMethod = "POST"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
-
         var payload: [String: Any] = [:]
-        if let pid = projectId { payload["project"] = pid }
+        if let projectId { payload["project"] = projectId }
         request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
         request.timeoutInterval = 10
 
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
-            throw AntigravityError.apiFailed("No HTTP response from fetchAvailableModels")
+            throw AntigravityError.apiFailed("No HTTP response from retrieveUserQuotaSummary")
         }
         if http.statusCode == 403 { throw AntigravityError.apiFailed("403 Forbidden – check Google auth") }
         guard (200..<300).contains(http.statusCode) else {
             let body = String(data: data, encoding: .utf8) ?? ""
-            throw AntigravityError.apiFailed("fetchAvailableModels HTTP \(http.statusCode): \(body.prefix(200))")
+            throw AntigravityError.apiFailed("retrieveUserQuotaSummary HTTP \(http.statusCode): \(body.prefix(200))")
         }
-
-        let apiResp = try JSONDecoder().decode(AGModelCatalogResponse.self, from: data)
-
-        let recommendedIds: [String] = apiResp.agentModelSorts
-            .flatMap { $0.groups }
-            .flatMap { $0.modelIds }
-
-        var seen = Set<String>()
-        var orderedIds = recommendedIds.filter { seen.insert($0).inserted }
-        let remaining = apiResp.models.keys.filter { !seen.contains($0) }.sorted()
-        orderedIds.append(contentsOf: remaining)
-
-        var displayNamesByID: [String: String] = [:]
-        for modelId in orderedIds {
-            guard let info = apiResp.models[modelId] else { continue }
-            guard let displayName = info.displayName, displayName != modelId else { continue }
-            displayNamesByID[modelId] = displayName
-        }
-
-        return AGModelCatalog(
-            orderedIDs: orderedIds,
-            displayNamesByID: displayNamesByID
-        )
-    }
-
-    private func fetchQuotaBuckets(token: String, projectId: String?) async throws -> [AGQuotaBucket] {
-        var request = URLRequest(url: URL(string: retrieveUserQuotaEndpoint)!)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
-
-        var payload: [String: Any] = [:]
-        if let pid = projectId { payload["project"] = pid }
-        request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
-        request.timeoutInterval = 10
-
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw AntigravityError.apiFailed("No HTTP response from retrieveUserQuota")
-        }
-        if http.statusCode == 403 { throw AntigravityError.apiFailed("403 Forbidden – check Google auth") }
-        guard (200..<300).contains(http.statusCode) else {
-            let body = String(data: data, encoding: .utf8) ?? ""
-            throw AntigravityError.apiFailed("retrieveUserQuota HTTP \(http.statusCode): \(body.prefix(200))")
-        }
-
-        let apiResp = try JSONDecoder().decode(AGUserQuotaResponse.self, from: data)
-        return apiResp.buckets
+        return try Self.decodeQuotaGroups(from: data)
     }
 
     // MARK: - Helpers
@@ -308,44 +256,6 @@ actor AntigravityParser {
         parseISO8601Flexible(string)
     }
 
-    private func mergeModelCatalogs(primary: AGModelCatalog, secondary: AGModelCatalog) -> AGModelCatalog {
-        var orderedIDs = primary.orderedIDs
-        var displayNamesByID = primary.displayNamesByID
-
-        for modelID in secondary.orderedIDs {
-            if !orderedIDs.contains(modelID) {
-                orderedIDs.append(modelID)
-            }
-            if displayNamesByID[modelID] == nil, let displayName = secondary.displayNamesByID[modelID] {
-                displayNamesByID[modelID] = displayName
-            }
-        }
-
-        return AGModelCatalog(orderedIDs: orderedIDs, displayNamesByID: displayNamesByID)
-    }
-
-    private func mergeQuotaBuckets(primary: [AGQuotaBucket], secondary: [AGQuotaBucket]) -> [AGQuotaBucket] {
-        var orderedModelIDs: [String] = []
-        var bestByModelID: [String: AGQuotaBucket] = [:]
-
-        for bucket in primary + secondary {
-            if bestByModelID[bucket.modelID] == nil {
-                orderedModelIDs.append(bucket.modelID)
-                bestByModelID[bucket.modelID] = bucket
-                continue
-            }
-
-            // Keep the project-scoped bucket when it already has usable quota data.
-            // The fallback no-project response often reports `remainingFraction = 1`
-            // for every model, which would otherwise overwrite the real per-project quota.
-            if let existing = bestByModelID[bucket.modelID], bucket.improvesMissingFields(over: existing) {
-                bestByModelID[bucket.modelID] = bucket
-            }
-        }
-
-        return orderedModelIDs.compactMap { bestByModelID[$0] }
-    }
-
     private func authFilesByEmail() throws -> [(key: String, value: URL)] {
         guard FileManager.default.fileExists(atPath: proxyDir.path) else {
             throw AntigravityError.noAuthFile
@@ -367,9 +277,8 @@ actor AntigravityParser {
     }
 
     private func toolQuota(from accounts: [AGAccountQuota]) -> ToolQuota {
-        let windows = accounts.flatMap(\.groups).flatMap { [$0.fiveHour, $0.weekly] }.compactMap { $0 }
-        let minFraction = windows.compactMap(\.remainingFraction).min()
-        let resetAt = windows.compactMap(\.validatedResetDate).min()
+        let minFraction = accounts.compactMap(\.geminiRemainingFraction).min()
+        let resetAt = accounts.compactMap(\.geminiEarliestReset).min()
         let remainingPct = minFraction.map { Int(($0 * 100).rounded()) }
 
         return ToolQuota(
@@ -578,11 +487,6 @@ struct AGQuotaFetchResult: Sendable {
     let orderedEmails: [String]
 }
 
-struct AGModelCatalog: Sendable {
-    let orderedIDs: [String]
-    let displayNamesByID: [String: String]
-}
-
 // MARK: - Decodable models (file-private)
 
 private struct BrainMetadata: Decodable {
@@ -624,73 +528,6 @@ private struct AGTokenRefreshResponse: Decodable {
     enum CodingKeys: String, CodingKey {
         case accessToken = "access_token"
         case expiresIn = "expires_in"
-    }
-}
-
-private struct AGModelCatalogResponse: Decodable {
-    let models: [String: AGModelInfo]
-    let agentModelSorts: [AGModelSort]
-
-    enum CodingKeys: String, CodingKey {
-        case models
-        case agentModelSorts
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        models = try container.decodeIfPresent([String: AGModelInfo].self, forKey: .models) ?? [:]
-        agentModelSorts = try container.decodeIfPresent([AGModelSort].self, forKey: .agentModelSorts) ?? []
-    }
-}
-
-private struct AGModelSort: Decodable {
-    let groups: [AGModelGroup]
-}
-
-private struct AGModelGroup: Decodable {
-    let modelIds: [String]
-}
-
-private struct AGModelInfo: Decodable {
-    let displayName: String?
-}
-
-private struct AGQuotaBucket: Decodable {
-    let modelID: String
-    let remainingFraction: Double?
-    let resetTime: String?
-
-    enum CodingKeys: String, CodingKey {
-        case modelID = "modelId"
-        case remainingFraction
-        case resetTime
-    }
-
-    var clampedRemainingFraction: Double? {
-        remainingFraction.map { min(1.0, max(0.0, $0)) }
-    }
-
-    func improvesMissingFields(over other: AGQuotaBucket) -> Bool {
-        let addsFraction = other.clampedRemainingFraction == nil && clampedRemainingFraction != nil
-        let addsReset = parseISO8601Flexible(other.resetTime ?? "") == nil
-            && parseISO8601Flexible(resetTime ?? "") != nil
-        return addsFraction || addsReset
-    }
-}
-
-private struct AGUserQuotaResponse: Decodable {
-    let buckets: [AGQuotaBucket]
-
-    enum CodingKeys: String, CodingKey {
-        case buckets
-        case quotaBuckets
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        buckets = try container.decodeIfPresent([AGQuotaBucket].self, forKey: .buckets)
-            ?? container.decodeIfPresent([AGQuotaBucket].self, forKey: .quotaBuckets)
-            ?? []
     }
 }
 
