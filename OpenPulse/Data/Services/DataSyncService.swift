@@ -702,8 +702,6 @@ final class DataSyncService {
 
         return orderedEmails.compactMap { email in
             switch (currentByEmail[email], refreshedByEmail[email]) {
-            case let (currentAccount?, refreshedAccount?):
-                currentAccount.mergedPreferBetter(with: refreshedAccount)
             case let (_, refreshedAccount?):
                 refreshedAccount
             case let (currentAccount?, _):
@@ -732,22 +730,14 @@ final class DataSyncService {
     }
 
     private func antigravityAggregateQuota(from accounts: [AGAccountQuota]) -> ToolQuota {
-        let geminiModels = accounts.flatMap(\.geminiModels)
-        let allFractions = geminiModels.compactMap(\.remainingFraction)
-        let minFraction = allFractions.min()
-        let resetAt = geminiModels.compactMap(\.validatedResetDate).min()
+        let minFraction = accounts.compactMap(\.geminiRemainingFraction).min()
+        let resetAt = accounts.compactMap(\.geminiEarliestReset).min()
         let remainingPct = minFraction.map { Int(($0 * 100).rounded()) }
-
         return ToolQuota(
-            id: Tool.antigravity.rawValue,
-            tool: .antigravity,
-            accountKey: nil,
-            accountLabel: nil,
-            remaining: remainingPct,
-            total: remainingPct == nil ? nil : 100,
-            unit: .requests,
-            resetAt: resetAt,
-            updatedAt: Date(),
+            id: Tool.antigravity.rawValue, tool: .antigravity,
+            accountKey: nil, accountLabel: nil,
+            remaining: remainingPct, total: remainingPct == nil ? nil : 100,
+            unit: .requests, resetAt: resetAt, updatedAt: Date(),
             raw: accounts as (any Sendable)
         )
     }
