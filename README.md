@@ -6,9 +6,9 @@ A native macOS menu bar app that unifies token consumption and quota tracking ac
 
 ### Option 1: Download Release (Recommended)
 
-Download **OpenPulse-1.0.1.dmg** from [GitHub Releases](https://github.com/fanyu/OpenPulse/releases):
+Download the latest **OpenPulse DMG** from [GitHub Releases](https://github.com/fanyu/OpenPulse/releases):
 
-1. Download `OpenPulse-1.0.1.dmg`
+1. Download the latest `OpenPulse-<version>.dmg`
 2. Open the DMG and drag **OpenPulse.app** to Applications
 3. On first launch, right-click → **Open** to bypass Gatekeeper
 
@@ -31,6 +31,12 @@ xcodebuild -project OpenPulse.xcodeproj -scheme OpenPulse -configuration Release
 | **In Context** | **Dashboard — Quota** |
 | ![Menubar context](docs/screenshot-menubar-context.png) | ![Quota](docs/screenshot-dashboard-quota.png) |
 
+## iPhone Desk Mode
+
+OpenPulse also includes a landscape iPhone companion display for a desk-mounted phone. It mirrors the current Codex and Claude 5h / 7d quotas from the Mac through the same iCloud account, including reset times, progress bars, animated pets, and an animated countdown when a 5h quota is exhausted.
+
+![OpenPulse iPhone Desk Mode](docs/phone_usage.png)
+
 ## Highlights
 
 - Track sessions, token usage, and quota across multiple AI coding assistants in one native macOS app.
@@ -39,6 +45,7 @@ xcodebuild -project OpenPulse.xcodeproj -scheme OpenPulse -configuration Release
 - Native `NSStatusItem` menu bar integration with a compact popover, custom status icon, and optional two-line Codex / Claude remaining quota summary.
 - Granular menu bar settings for tool visibility, ordering, refresh intervals, direct title quota display, global hotkey, and launch at login.
 - Built-in provider management, local config file browser/editor, runtime log viewer, low-quota notifications, and Dot Text API quota sync.
+- Landscape iPhone Desk Mode mirrors Codex and Claude quota data from the Mac over iCloud for an always-on desk display.
 
 ## Supported Tools
 
@@ -187,6 +194,12 @@ MIT
 | **桌面环境** | **主面板 · 配额** |
 | ![环境截图](docs/screenshot-menubar-context.png) | ![配额](docs/screenshot-dashboard-quota.png) |
 
+## iPhone 桌面模式
+
+OpenPulse 还提供横屏 iPhone 伴侣显示，适合将手机长期横放在桌面。Mac 与 iPhone 登录同一 iCloud 账号后，iPhone 会同步展示 Codex 和 Claude 当前的 5h / 7d 剩余额度、重置时间、进度条和宠物动画；当 5h 额度耗尽但尚未重置时，会显示动态倒计时。
+
+![OpenPulse iPhone 桌面模式](docs/phone_usage.png)
+
 ## 功能亮点
 
 - 用一款原生 macOS 应用统一查看多种 AI 编程助手的会话、Token 用量和配额。
@@ -195,6 +208,7 @@ MIT
 - 基于原生 `NSStatusItem` 的菜单栏体验，支持自定义状态图标和可选的 Codex / Claude 两行额度摘要。
 - 提供完整的菜单栏设置：工具显示顺序、显隐、刷新频率、直接显示额度、全局快捷键、开机启动。
 - 内置接入管理、配置文件浏览/编辑、运行日志查看、低额度通知，以及 Dot Text API 配额同步。
+- 支持横屏 iPhone 桌面模式，通过 iCloud 同步展示 Mac 上的 Codex / Claude 配额。
 
 ## 支持的工具
 
