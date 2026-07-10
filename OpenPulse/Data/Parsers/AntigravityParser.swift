@@ -373,65 +373,6 @@ struct AGAccountQuota: Sendable, Identifiable {
         guard let g = groups.first(where: { $0.id == "gemini" }) else { return nil }
         return [g.fiveHour?.validatedResetDate, g.weekly?.validatedResetDate].compactMap { $0 }.min()
     }
-
-    // ponytail: temporary compat shim so MenuBarView/QuotaView/ProviderComponents/DataSyncService
-    // (still built against the flat per-model shape) keep compiling until Tasks 2-5 rewire them
-    // onto AGQuotaGroup/AGWindow directly. Remove once those call sites are migrated.
-    @available(*, deprecated, message: "Task 2-5: migrate call sites to AGQuotaGroup/AGWindow, then delete")
-    var models: [AGModelQuota] {
-        groups.flatMap { group -> [AGModelQuota] in
-            [
-                (group.fiveHour, "5h"),
-                (group.weekly, "Weekly")
-            ].compactMap { window, label in
-                guard let window else { return nil }
-                return AGModelQuota(
-                    id: "\(group.id)-\(label)",
-                    displayName: "\(group.displayName) (\(label))",
-                    remainingFraction: window.remainingFraction,
-                    resetTime: window.resetTime.map { ISO8601DateFormatter().string(from: $0) }
-                )
-            }
-        }
-    }
-
-    @available(*, deprecated, message: "Task 2-5: migrate call sites to AGQuotaGroup/AGWindow, then delete")
-    var geminiModels: [AGModelQuota] { models.filter { $0.id.hasPrefix("gemini-") } }
-
-    @available(*, deprecated, message: "Task 2-5: migrate to group-level refresh, then delete")
-    func mergedPreferBetter(with newer: AGAccountQuota) -> AGAccountQuota {
-        var order = groups.map(\.id)
-        var byId = Dictionary(uniqueKeysWithValues: groups.map { ($0.id, $0) })
-        for group in newer.groups {
-            if byId[group.id] == nil { order.append(group.id) }
-            byId[group.id] = group
-        }
-        return AGAccountQuota(email: email, tier: newer.tier ?? tier, groups: order.compactMap { byId[$0] })
-    }
-}
-
-@available(*, deprecated, message: "Task 2-5: migrate call sites to AGQuotaGroup/AGWindow, then delete")
-struct AGModelQuota: Sendable {
-    let id: String
-    let displayName: String
-    let remainingFraction: Double?
-    let resetTime: String?
-
-    var validatedResetDate: Date? {
-        guard let t = resetTime, let date = parseISO8601Flexible(t), date > Date() else { return nil }
-        return date
-    }
-    var formattedPercentage: String {
-        guard let f = remainingFraction else { return "—" }
-        return "\(Int((f * 100).rounded()))%"
-    }
-    var primaryValueText: String { formattedPercentage }
-    var secondaryStatusText: String? {
-        remainingFraction == nil && validatedResetDate != nil ? "额度未知" : nil
-    }
-    var resetCountdown: String? {
-        validatedResetDate.map { countdownString(to: $0) }
-    }
 }
 
 extension AntigravityParser {

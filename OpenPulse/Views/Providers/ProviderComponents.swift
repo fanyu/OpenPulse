@@ -459,19 +459,16 @@ struct CopilotProviderContent: View {
 
 struct AntigravityProviderContent: View {
     let appStore: AppStore
-    @AppStorage("ag.syncModelConfig") private var syncModelConfig = true
     @AppStorage("ag.hiddenAccountEmails") private var hiddenAccountEmailsRaw = ""
-    @AppStorage("ag.hiddenModelIds") private var globalHiddenModelIdsRaw = ""
 
     private var hiddenAccountEmails: Set<String> { Set(hiddenAccountEmailsRaw.components(separatedBy: ",").filter { !$0.isEmpty }) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Toggle("同步所有账号的模型显示配置", isOn: $syncModelConfig).font(.subheadline)
             if let accounts = appStore.syncService?.latestAntigravityAccounts, !accounts.isEmpty {
                 VStack(spacing: 16) {
                     ForEach(accounts) { account in
-                        AGAccountCard(account: account, syncModelConfig: syncModelConfig, isAccountHidden: hiddenAccountEmails.contains(account.email), globalHiddenIdsRaw: $globalHiddenModelIdsRaw) { setHiddenAccount(account.email, $0) }
+                        AGAccountCard(account: account, isAccountHidden: hiddenAccountEmails.contains(account.email)) { setHiddenAccount(account.email, $0) }
                     }
                 }
             } else {
@@ -488,60 +485,20 @@ struct AntigravityProviderContent: View {
 
 struct AGAccountCard: View {
     let account: AGAccountQuota
-    let syncModelConfig: Bool
     let isAccountHidden: Bool
-    @Binding var globalHiddenIdsRaw: String
     let onToggleAccount: (Bool) -> Void
-    
-    @State private var modelsExpanded = false
-    @State private var localHiddenIdsRaw: String = ""
-
-    private var hiddenIdsBinding: Binding<String> { syncModelConfig ? $globalHiddenIdsRaw : $localHiddenIdsRaw }
-    private var hiddenIds: Set<String> { Set(hiddenIdsBinding.wrappedValue.components(separatedBy: ",").filter { !$0.isEmpty }) }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(account.email).font(.system(size: 13, weight: .bold))
-                    Text("\(account.models.count) models available").font(.system(size: 10)).foregroundStyle(.tertiary)
-                }
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                AGTierBadge(tier: account.tier)
                 Spacer()
-                HStack(spacing: 16) {
-                    Toggle("", isOn: Binding(get: { !isAccountHidden }, set: { onToggleAccount($0) })).toggleStyle(.switch).labelsHidden().controlSize(.small)
-                    Button(action: { withAnimation(.spring(duration: 0.3, bounce: 0.1)) { modelsExpanded.toggle() } }) {
-                        Image(systemName: "chevron.down").font(.system(size: 11, weight: .bold)).rotationEffect(.degrees(modelsExpanded ? 180 : 0)).foregroundStyle(.secondary).frame(width: 24, height: 24).background(Color.primary.opacity(0.05), in: Circle())
-                    }.buttonStyle(.plain)
-                }
+                Toggle("", isOn: Binding(get: { !isAccountHidden }, set: { onToggleAccount($0) }))
+                    .toggleStyle(.switch).labelsHidden().controlSize(.small)
             }
-            .padding(14).contentShape(Rectangle())
-            .onTapGesture { withAnimation(.spring(duration: 0.3, bounce: 0.1)) { modelsExpanded.toggle() } }
-            
-            if modelsExpanded && !isAccountHidden {
-                Divider().opacity(0.05).padding(.horizontal, 14)
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 8)], spacing: 8) {
-                    ForEach(account.models, id: \.id) { model in
-                        let isSelected = !hiddenIds.contains(model.id)
-                        Button { toggleModel(model.id) } label: {
-                            HStack(spacing: 6) {
-                                Circle().fill(isSelected ? Color.green : Color.primary.opacity(0.2)).frame(width: 6, height: 6)
-                                Text(model.displayName).font(.system(size: 10, weight: isSelected ? .bold : .medium)).foregroundStyle(isSelected ? .primary : .secondary).lineLimit(1)
-                            }
-                            .padding(.horizontal, 10).padding(.vertical, 8)
-                            .frame(maxWidth: .infinity, alignment: .leading).background(isSelected ? Color.green.opacity(0.1) : Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 8))
-                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(isSelected ? Color.green.opacity(0.2) : Color.clear, lineWidth: 1))
-                        }.buttonStyle(.plain)
-                    }
-                }.padding(14).transition(.move(edge: .top).combined(with: .opacity))
-            }
+            AGAccountQuotaBody(account: account)
         }
-        .background(Color.primary.opacity(0.03)).clipShape(RoundedRectangle(cornerRadius: 16)).overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.primary.opacity(0.05), lineWidth: 1))
-        .onAppear { localHiddenIdsRaw = UserDefaults.standard.string(forKey: "ag.hiddenModelIds.\(account.email)") ?? "" }
-    }
-
-    private func toggleModel(_ id: String) {
-        var ids = hiddenIds; if ids.contains(id) { ids.remove(id) } else { ids.insert(id) }
-        let newValue = ids.joined(separator: ","); hiddenIdsBinding.wrappedValue = newValue
-        if !syncModelConfig { UserDefaults.standard.set(newValue, forKey: "ag.hiddenModelIds.\(account.email)") }
+        .padding(14)
+        .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.primary.opacity(0.05), lineWidth: 1))
     }
 }

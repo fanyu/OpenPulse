@@ -1081,12 +1081,7 @@ struct AntigravityMultiAccountCard: View {
 struct AntigravityAggregateCard: View {
     let accounts: [AGAccountQuota]
     let todayTokens: Int
-    @AppStorage("ag.hiddenModelIds") private var globalHiddenModelIdsRaw = ""
     @AppStorage("ag.hiddenAccountEmails") private var hiddenAccountEmailsRaw = ""
-
-    private var hiddenModelIds: Set<String> {
-        Set(globalHiddenModelIdsRaw.components(separatedBy: ",").filter { !$0.isEmpty })
-    }
 
     private var hiddenAccountEmails: Set<String> {
         Set(hiddenAccountEmailsRaw.components(separatedBy: ",").filter { !$0.isEmpty })
@@ -1094,60 +1089,6 @@ struct AntigravityAggregateCard: View {
 
     private var visibleAccounts: [AGAccountQuota] {
         accounts.filter { !hiddenAccountEmails.contains($0.email) }
-    }
-
-    private var aggregatedModels: [AntigravityAggregatedModel] {
-        var orderedKeys: [String] = []
-        var buckets: [String: [AGModelQuota]] = [:]
-        var titles: [String: String] = [:]
-
-        for model in visibleAccounts.flatMap(\.models) where !hiddenModelIds.contains(model.id) {
-            let key = model.displayName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            guard !key.isEmpty else { continue }
-            if buckets[key] == nil {
-                orderedKeys.append(key)
-                titles[key] = model.displayName
-            }
-            buckets[key, default: []].append(model)
-        }
-
-        return orderedKeys.compactMap { key in
-            guard let models = buckets[key], let title = titles[key] else { return nil }
-            let fractions = models.compactMap(\.remainingFraction)
-            let average = fractions.isEmpty ? nil : fractions.reduce(0, +) / Double(fractions.count)
-            return AntigravityAggregatedModel(
-                id: key,
-                title: title,
-                remainingFraction: average,
-                resetDate: models.compactMap(\.validatedResetDate).min(),
-                contributingCount: fractions.count
-            )
-        }
-        .filter { $0.remainingFraction != nil || $0.resetDate != nil }
-    }
-
-    private var prioritizedAggregatedModels: [AntigravityAggregatedModel] {
-        aggregatedModels.sorted { lhs, rhs in
-            switch (lhs.remainingFraction, rhs.remainingFraction) {
-            case let (l?, r?): return l < r
-            case (.some, .none): return true
-            case (.none, .some): return false
-            case (.none, .none): return lhs.title < rhs.title
-            }
-        }
-    }
-
-    private var displayedAggregatedModels: [AntigravityAggregatedModel] {
-        Array(prioritizedAggregatedModels.prefix(4))
-    }
-
-    private var hiddenAggregatedModelCount: Int {
-        max(0, aggregatedModels.count - displayedAggregatedModels.count)
-    }
-
-    private var lowestRemainingText: String {
-        guard let lowest = aggregatedModels.compactMap(\.remainingFraction).min() else { return "—" }
-        return "\(Int((lowest * 100).rounded()))%"
     }
 
     var body: some View {
@@ -1159,37 +1100,18 @@ struct AntigravityAggregateCard: View {
                 ConfigShortcutButton(tool: .antigravity)
             }
         } content: {
-            if aggregatedModels.isEmpty {
-                Text("暂无可聚合的模型额度")
+            if visibleAccounts.isEmpty {
+                Text("暂无可用账号额度")
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    AntigravityAggregateSummary(
-                        accountCount: visibleAccounts.count,
-                        modelCount: aggregatedModels.count,
-                        lowestRemainingText: lowestRemainingText
-                    )
-
-                    let pairs = stride(from: 0, to: displayedAggregatedModels.count, by: 2)
-                        .map { Array(displayedAggregatedModels[$0..<min($0 + 2, displayedAggregatedModels.count)]) }
-                    VStack(spacing: 5) {
-                        ForEach(pairs, id: \.first?.id) { pair in
-                            HStack(alignment: .top, spacing: 6) {
-                                ForEach(pair) { model in
-                                    AntigravityAggregatedModelRow(model: model)
-                                        .frame(maxWidth: .infinity)
-                                }
-                                if pair.count == 1 { Color.clear.frame(maxWidth: .infinity) }
-                            }
+                VStack(spacing: 10) {
+                    ForEach(visibleAccounts) { account in
+                        AGAccountQuotaBody(account: account)
+                        if account.id != visibleAccounts.last?.id {
+                            Divider().opacity(0.18)
                         }
-                    }
-
-                    if hiddenAggregatedModelCount > 0 {
-                        Text("+\(hiddenAggregatedModelCount) 个模型在主窗口查看")
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundStyle(.tertiary)
                     }
                 }
             }
@@ -1197,126 +1119,19 @@ struct AntigravityAggregateCard: View {
     }
 }
 
-struct AntigravityAggregatedModel: Identifiable {
-    let id: String
-    let title: String
-    let remainingFraction: Double?
-    let resetDate: Date?
-    let contributingCount: Int
-
-    var primaryValueText: String {
-        guard let remainingFraction else { return "—" }
-        return "\(Int((remainingFraction * 100).rounded()))%"
-    }
-
-    var footerText: String {
-        contributingCount > 0 ? String(localized: "\(contributingCount) 个账号") : String(localized: "额度未知")
-    }
-}
-
-struct AntigravityAggregateSummary: View {
-    let accountCount: Int
-    let modelCount: Int
-    let lowestRemainingText: String
-
-    var body: some View {
-        HStack(spacing: 6) {
-            aggregatePill(label: "账号", value: "\(accountCount)")
-            aggregatePill(label: "模型", value: "\(modelCount)")
-            aggregatePill(label: "最低余量", value: lowestRemainingText, emphasized: true)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func aggregatePill(label: String, value: String, emphasized: Bool = false) -> some View {
-        HStack(spacing: 4) {
-            Text(LocalizedStringKey(label))
-                .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(.secondary)
-            Text(value)
-                .font(.system(size: 10, weight: .bold, design: .monospaced))
-                .foregroundStyle(emphasized ? .primary : .secondary)
-        }
-        .padding(.horizontal, 7)
-        .padding(.vertical, 4)
-        .background(Color.primary.opacity(emphasized ? 0.07 : 0.045), in: Capsule())
-    }
-}
-
-struct AntigravityAggregatedModelRow: View {
-    let model: AntigravityAggregatedModel
-
-    var body: some View {
-        MenuBarQuotaPanel(
-            title: model.title,
-            fraction: model.remainingFraction,
-            primaryValue: model.primaryValueText,
-            countdown: model.resetDate.map { menuBarShortResetString(for: $0) },
-            footer: model.footerText
-        )
-    }
-}
-
-/// Content for a single Antigravity account (email + model quota grid).
+/// Content for a single Antigravity account (email + tier badge + quota groups).
 /// No outer card chrome — used inside AntigravityMultiAccountCard.
 struct AntigravityAccountSection: View {
     let account: AGAccountQuota
-    @AppStorage("ag.hiddenModelIds") private var globalHiddenModelIdsRaw = ""
     @AppStorage("ag.hiddenAccountEmails") private var hiddenAccountEmailsRaw = ""
-    @AppStorage("ag.syncModelConfig") private var syncModelConfig = true
 
-    private var hiddenIds: Set<String> {
-        Set(effectiveHiddenModelIdsRaw.components(separatedBy: ",").filter { !$0.isEmpty })
-    }
-    private var effectiveHiddenModelIdsRaw: String {
-        syncModelConfig
-            ? globalHiddenModelIdsRaw
-            : (UserDefaults.standard.string(forKey: "ag.hiddenModelIds.\(account.email)") ?? "")
-    }
     private var isAccountHidden: Bool {
         Set(hiddenAccountEmailsRaw.components(separatedBy: ",").filter { !$0.isEmpty }).contains(account.email)
     }
-    private var visibleModels: [AGModelQuota] { account.models.filter { !hiddenIds.contains($0.id) } }
-    private var displayedModels: [AGModelQuota] { Array(visibleModels.prefix(4)) }
-    private var hiddenModelCount: Int { max(0, visibleModels.count - displayedModels.count) }
 
     var body: some View {
         if isAccountHidden { EmptyView() } else {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(account.email)
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                if visibleModels.isEmpty {
-                    Text("全部模型已隐藏")
-                        .font(.system(size: 9))
-                        .foregroundStyle(.quaternary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                } else if displayedModels.count == 1 {
-                    AntigravityModelRow(model: displayedModels[0]).frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    let pairs = stride(from: 0, to: displayedModels.count, by: 2)
-                        .map { Array(displayedModels[$0..<min($0 + 2, displayedModels.count)]) }
-                    VStack(spacing: 5) {
-                        ForEach(pairs, id: \.first?.id) { pair in
-                            HStack(alignment: .top, spacing: 6) {
-                                ForEach(pair, id: \.id) { model in
-                                    AntigravityModelRow(model: model, inGrid: true).frame(maxWidth: .infinity)
-                                }
-                                if pair.count == 1 { Color.clear.frame(maxWidth: .infinity) }
-                            }
-                        }
-                    }
-                }
-                if hiddenModelCount > 0 {
-                    Text("+\(hiddenModelCount) 个模型在主窗口查看")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundStyle(.tertiary)
-                }
-            }
+            AGAccountQuotaBody(account: account)
         }
     }
 }
@@ -1345,23 +1160,6 @@ struct AntigravityFallbackCard: View {
                 )
             }
         }
-    }
-}
-
-/// Shared quota row for a single Antigravity model.
-/// `inGrid: true` adds the cell background used in the two-column grid layout.
-struct AntigravityModelRow: View {
-    let model: AGModelQuota
-    var inGrid: Bool = false
-
-    var body: some View {
-        MenuBarQuotaPanel(
-            title: model.displayName,
-            fraction: model.remainingFraction,
-            primaryValue: model.primaryValueText,
-            countdown: model.resetCountdown,
-            footer: model.secondaryStatusText
-        )
     }
 }
 

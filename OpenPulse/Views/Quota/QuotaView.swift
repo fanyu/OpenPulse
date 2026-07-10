@@ -653,44 +653,8 @@ struct AntigravityDetailCard: View {
 
     var body: some View {
         DetailCardContainer(tool: .antigravity, todayTokens: todayTokens, isRefreshing: isRefreshing, onRefresh: onRefresh) {
-            VStack(alignment: .leading, spacing: 12) {
-                Text(account.email).font(.caption).foregroundStyle(.secondary)
-                
-                let cols = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
-                if account.models.isEmpty {
-                    Text("No quota data")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    LazyVGrid(columns: cols, spacing: 12) {
-                        ForEach(account.models, id: \.id) { model in
-                            AntigravityModelGridCell(model: model)
-                        }
-                    }
-                }
-            }
+            AGAccountQuotaBody(account: account)
         }
-    }
-}
-
-struct AntigravityModelGridCell: View {
-    let model: AGModelQuota
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            UnifiedQuotaRow(
-                showUsedAtTop: true,
-                valuePlacement: .bottomLeading,
-                title: model.displayName,
-                fraction: model.remainingFraction,
-                primaryValue: model.primaryValueText,
-                secondaryValue: model.remainingFraction.map { "\(max(0, 100 - Int(($0 * 100).rounded())))% used" } ?? model.secondaryStatusText,
-                countdown: model.resetCountdown
-            )
-        }
-        .padding(14)
-        .background(Color.primary.opacity(0.03))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 }
 
