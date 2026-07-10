@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		000AF411127AC50853A8733E /* SessionRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7086BEBA8F024D0188556DD4 /* SessionRecord.swift */; };
+		079865A4843F16AD4EB903BA /* AntigravityQuotaDecodingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F46B64F1721A887975ED14E /* AntigravityQuotaDecodingTests.swift */; };
 		0A44D17A8CC53A181FEDC6E8 /* DeskPetPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D60FF5D45C3DDEB2606CDFD /* DeskPetPresentationTests.swift */; };
 		0FDD15454877FF1BB808BA5E /* TrendsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44D51BF89557135F70FF6F47 /* TrendsView.swift */; };
 		0FE6E17E5BBE5306AB2F1D04 /* DeskSnapshotRecordCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBBC6CEAD1FDBCFC5BFBEE38 /* DeskSnapshotRecordCodec.swift */; };
@@ -128,6 +129,7 @@
 		46B3675E70F8FE20C314691D /* DeskSnapshotBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeskSnapshotBuilderTests.swift; sourceTree = "<group>"; };
 		4A93BD64C3AD9D4606D9A6C9 /* OpenPulse.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OpenPulse.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		4A9AE21683AF7CC1231E7F06 /* DeskSnapshotPublisher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeskSnapshotPublisher.swift; sourceTree = "<group>"; };
+		4F46B64F1721A887975ED14E /* AntigravityQuotaDecodingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AntigravityQuotaDecodingTests.swift; sourceTree = "<group>"; };
 		56E1620B2EC31FA6AC86BB62 /* ProviderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderView.swift; sourceTree = "<group>"; };
 		5A6B0992BD6928565C0BFBA4 /* MainWindowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowView.swift; sourceTree = "<group>"; };
 		5D60FF5D45C3DDEB2606CDFD /* DeskPetPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeskPetPresentationTests.swift; sourceTree = "<group>"; };
@@ -347,6 +349,7 @@
 		68CCC27517777277E2542509 /* OpenPulseTests */ = {
 			isa = PBXGroup;
 			children = (
+				4F46B64F1721A887975ED14E /* AntigravityQuotaDecodingTests.swift */,
 				46B3675E70F8FE20C314691D /* DeskSnapshotBuilderTests.swift */,
 			);
 			path = OpenPulseTests;
@@ -662,6 +665,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				079865A4843F16AD4EB903BA /* AntigravityQuotaDecodingTests.swift in Sources */,
 				BF06B609A4E880A4B563C576 /* DeskSnapshotBuilderTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

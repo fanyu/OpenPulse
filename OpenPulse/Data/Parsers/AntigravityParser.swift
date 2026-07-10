@@ -146,20 +146,11 @@ actor AntigravityParser {
         // Derive email from filename: "antigravity-user_gmail_com.json" → "user@gmail.com"
         let email = auth.email ?? emailFromFilename(file.deletingPathExtension().lastPathComponent)
 
-        let projectId = try await fetchProjectId(token: token)
-        var catalog = try await fetchModelCatalog(token: token, projectId: projectId)
-        if projectId != nil {
-            let fallbackCatalog = try await fetchModelCatalog(token: token, projectId: nil)
-            catalog = mergeModelCatalogs(primary: catalog, secondary: fallbackCatalog)
-        }
-        var quotaBuckets = try await fetchQuotaBuckets(token: token, projectId: projectId)
-        if projectId != nil {
-            let fallbackBuckets = try await fetchQuotaBuckets(token: token, projectId: nil)
-            quotaBuckets = mergeQuotaBuckets(primary: quotaBuckets, secondary: fallbackBuckets)
-        }
-        let models = mergeQuotaBuckets(quotaBuckets, with: catalog)
+        // ponytail: grouped-window fetch (retrieveUserQuotaSummary) + tier lookup land in Task 2/3;
+        // this keeps the module compiling for Task 1's type/decoder-only scope.
+        _ = try await fetchProjectId(token: token)
 
-        return AGAccountQuota(email: email, models: models)
+        return AGAccountQuota(email: email, tier: nil, groups: [])
     }
 
     // MARK: - Auth
@@ -217,7 +208,7 @@ actor AntigravityParser {
             throw AntigravityError.apiFailed("loadCodeAssist HTTP \(http.statusCode): \(body.prefix(200))")
         }
 
-        let info = (try? JSONDecoder().decode(AGSubscriptionInfo.self, from: data))
+        let info = (try? JSONDecoder().decode(AGLoadCodeAssistResponse.self, from: data))
         return info?.cloudaicompanionProject
     }
 
@@ -355,41 +346,6 @@ actor AntigravityParser {
         return orderedModelIDs.compactMap { bestByModelID[$0] }
     }
 
-    private func mergeQuotaBuckets(_ buckets: [AGQuotaBucket], with catalog: AGModelCatalog) -> [AGModelQuota] {
-        var orderedIDs = catalog.orderedIDs
-        let bucketIDs = Set(buckets.map(\.modelID))
-        for modelID in bucketIDs.sorted() where !orderedIDs.contains(modelID) {
-            orderedIDs.append(modelID)
-        }
-
-        let bucketsByID = Dictionary(uniqueKeysWithValues: buckets.map { ($0.modelID, $0) })
-        var orderedNames: [String] = []
-        var bestByDisplayName: [String: AGModelQuota] = [:]
-
-        for modelID in orderedIDs {
-            guard let bucket = bucketsByID[modelID] else { continue }
-            guard let displayName = catalog.displayNamesByID[modelID], displayName != modelID else { continue }
-
-            let candidate = AGModelQuota(
-                id: modelID,
-                displayName: displayName,
-                remainingFraction: bucket.clampedRemainingFraction,
-                resetTime: bucket.resetTime
-            )
-
-            if let existing = bestByDisplayName[displayName] {
-                if candidate.isPreferred(over: existing) {
-                    bestByDisplayName[displayName] = candidate
-                }
-            } else {
-                orderedNames.append(displayName)
-                bestByDisplayName[displayName] = candidate
-            }
-        }
-
-        return orderedNames.compactMap { bestByDisplayName[$0] }
-    }
-
     private func authFilesByEmail() throws -> [(key: String, value: URL)] {
         guard FileManager.default.fileExists(atPath: proxyDir.path) else {
             throw AntigravityError.noAuthFile
@@ -411,9 +367,9 @@ actor AntigravityParser {
     }
 
     private func toolQuota(from accounts: [AGAccountQuota]) -> ToolQuota {
-        let allFractions = accounts.flatMap(\.models).compactMap(\.remainingFraction)
-        let minFraction = allFractions.min()
-        let resetAt = accounts.flatMap(\.models).compactMap(\.validatedResetDate).min()
+        let windows = accounts.flatMap(\.groups).flatMap { [$0.fiveHour, $0.weekly] }.compactMap { $0 }
+        let minFraction = windows.compactMap(\.remainingFraction).min()
+        let resetAt = windows.compactMap(\.validatedResetDate).min()
         let remainingPct = minFraction.map { Int(($0 * 100).rounded()) }
 
         return ToolQuota(
@@ -456,36 +412,165 @@ actor AntigravityParser {
 
 // MARK: - Per-account quota (returned in ToolQuota.raw and exposed via DataSyncService)
 
-/// Quota data for one Antigravity account, containing all of its models.
+struct AGWindow: Sendable {
+    enum Kind: Sendable { case fiveHour, weekly }
+    let kind: Kind
+    let remainingFraction: Double?
+    let resetTime: Date?
+    let description: String?
+
+    var remainingPercentText: String {
+        guard let f = remainingFraction else { return "—" }
+        return "\(Int((min(1, max(0, f)) * 100).rounded()))%"
+    }
+    /// Future-only; Antigravity sometimes returns reference-date placeholders.
+    var validatedResetDate: Date? {
+        guard let resetTime, resetTime > Date() else { return nil }
+        return resetTime
+    }
+    var resetCountdown: String? {
+        validatedResetDate.map { countdownString(to: $0) }
+    }
+}
+
+struct AGQuotaGroup: Sendable, Identifiable {
+    let id: String            // bucket prefix, e.g. "gemini" / "3p"
+    let displayName: String
+    let fiveHour: AGWindow?
+    let weekly: AGWindow?
+}
+
+struct AGTier: Sendable {
+    let id: String
+    let name: String
+    var isPaid: Bool { id != "free-tier" }
+    var badgeLabel: String { isPaid ? "Google AI Pro" : "Free" }
+}
+
+/// Quota data for one Antigravity account, grouped by provider (Gemini / third-party) and time window.
 struct AGAccountQuota: Sendable, Identifiable {
     /// Derived from the auth file name, e.g. "user@gmail.com"
     let email: String
-    /// All models returned by the API for this account (recommended first, then the rest)
-    let models: [AGModelQuota]
-
+    let tier: AGTier?
+    let groups: [AGQuotaGroup]
     var id: String { email }
-    var geminiModels: [AGModelQuota] { models.filter(\.isGeminiModel) }
 
-    func mergedPreferBetter(with newer: AGAccountQuota) -> AGAccountQuota {
-        var orderedNames: [String] = []
-        var bestByDisplayName: [String: AGModelQuota] = [:]
+    /// Gemini group's worst remaining fraction (drives menu-bar aggregate).
+    var geminiRemainingFraction: Double? {
+        guard let g = groups.first(where: { $0.id == "gemini" }) else { return nil }
+        return [g.fiveHour?.remainingFraction, g.weekly?.remainingFraction].compactMap { $0 }.min()
+    }
+    var geminiEarliestReset: Date? {
+        guard let g = groups.first(where: { $0.id == "gemini" }) else { return nil }
+        return [g.fiveHour?.validatedResetDate, g.weekly?.validatedResetDate].compactMap { $0 }.min()
+    }
 
-        for model in newer.models + models {
-            if let existing = bestByDisplayName[model.displayName] {
-                if model.isPreferred(over: existing) {
-                    bestByDisplayName[model.displayName] = model
-                }
-            } else {
-                orderedNames.append(model.displayName)
-                bestByDisplayName[model.displayName] = model
+    // ponytail: temporary compat shim so MenuBarView/QuotaView/ProviderComponents/DataSyncService
+    // (still built against the flat per-model shape) keep compiling until Tasks 2-5 rewire them
+    // onto AGQuotaGroup/AGWindow directly. Remove once those call sites are migrated.
+    @available(*, deprecated, message: "Task 2-5: migrate call sites to AGQuotaGroup/AGWindow, then delete")
+    var models: [AGModelQuota] {
+        groups.flatMap { group -> [AGModelQuota] in
+            [
+                (group.fiveHour, "5h"),
+                (group.weekly, "Weekly")
+            ].compactMap { window, label in
+                guard let window else { return nil }
+                return AGModelQuota(
+                    id: "\(group.id)-\(label)",
+                    displayName: "\(group.displayName) (\(label))",
+                    remainingFraction: window.remainingFraction,
+                    resetTime: window.resetTime.map { ISO8601DateFormatter().string(from: $0) }
+                )
             }
         }
-
-        return AGAccountQuota(
-            email: email,
-            models: orderedNames.compactMap { bestByDisplayName[$0] }
-        )
     }
+
+    @available(*, deprecated, message: "Task 2-5: migrate call sites to AGQuotaGroup/AGWindow, then delete")
+    var geminiModels: [AGModelQuota] { models.filter { $0.id.hasPrefix("gemini-") } }
+
+    @available(*, deprecated, message: "Task 2-5: migrate to group-level refresh, then delete")
+    func mergedPreferBetter(with newer: AGAccountQuota) -> AGAccountQuota {
+        var order = groups.map(\.id)
+        var byId = Dictionary(uniqueKeysWithValues: groups.map { ($0.id, $0) })
+        for group in newer.groups {
+            if byId[group.id] == nil { order.append(group.id) }
+            byId[group.id] = group
+        }
+        return AGAccountQuota(email: email, tier: newer.tier ?? tier, groups: order.compactMap { byId[$0] })
+    }
+}
+
+@available(*, deprecated, message: "Task 2-5: migrate call sites to AGQuotaGroup/AGWindow, then delete")
+struct AGModelQuota: Sendable {
+    let id: String
+    let displayName: String
+    let remainingFraction: Double?
+    let resetTime: String?
+
+    var validatedResetDate: Date? {
+        guard let t = resetTime, let date = parseISO8601Flexible(t), date > Date() else { return nil }
+        return date
+    }
+    var formattedPercentage: String {
+        guard let f = remainingFraction else { return "—" }
+        return "\(Int((f * 100).rounded()))%"
+    }
+    var primaryValueText: String { formattedPercentage }
+    var secondaryStatusText: String? {
+        remainingFraction == nil && validatedResetDate != nil ? "额度未知" : nil
+    }
+    var resetCountdown: String? {
+        validatedResetDate.map { countdownString(to: $0) }
+    }
+}
+
+extension AntigravityParser {
+    static func decodeQuotaGroups(from data: Data) throws -> [AGQuotaGroup] {
+        let resp = try JSONDecoder().decode(AGQuotaSummaryResponse.self, from: data)
+        return resp.groups.map { group in
+            let byWindow = Dictionary(grouping: group.buckets, by: \.window)
+            func window(_ key: String, _ kind: AGWindow.Kind) -> AGWindow? {
+                guard let b = byWindow[key]?.first else { return nil }
+                return AGWindow(
+                    kind: kind,
+                    remainingFraction: b.remainingFraction.map { min(1, max(0, $0)) },
+                    resetTime: b.resetTime.flatMap(parseISO8601Flexible),
+                    description: b.description
+                )
+            }
+            return AGQuotaGroup(
+                id: group.buckets.first?.bucketId.components(separatedBy: "-").first ?? group.displayName,
+                displayName: group.displayName,
+                fiveHour: window("5h", .fiveHour),
+                weekly: window("weekly", .weekly)
+            )
+        }
+    }
+
+    static func decodeTier(from data: Data) -> AGTier? {
+        guard let info = try? JSONDecoder().decode(AGLoadCodeAssistResponse.self, from: data),
+              let tier = info.currentTier else { return nil }
+        return AGTier(id: tier.id, name: tier.name)
+    }
+}
+
+private struct AGQuotaSummaryResponse: Decodable {
+    struct Group: Decodable { let displayName: String; let buckets: [Bucket] }
+    struct Bucket: Decodable {
+        let bucketId: String
+        let window: String
+        let resetTime: String?
+        let remainingFraction: Double?
+        let description: String?
+    }
+    let groups: [Group]
+}
+
+private struct AGLoadCodeAssistResponse: Decodable {
+    struct Tier: Decodable { let id: String; let name: String }
+    let currentTier: Tier?
+    let cloudaicompanionProject: String?
 }
 
 struct AGQuotaFetchResult: Sendable {
@@ -496,63 +581,6 @@ struct AGQuotaFetchResult: Sendable {
 struct AGModelCatalog: Sendable {
     let orderedIDs: [String]
     let displayNamesByID: [String: String]
-}
-
-struct AGModelQuota: Sendable {
-    let id: String
-    let displayName: String
-    /// nil = API returned no quota info for this model (no data, not necessarily unlimited)
-    let remainingFraction: Double?
-    let resetTime: String?
-    
-    /// Antigravity is used as the Gemini surface in OpenPulse.
-    /// Other provider models may appear in the upstream API response,
-    /// but should not affect Gemini quota presentation or aggregation.
-    var isGeminiModel: Bool {
-        id.hasPrefix("gemini-") || displayName.localizedCaseInsensitiveContains("gemini")
-    }
-
-    /// Remaining percentage string, e.g. "82%" or "—" when no data
-    var formattedPercentage: String {
-        guard let f = remainingFraction else { return "—" }
-        return "\(Int((f * 100).rounded()))%"
-    }
-
-    /// Antigravity may occasionally return a reference-date placeholder
-    /// instead of a real future reset. Treat past or unparsable values as absent.
-    var validatedResetDate: Date? {
-        guard let t = resetTime,
-              let date = parseISO8601Flexible(t),
-              date > Date() else { return nil }
-        return date
-    }
-
-    var hasMeaningfulQuota: Bool {
-        remainingFraction != nil || validatedResetDate != nil
-    }
-
-    private var qualityScore: Int {
-        var score = 0
-        if remainingFraction != nil { score += 2 }
-        if validatedResetDate != nil { score += 1 }
-        return score
-    }
-
-    func isPreferred(over other: AGModelQuota) -> Bool {
-        qualityScore > other.qualityScore
-    }
-
-    /// Countdown string derived from ISO 8601 resetTime, e.g. "3h 12m".
-    /// Delegates to the shared countdownString(to:) free function for consistent output.
-    var resetCountdown: String? {
-        guard let date = validatedResetDate else { return nil }
-        return countdownString(to: date)
-    }
-
-    var primaryValueText: String { formattedPercentage }
-    var secondaryStatusText: String? {
-        remainingFraction == nil && validatedResetDate != nil ? "额度未知" : nil
-    }
 }
 
 // MARK: - Decodable models (file-private)
@@ -597,10 +625,6 @@ private struct AGTokenRefreshResponse: Decodable {
         case accessToken = "access_token"
         case expiresIn = "expires_in"
     }
-}
-
-private struct AGSubscriptionInfo: Decodable {
-    let cloudaicompanionProject: String?
 }
 
 private struct AGModelCatalogResponse: Decodable {
