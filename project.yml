@@ -119,6 +119,7 @@ targets:
           - iCloud.com.fanyu.openpulse
         com.apple.developer.icloud-services:
           - CloudKit
+        com.apple.developer.ubiquity-kvstore-identifier: $(TeamIdentifierPrefix)com.fanyu.openpulse
         keychain-access-groups:
           - $(AppIdentifierPrefix)com.fanyu.openpulse
     settings:
@@ -154,9 +155,6 @@ targets:
           - "@executable_path/../Frameworks"
           - "@loader_path/../Frameworks"
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/OpenPulse.app/Contents/MacOS/OpenPulse"
-      configs:
-        Debug:
-          CODE_SIGNING_ALLOWED: NO
     dependencies:
       - target: OpenPulse
 
@@ -171,6 +169,8 @@ targets:
       - path: OpenPulseiPhone/Data
       - path: OpenPulseiPhone/Models
       - path: OpenPulseiPhone/Views
+    resources:
+      - path: OpenPulse/Resources/Assets.xcassets
     info:
       path: OpenPulseiPhone/Info.plist
       properties:
@@ -187,8 +187,10 @@ targets:
           - iCloud.com.fanyu.openpulse
         com.apple.developer.icloud-services:
           - CloudKit
+        com.apple.developer.ubiquity-kvstore-identifier: $(TeamIdentifierPrefix)com.fanyu.openpulse
     settings:
       base:
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         TARGETED_DEVICE_FAMILY: "1"
         SDKROOT: iphoneos
         SUPPORTED_PLATFORMS: "iphoneos iphonesimulator"

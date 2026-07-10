@@ -1,0 +1,82 @@
+<h2>Pick the Pet Style</h2>
+<p class="subtitle">Layout is now fixed to the horizontal Twin Cockpit. Next, choose the visual language for the two pets.</p>
+
+<div class="cards">
+  <div class="card" data-choice="pixel" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">A. Retro Pixel Pets</div>
+        <div class="mockup-body" style="background:linear-gradient(180deg,#0d141c,#182733);padding:18px;min-height:280px;color:#edf4ff;">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+            <div style="background:rgba(79,163,255,0.1);border-radius:22px;padding:16px;">
+              <div style="font-size:12px;color:#9fc8ff;margin-bottom:10px;">Codex</div>
+              <div style="font-size:62px;line-height:1;image-rendering:pixelated;">▟█▙<br>█◆█</div>
+              <div style="margin-top:12px;font-size:12px;color:#c8def5;">tiny walk cycle · blink · bounce</div>
+            </div>
+            <div style="background:rgba(255,158,66,0.1);border-radius:22px;padding:16px;">
+              <div style="font-size:12px;color:#ffd0aa;margin-bottom:10px;">Claude</div>
+              <div style="font-size:62px;line-height:1;">▁☁︎▁<br>◟◡◞</div>
+              <div style="margin-top:12px;font-size:12px;color:#f3d7be;">drift · blink · sleepy puff</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Retro Pixel</h3>
+      <p>Closest to the ESP8266 desk-pet vibe. Strong character, nostalgic, playful, and easy to animate in loops.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="soft" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">B. Soft Mascot</div>
+        <div class="mockup-body" style="background:linear-gradient(180deg,#12131b,#252330);padding:18px;min-height:280px;color:#fff7fb;">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+            <div style="background:rgba(79,163,255,0.12);border-radius:22px;padding:16px;">
+              <div style="font-size:12px;color:#9fc8ff;margin-bottom:10px;">Codex</div>
+              <div style="width:108px;height:108px;border-radius:30px;background:rgba(79,163,255,0.2);display:flex;align-items:center;justify-content:center;font-size:52px;">🤖</div>
+              <div style="margin-top:12px;font-size:12px;color:#c8def5;">breathing glow · eye shift · pulse</div>
+            </div>
+            <div style="background:rgba(255,158,66,0.12);border-radius:22px;padding:16px;">
+              <div style="font-size:12px;color:#ffd0aa;margin-bottom:10px;">Claude</div>
+              <div style="width:108px;height:108px;border-radius:30px;background:rgba(255,158,66,0.2);display:flex;align-items:center;justify-content:center;font-size:52px;">☁️</div>
+              <div style="margin-top:12px;font-size:12px;color:#f3d7be;">floating sway · blink · glow ring</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Soft Mascot</h3>
+      <p>Cleaner and more modern. Better if you want it to feel like a premium ambient display instead of retro hardware.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="hybrid" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">C. Hybrid</div>
+        <div class="mockup-body" style="background:linear-gradient(180deg,#17131a,#2a2431);padding:18px;min-height:280px;color:#fff7ff;">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+            <div style="background:rgba(79,163,255,0.12);border-radius:22px;padding:16px;">
+              <div style="font-size:12px;color:#9fc8ff;margin-bottom:10px;">Codex</div>
+              <div style="width:108px;height:108px;border-radius:28px;background:rgba(79,163,255,0.18);display:flex;align-items:center;justify-content:center;font-size:40px;">▟🤖▙</div>
+              <div style="margin-top:12px;font-size:12px;color:#c8def5;">pixel silhouette + smooth lighting</div>
+            </div>
+            <div style="background:rgba(255,158,66,0.12);border-radius:22px;padding:16px;">
+              <div style="font-size:12px;color:#ffd0aa;margin-bottom:10px;">Claude</div>
+              <div style="width:108px;height:108px;border-radius:28px;background:rgba(255,158,66,0.18);display:flex;align-items:center;justify-content:center;font-size:40px;">◜☁️◝</div>
+              <div style="margin-top:12px;font-size:12px;color:#f3d7be;">retro outline + soft motion</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Hybrid</h3>
+      <p>Uses pixel-ish silhouettes and playful loops, but keeps the rest of the UI polished and modern. Safest middle ground.</p>
+    </div>
+  </div>
+</div>

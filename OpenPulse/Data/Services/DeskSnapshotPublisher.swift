@@ -5,15 +5,18 @@ import Security
 
 actor DeskSnapshotPublisher {
     private static let sharedContainerIdentifier = "iCloud.com.fanyu.openpulse"
+    private static let sharedKeyValueKey = "deskSnapshot.current"
 
     private let saveRecord: (@Sendable (CKRecord) async throws -> Void)?
     private let publishStore: DeskSnapshotPublishStore
+    private let keyValueStore: NSUbiquitousKeyValueStore
     private let now: @Sendable () -> Date
 
     init(
         database: CKDatabase? = nil,
         saveRecord: (@Sendable (CKRecord) async throws -> Void)? = nil,
         publishStore: DeskSnapshotPublishStore = DeskSnapshotPublishStore(),
+        keyValueStore: NSUbiquitousKeyValueStore = .default,
         now: @escaping @Sendable () -> Date = Date.init
     ) {
         if let saveRecord {
@@ -26,6 +29,7 @@ actor DeskSnapshotPublisher {
             self.saveRecord = nil
         }
         self.publishStore = publishStore
+        self.keyValueStore = keyValueStore
         self.now = now
     }
 
@@ -33,9 +37,11 @@ actor DeskSnapshotPublisher {
         publishStore: DeskSnapshotPublishStore = DeskSnapshotPublishStore(),
         now: @escaping @Sendable () -> Date = Date.init
     ) -> DeskSnapshotPublisher? {
-        guard hasCloudKitEntitlement, hasSharedContainerEntitlement else { return nil }
+        guard hasSharedContainerEntitlement || hasKeyValueStoreEntitlement else { return nil }
         return DeskSnapshotPublisher(
-            database: CKContainer(identifier: sharedContainerIdentifier).privateCloudDatabase,
+            database: hasCloudKitEntitlement
+                ? CKContainer(identifier: sharedContainerIdentifier).privateCloudDatabase
+                : nil,
             publishStore: publishStore,
             now: now
         )
@@ -68,14 +74,24 @@ actor DeskSnapshotPublisher {
     func publishIfNeeded(snapshot: DeskSnapshot) async {
         let hash = snapshotHash(snapshot)
         guard await shouldPublish(hash: hash) else { return }
+
+        do {
+            let data = try DeskSnapshotJSONCodec.encode(snapshot)
+            keyValueStore.set(data, forKey: Self.sharedKeyValueKey)
+            keyValueStore.synchronize()
+            await markPublished(hash: hash)
+        } catch {
+            await AppLogger.shared.warning("[desk-snapshot] key-value publish failed: \(error.localizedDescription)")
+            return
+        }
+
         guard let saveRecord else { return }
 
         do {
             let record = DeskSnapshotRecordCodec.makeRecord(snapshot: snapshot, zoneID: nil)
             try await saveRecord(record)
-            await markPublished(hash: hash)
         } catch {
-            await AppLogger.shared.warning("[desk-snapshot] publish failed: \(error.localizedDescription)")
+            await AppLogger.shared.warning("[desk-snapshot] cloudkit publish failed: \(error.localizedDescription)")
         }
     }
 
@@ -128,6 +144,15 @@ actor DeskSnapshotPublisher {
         }
         guard let identifiers = value as? [String] else { return false }
         return identifiers.contains(sharedContainerIdentifier)
+    }
+
+    private static var hasKeyValueStoreEntitlement: Bool {
+        let entitlement = "com.apple.developer.ubiquity-kvstore-identifier" as CFString
+        guard let task = SecTaskCreateFromSelf(nil),
+              let value = SecTaskCopyValueForEntitlement(task, entitlement, nil) else {
+            return false
+        }
+        return value is String
     }
 }
 

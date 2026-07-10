@@ -59,7 +59,12 @@ struct DeskSnapshotBuilderTests {
                             windowSeconds: nil,
                             resetsAt: 2_000
                         ),
-                        secondary: nil,
+                        secondary: .init(
+                            usedPercent: 58,
+                            windowMinutes: 10_080,
+                            windowSeconds: nil,
+                            resetsAt: 5_000
+                        ),
                         credits: nil,
                         resetCredits: nil,
                         planType: "pro"
@@ -70,7 +75,7 @@ struct DeskSnapshotBuilderTests {
             ],
             claudeUsage: .init(
                 fiveHour: .init(utilization: 81, resetsAt: "3000"),
-                sevenDay: nil
+                sevenDay: .init(utilization: 44, resetsAt: "6000")
             ),
             fallbackQuotas: [
                 QuotaRecord(
@@ -103,6 +108,9 @@ struct DeskSnapshotBuilderTests {
         #expect(snapshot?.codex.total == 100)
         #expect(snapshot?.codex.fraction == 0.68)
         #expect(snapshot?.codex.resetAt == Date(timeIntervalSince1970: 2_000))
+        #expect(snapshot?.codex.weekly?.remaining == 42)
+        #expect(snapshot?.codex.weekly?.fraction == 0.42)
+        #expect(snapshot?.codex.weekly?.resetAt == Date(timeIntervalSince1970: 5_000))
         #expect(snapshot?.codex.status == .healthy)
         #expect(snapshot?.codex.petState == .patrol)
 
@@ -112,6 +120,9 @@ struct DeskSnapshotBuilderTests {
         #expect(snapshot?.claude.total == 100)
         #expect(snapshot?.claude.fraction == 0.19)
         #expect(snapshot?.claude.resetAt == Date(timeIntervalSince1970: 3_000))
+        #expect(snapshot?.claude.weekly?.remaining == 56)
+        #expect(snapshot?.claude.weekly?.fraction == 0.56)
+        #expect(snapshot?.claude.weekly?.resetAt == Date(timeIntervalSince1970: 6_000))
         #expect(snapshot?.claude.status == .critical)
         #expect(snapshot?.claude.petState == .alert)
     }
@@ -141,6 +152,13 @@ struct DeskSnapshotBuilderTests {
                 total: 100,
                 fraction: 0.68,
                 resetAt: Date(timeIntervalSince1970: 2_000),
+                weekly: .init(
+                    label: "7d Weekly",
+                    remaining: 44,
+                    total: 100,
+                    fraction: 0.44,
+                    resetAt: Date(timeIntervalSince1970: 4_000)
+                ),
                 status: .healthy,
                 petState: .patrol
             ),
@@ -151,6 +169,13 @@ struct DeskSnapshotBuilderTests {
                 total: 100,
                 fraction: 0.42,
                 resetAt: Date(timeIntervalSince1970: 3_000),
+                weekly: .init(
+                    label: "7d Weekly",
+                    remaining: 38,
+                    total: 100,
+                    fraction: 0.38,
+                    resetAt: Date(timeIntervalSince1970: 5_000)
+                ),
                 status: .warning,
                 petState: .pause
             )
@@ -175,6 +200,7 @@ struct DeskSnapshotBuilderTests {
                 total: 100,
                 fraction: 0.68,
                 resetAt: Date(timeIntervalSince1970: 2_000),
+                weekly: nil,
                 status: .healthy,
                 petState: .patrol
             ),
@@ -185,6 +211,7 @@ struct DeskSnapshotBuilderTests {
                 total: 100,
                 fraction: 0.42,
                 resetAt: Date(timeIntervalSince1970: 3_000),
+                weekly: nil,
                 status: .warning,
                 petState: .pause
             )
@@ -365,7 +392,7 @@ struct DeskSnapshotBuilderTests {
     }
 
     @Test
-    func failedPublishDoesNotThrottleRetry() async throws {
+    func cloudKitFailureAfterKeyValuePublishStillMarksSuccess() async throws {
         let defaults = UserDefaults(suiteName: "DeskSnapshotBuilderTests.failedPublishDoesNotThrottleRetry")!
         defaults.removePersistentDomain(forName: "DeskSnapshotBuilderTests.failedPublishDoesNotThrottleRetry")
 
@@ -395,6 +422,7 @@ struct DeskSnapshotBuilderTests {
                 total: 100,
                 fraction: 0.68,
                 resetAt: Date(timeIntervalSince1970: 2_500),
+                weekly: nil,
                 status: .healthy,
                 petState: .patrol
             ),
@@ -405,6 +433,7 @@ struct DeskSnapshotBuilderTests {
                 total: 100,
                 fraction: 0.19,
                 resetAt: Date(timeIntervalSince1970: 3_000),
+                weekly: nil,
                 status: .critical,
                 petState: .alert
             )
@@ -412,8 +441,8 @@ struct DeskSnapshotBuilderTests {
 
         await publisher.publishIfNeeded(snapshot: snapshot)
         await publisher.publishIfNeeded(snapshot: snapshot)
-        #expect(await attempts.count == 2)
-        #expect(await store.load() == nil)
+        #expect(await attempts.count == 1)
+        #expect(await store.load() != nil)
     }
 
     @Test

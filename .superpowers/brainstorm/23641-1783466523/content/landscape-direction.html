@@ -1,0 +1,100 @@
+<h2>Landscape Desk Mode</h2>
+<p class="subtitle">Your iPhone stays horizontal on the desk, so these options are optimized for a wide, always-on layout.</p>
+
+<div class="cards">
+  <div class="card" data-choice="cockpit" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">A. Twin Cockpit</div>
+        <div class="mockup-body" style="background:linear-gradient(180deg,#0b1420,#13263a);padding:16px;min-height:300px;color:#eef6ff;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+            <div>
+              <div class="label" style="color:#9cc9ff;">LANDSCAPE MODE</div>
+              <div style="font-size:24px;font-weight:800;">Codex + Claude</div>
+            </div>
+            <div style="font-size:12px;color:#9bb0c8;">updated 18s ago</div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+            <div style="background:rgba(79,163,255,0.11);border:1px solid rgba(79,163,255,0.34);border-radius:24px;padding:14px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;">
+                <strong>Codex</strong><span style="font-size:12px;color:#8fc2ff;">focus mode</span>
+              </div>
+              <div style="display:grid;grid-template-columns:98px 1fr;gap:14px;align-items:center;margin-top:10px;">
+                <div style="width:98px;height:98px;border-radius:24px;background:rgba(79,163,255,0.18);display:flex;align-items:center;justify-content:center;font-size:42px;">🤖</div>
+                <div>
+                  <div style="height:14px;border-radius:999px;background:rgba(255,255,255,0.08);overflow:hidden;margin-bottom:10px;">
+                    <div style="width:68%;height:100%;background:#58a6ff;border-radius:999px;"></div>
+                  </div>
+                  <div style="font-size:30px;font-weight:800;line-height:1;">68%</div>
+                  <div style="font-size:12px;color:#c4dbf6;margin-top:6px;">5h resets 14:30</div>
+                </div>
+              </div>
+            </div>
+            <div style="background:rgba(255,158,66,0.11);border:1px solid rgba(255,158,66,0.34);border-radius:24px;padding:14px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;">
+                <strong>Claude</strong><span style="font-size:12px;color:#ffc58d;">calm mode</span>
+              </div>
+              <div style="display:grid;grid-template-columns:98px 1fr;gap:14px;align-items:center;margin-top:10px;">
+                <div style="width:98px;height:98px;border-radius:24px;background:rgba(255,158,66,0.18);display:flex;align-items:center;justify-content:center;font-size:42px;">☁️</div>
+                <div>
+                  <div style="height:14px;border-radius:999px;background:rgba(255,255,255,0.08);overflow:hidden;margin-bottom:10px;">
+                    <div style="width:42%;height:100%;background:#ff9e42;border-radius:999px;"></div>
+                  </div>
+                  <div style="font-size:30px;font-weight:800;line-height:1;">42%</div>
+                  <div style="font-size:12px;color:#f7d7b6;margin-top:6px;">5h resets 16:05</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div style="margin-top:12px;display:flex;justify-content:space-between;font-size:12px;color:#a9bbce;">
+            <span>Two pets always visible</span>
+            <span>Best for scanability</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Twin Cockpit</h3>
+      <p>Split-screen layout. Each pet owns one side. Best if you want fast left-right scanning and clear quota comparison.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="terrarium" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">B. Shared Terrarium</div>
+        <div class="mockup-body" style="background:linear-gradient(180deg,#1a1120,#2f2132);padding:16px;min-height:300px;color:#fff6fb;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+            <div>
+              <div class="label" style="color:#ffb6d0;">DESK PETS</div>
+              <div style="font-size:24px;font-weight:800;">Quota Terrarium</div>
+            </div>
+            <div style="font-size:12px;color:#d9b7c9;">always on</div>
+          </div>
+          <div style="position:relative;height:214px;border-radius:28px;border:1px solid rgba(255,255,255,0.14);overflow:hidden;background:radial-gradient(circle at 50% 0%,rgba(255,255,255,0.14),transparent 42%),linear-gradient(180deg,rgba(255,255,255,0.07),rgba(255,255,255,0.03));">
+            <div style="position:absolute;left:18px;bottom:20px;width:100px;height:100px;border-radius:26px;background:rgba(79,163,255,0.18);display:flex;align-items:center;justify-content:center;font-size:42px;">🤖</div>
+            <div style="position:absolute;right:18px;bottom:20px;width:100px;height:100px;border-radius:26px;background:rgba(255,158,66,0.18);display:flex;align-items:center;justify-content:center;font-size:42px;">☁️</div>
+            <div style="position:absolute;left:18px;top:18px;background:rgba(10,20,32,0.48);border-radius:18px;padding:10px 12px;font-size:13px;">
+              <strong>Codex</strong><br>68% left
+            </div>
+            <div style="position:absolute;right:18px;top:18px;background:rgba(46,24,18,0.48);border-radius:18px;padding:10px 12px;font-size:13px;text-align:right;">
+              <strong>Claude</strong><br>42% left
+            </div>
+            <div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);text-align:center;">
+              <div style="font-size:13px;color:#e2cadd;margin-bottom:8px;">shared room energy</div>
+              <div style="display:flex;gap:8px;">
+                <div style="background:rgba(79,163,255,0.12);padding:10px 12px;border-radius:16px;">14:30</div>
+                <div style="background:rgba(255,158,66,0.12);padding:10px 12px;border-radius:16px;">16:05</div>
+              </div>
+            </div>
+            <div style="position:absolute;left:50%;bottom:14px;transform:translateX(-50%);font-size:12px;color:#ead0dd;">Pets wander, nap, and react to low quota</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Shared Terrarium</h3>
+      <p>One shared animated habitat. Stronger desk-pet personality, more ambient, less strict dashboard feeling.</p>
+    </div>
+  </div>
+</div>

@@ -18,10 +18,10 @@ enum DeskQuotaStatus: String, Codable, Sendable {
             return .warning
         }
         let fraction = Double(remaining) / Double(total)
-        if fraction >= 0.5 {
+        if fraction >= 0.4 {
             return .healthy
         }
-        if fraction >= 0.2 {
+        if fraction >= 0.15 {
             return .warning
         }
         return .critical

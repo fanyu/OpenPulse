@@ -5,9 +5,11 @@ struct CodexPetView: View {
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 24.0)) { timeline in
-            let phase = PetMotion.phase(at: timeline.date, for: motion)
+            let phase = PetMotion.phase(at: timeline.date, for: motion) * 0.72
             let offset = PetMotion.offset(for: motion, phase: phase)
             let squash = PetMotion.squash(for: motion, phase: phase)
+            let blink = PetMotion.blinkScale(for: motion, phase: phase)
+            let pupilOffset = PetMotion.pupilOffset(for: motion, phase: phase)
 
             ZStack {
                 Ellipse()
@@ -53,18 +55,22 @@ struct CodexPetView: View {
                                 RoundedRectangle(cornerRadius: 4, style: .continuous)
                                     .fill(faceLight)
                                     .frame(width: 10, height: motion == .alert ? 10 : 8)
+                                    .scaleEffect(y: blink, anchor: .center)
+                                    .offset(pupilOffset)
 
                                 RoundedRectangle(cornerRadius: 4, style: .continuous)
                                     .fill(faceLight)
                                     .frame(width: 10, height: motion == .alert ? 10 : 8)
+                                    .scaleEffect(y: blink, anchor: .center)
+                                    .offset(pupilOffset)
                             }
                             .opacity(motion == .exhausted ? 0.55 : 1)
                         }
                         .offset(y: -6)
 
                     HStack(spacing: 44) {
-                        leg
-                        leg
+                        leg(index: 0, phase: phase)
+                        leg(index: 1, phase: phase)
                     }
                     .offset(y: 56)
                 }
@@ -84,9 +90,11 @@ struct CodexPetView: View {
             : Color(red: 0.52, green: 0.95, blue: 0.99)
     }
 
-    private var leg: some View {
+    private func leg(index: Int, phase: CGFloat) -> some View {
         Capsule()
             .fill(Color(red: 0.14, green: 0.39, blue: 0.74))
             .frame(width: 14, height: 22)
+            .rotationEffect(.degrees(PetMotion.limbSwing(for: motion, phase: phase, index: index)))
+            .offset(y: PetMotion.limbLift(for: motion, phase: phase, index: index))
     }
 }

@@ -13,6 +13,13 @@ struct DeskPetPresentationTests {
                 total: 100,
                 fraction: 0.1,
                 resetAt: Date(timeIntervalSince1970: 2_000),
+                weekly: .init(
+                    label: "7d Weekly",
+                    remaining: 72,
+                    total: 100,
+                    fraction: 0.72,
+                    resetAt: Date(timeIntervalSince1970: 9_000)
+                ),
                 status: .critical,
                 petState: .alert
             ),
@@ -20,7 +27,8 @@ struct DeskPetPresentationTests {
         )
 
         #expect(presentation.motion == .alert)
-        #expect(presentation.primaryText == "10%")
+        #expect(presentation.session.percentText == "10%")
+        #expect(presentation.weekly.percentText == "72%")
     }
 
     @Test
@@ -33,6 +41,7 @@ struct DeskPetPresentationTests {
                 total: 100,
                 fraction: 0.42,
                 resetAt: Date(timeIntervalSince1970: 3_000),
+                weekly: nil,
                 status: .stale,
                 petState: .waiting
             ),
@@ -48,9 +57,21 @@ struct DeskPetPresentationTests {
         let presentation = DeskPetPresentation(
             tool: .claudeCode,
             title: "Claude",
-            primaryText: "0%",
-            resetText: "Resets 16:05",
-            fraction: 0,
+            session: .init(
+                label: "5h Session",
+                percentText: "0%",
+                resetText: "Resets today 16:05",
+                fraction: 0,
+                isAvailable: true
+            ),
+            weekly: .init(
+                label: "7d Weekly",
+                percentText: "54%",
+                resetText: "Resets Jul 12, 09:30",
+                fraction: 0.54,
+                isAvailable: true
+            ),
+            status: .exhausted,
             motion: .exhausted,
             isStale: false
         )
@@ -110,6 +131,13 @@ private func makeSnapshot(updatedAt: Date) -> DeskSnapshot {
             total: 100,
             fraction: 0.68,
             resetAt: Date(timeIntervalSince1970: 2_000),
+            weekly: .init(
+                label: "7d Weekly",
+                remaining: 51,
+                total: 100,
+                fraction: 0.51,
+                resetAt: Date(timeIntervalSince1970: 8_000)
+            ),
             status: .healthy,
             petState: .patrol
         ),
@@ -120,6 +148,13 @@ private func makeSnapshot(updatedAt: Date) -> DeskSnapshot {
             total: 100,
             fraction: 0.42,
             resetAt: Date(timeIntervalSince1970: 3_000),
+            weekly: .init(
+                label: "7d Weekly",
+                remaining: 61,
+                total: 100,
+                fraction: 0.61,
+                resetAt: Date(timeIntervalSince1970: 9_000)
+            ),
             status: .warning,
             petState: .pause
         )

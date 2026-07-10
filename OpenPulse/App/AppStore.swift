@@ -20,7 +20,11 @@ final class AppStore {
             DailyStatsRecord.self,
             QuotaRecord.self,
         ])
-        let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
+        let config = ModelConfiguration(
+            schema: schema,
+            isStoredInMemoryOnly: false,
+            cloudKitDatabase: .none
+        )
         do {
             modelContainer = try ModelContainer(for: schema, configurations: config)
         } catch {

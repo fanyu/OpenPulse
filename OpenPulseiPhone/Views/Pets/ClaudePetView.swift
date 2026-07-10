@@ -8,6 +8,8 @@ struct ClaudePetView: View {
             let phase = PetMotion.phase(at: timeline.date, for: motion)
             let offset = PetMotion.offset(for: motion, phase: phase)
             let squash = PetMotion.squash(for: motion, phase: phase)
+            let blink = PetMotion.blinkScale(for: motion, phase: phase)
+            let pupilOffset = PetMotion.pupilOffset(for: motion, phase: phase)
 
             ZStack {
                 Ellipse()
@@ -18,22 +20,22 @@ struct ClaudePetView: View {
 
                 ZStack {
                     HStack(spacing: 70) {
-                        claw(direction: -1)
-                        claw(direction: 1)
+                        claw(direction: -1, phase: phase, index: 0)
+                        claw(direction: 1, phase: phase, index: 1)
                     }
                     .offset(y: -6)
 
                     bodyShell
 
                     HStack(spacing: 18) {
-                        eye
-                        eye
+                        eye(blink: blink, pupilOffset: pupilOffset)
+                        eye(blink: blink, pupilOffset: pupilOffset)
                     }
                     .offset(y: -14)
 
                     HStack(spacing: 14) {
                         ForEach(0..<4, id: \.self) { index in
-                            leg(index: index)
+                            leg(index: index, phase: phase)
                         }
                     }
                     .offset(y: 40)
@@ -67,23 +69,26 @@ struct ClaudePetView: View {
             .frame(width: 110, height: 78)
     }
 
-    private var eye: some View {
+    private func eye(blink: CGFloat, pupilOffset: CGSize) -> some View {
         ZStack {
             RoundedRectangle(cornerRadius: 3, style: .continuous)
                 .fill(.white)
                 .frame(width: 18, height: motion == .exhausted ? 14 : 18)
+                .scaleEffect(y: blink, anchor: .center)
 
             RoundedRectangle(cornerRadius: 2, style: .continuous)
                 .fill(Color(red: 0.25, green: 0.14, blue: 0.08))
                 .frame(width: 6, height: motion == .alert ? 9 : 7)
+                .offset(pupilOffset)
         }
     }
 
-    private func claw(direction: CGFloat) -> some View {
+    private func claw(direction: CGFloat, phase: CGFloat, index: Int) -> some View {
         VStack(spacing: 2) {
             Capsule()
                 .fill(Color(red: 0.98, green: 0.66, blue: 0.31))
                 .frame(width: 12, height: 26)
+                .rotationEffect(.degrees(Double(PetMotion.limbSwing(for: motion, phase: phase, index: index) * direction * 0.35)))
 
             HStack(spacing: 2) {
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
@@ -97,12 +102,14 @@ struct ClaudePetView: View {
                     .rotationEffect(.degrees(Double(direction * 18)))
             }
         }
+        .offset(y: PetMotion.limbLift(for: motion, phase: phase, index: index) * 0.5)
     }
 
-    private func leg(index: Int) -> some View {
+    private func leg(index: Int, phase: CGFloat) -> some View {
         RoundedRectangle(cornerRadius: 3, style: .continuous)
             .fill(Color(red: 0.77, green: 0.31, blue: 0.13))
             .frame(width: 10, height: 24)
-            .rotationEffect(.degrees(index.isMultiple(of: 2) ? -18 : 18))
+            .rotationEffect(.degrees((index.isMultiple(of: 2) ? -18 : 18) + Double(PetMotion.limbSwing(for: motion, phase: phase, index: index) * 0.45)))
+            .offset(y: PetMotion.limbLift(for: motion, phase: phase, index: index))
     }
 }

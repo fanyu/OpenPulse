@@ -804,6 +804,39 @@ final class DataSyncService {
         }
     }
 
+    private func restoredCodexLimitsCache() -> CodexRateLimits? {
+        guard let data = UserDefaults.standard.data(forKey: "cached.codexLimitsData") else { return nil }
+        return try? JSONDecoder().decode(CodexRateLimits.self, from: data)
+    }
+
+    private func deskSnapshotCodexAccounts() -> [CodexAccountSnapshot] {
+        if latestCodexAccounts.contains(where: { $0.isCurrent && $0.limits != nil }) {
+            return latestCodexAccounts
+        }
+
+        guard let cached = restoredCodexLimitsCache() else {
+            return latestCodexAccounts
+        }
+
+        let now = Date()
+        return [
+            CodexAccountSnapshot(
+                id: "desk-cached-codex",
+                label: "Codex",
+                email: nil,
+                accountID: "desk-cached-codex",
+                planType: cached.planType,
+                teamName: nil,
+                addedAt: now,
+                updatedAt: now,
+                lastFetchedAt: now,
+                limits: cached,
+                usageError: nil,
+                isCurrent: true
+            )
+        ]
+    }
+
     private func toolQuotaFromClaudeUsage(_ usage: ClaudeUsageResponse) -> ToolQuota {
         let remaining = usage.fiveHour?.utilization.map { Int((1 - $0 / 100) * 100) }
         return ToolQuota(
@@ -893,10 +926,12 @@ final class DataSyncService {
         let claudeRaw = Tool.claudeCode.rawValue
         let desc = FetchDescriptor<QuotaRecord>(predicate: #Predicate { $0.toolRaw == codexRaw || $0.toolRaw == claudeRaw })
         let fallbackQuotas = (try? readContext.fetch(desc)) ?? []
+        let snapshotCodexAccounts = deskSnapshotCodexAccounts()
+        let snapshotClaudeUsage = latestClaudeUsage ?? restoredClaudeUsageCache()
         guard let snapshot = DeskSnapshotBuilder.build(
             now: Date(),
-            codexAccounts: latestCodexAccounts,
-            claudeUsage: latestClaudeUsage,
+            codexAccounts: snapshotCodexAccounts,
+            claudeUsage: snapshotClaudeUsage,
             fallbackQuotas: fallbackQuotas
         ) else {
             return

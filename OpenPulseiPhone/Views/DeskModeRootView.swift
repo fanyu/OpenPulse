@@ -25,6 +25,8 @@ struct DeskModeRootView: View {
                     .ignoresSafeArea()
 
                     VStack(spacing: 14) {
+                        OpenPulseBrandView()
+
                         ProgressView()
                             .controlSize(.large)
                             .tint(.white.opacity(0.85))
@@ -42,11 +44,18 @@ struct DeskModeRootView: View {
             }
         }
         .task {
+            await appStore.refresh()
             appStore.tick()
 
+            var refreshCounter = 0
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
                 guard !Task.isCancelled else { break }
+                refreshCounter += 1
+                if refreshCounter >= 15 {
+                    refreshCounter = 0
+                    await appStore.refresh()
+                }
                 appStore.tick()
             }
         }

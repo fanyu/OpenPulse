@@ -1,0 +1,101 @@
+<h2>Choose the Pet Dashboard Direction</h2>
+<p class="subtitle">Both options show Codex and Claude at the same time. Pick the overall feel that should drive v1.</p>
+
+<div class="cards">
+  <div class="card" data-choice="orbit" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">A. Orbit Dashboard</div>
+        <div class="mockup-body" style="background:linear-gradient(180deg,#0f1720,#1d2d3f);padding:20px;min-height:340px;color:#ecf4ff;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px;">
+            <div>
+              <div class="label" style="color:#94c5ff;">LIVE QUOTA</div>
+              <div style="font-size:28px;font-weight:800;letter-spacing:0.02em;">OpenPulse Pets</div>
+            </div>
+            <div style="font-size:12px;color:#9eb3ca;">synced 18s ago</div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+            <div style="background:rgba(88,166,255,0.12);border:1px solid rgba(120,185,255,0.35);border-radius:22px;padding:16px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                <strong>Codex</strong><span style="font-size:12px;color:#8fb7ff;">5h</span>
+              </div>
+              <div style="display:flex;justify-content:center;align-items:center;height:130px;">
+                <div style="width:110px;height:110px;border-radius:999px;border:10px solid #4fa3ff;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 10px rgba(79,163,255,0.12);">
+                  <div style="text-align:center;">
+                    <div style="font-size:30px;">🤖</div>
+                    <div style="font-size:28px;font-weight:800;">68%</div>
+                  </div>
+                </div>
+              </div>
+              <div style="font-size:12px;color:#c7def8;">resets 14:30</div>
+            </div>
+            <div style="background:rgba(255,158,66,0.12);border:1px solid rgba(255,187,120,0.35);border-radius:22px;padding:16px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                <strong>Claude</strong><span style="font-size:12px;color:#ffc58d;">5h</span>
+              </div>
+              <div style="display:flex;justify-content:center;align-items:center;height:130px;">
+                <div style="width:110px;height:110px;border-radius:999px;border:10px solid #ff9e42;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 10px rgba(255,158,66,0.12);">
+                  <div style="text-align:center;">
+                    <div style="font-size:30px;">☁️</div>
+                    <div style="font-size:28px;font-weight:800;">42%</div>
+                  </div>
+                </div>
+              </div>
+              <div style="font-size:12px;color:#f7d3b3;">resets 16:05</div>
+            </div>
+          </div>
+          <div style="margin-top:16px;background:rgba(255,255,255,0.06);border-radius:18px;padding:12px 14px;display:flex;justify-content:space-between;font-size:13px;">
+            <span>Both pets idle on the dashboard</span>
+            <span>Tap to expand details</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Orbit Dashboard</h3>
+      <p>Quota-first. Each pet lives inside its own animated ring. Cleaner, more glanceable, safer for widget and full-screen reuse.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="stage" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">B. Dual Pet Stage</div>
+        <div class="mockup-body" style="background:linear-gradient(180deg,#201322,#38253f);padding:20px;min-height:340px;color:#fff7fb;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;">
+            <div>
+              <div class="label" style="color:#ffb4c8;">NOW WATCHING</div>
+              <div style="font-size:28px;font-weight:800;letter-spacing:0.02em;">Codex + Claude</div>
+            </div>
+            <div style="font-size:12px;color:#e1adc2;">desk mode</div>
+          </div>
+          <div style="position:relative;height:220px;border-radius:26px;background:radial-gradient(circle at 50% 0%,rgba(255,255,255,0.16),transparent 45%),linear-gradient(180deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03));overflow:hidden;border:1px solid rgba(255,255,255,0.14);">
+            <div style="position:absolute;left:18px;bottom:18px;width:110px;height:110px;border-radius:28px;background:rgba(62,140,255,0.18);display:flex;align-items:center;justify-content:center;font-size:44px;">🤖</div>
+            <div style="position:absolute;right:18px;bottom:18px;width:110px;height:110px;border-radius:28px;background:rgba(255,166,102,0.18);display:flex;align-items:center;justify-content:center;font-size:44px;">☁️</div>
+            <div style="position:absolute;left:18px;top:16px;background:rgba(9,15,26,0.5);padding:10px 12px;border-radius:16px;font-size:13px;">
+              <strong>Codex</strong><br>68% left · 14:30
+            </div>
+            <div style="position:absolute;right:18px;top:16px;background:rgba(40,20,18,0.5);padding:10px 12px;border-radius:16px;font-size:13px;text-align:right;">
+              <strong>Claude</strong><br>42% left · 16:05
+            </div>
+            <div style="position:absolute;left:50%;bottom:12px;transform:translateX(-50%);font-size:12px;color:#e6cade;">Pets animate across the stage as quota urgency changes</div>
+          </div>
+          <div style="margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <div style="background:rgba(62,140,255,0.12);border-radius:16px;padding:12px;">
+              <div style="font-size:11px;color:#adcfff;">Codex mood</div>
+              <div style="font-size:18px;font-weight:700;">Active</div>
+            </div>
+            <div style="background:rgba(255,166,102,0.12);border-radius:16px;padding:12px;">
+              <div style="font-size:11px;color:#ffd7b2;">Claude mood</div>
+              <div style="font-size:18px;font-weight:700;">Dozing</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Dual Pet Stage</h3>
+      <p>Character-first. The pets are the main scene, and quota floats around them. More playful, stronger desktop-pet feeling, but denser.</p>
+    </div>
+  </div>
+</div>

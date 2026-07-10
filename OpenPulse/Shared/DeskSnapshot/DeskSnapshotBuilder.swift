@@ -28,10 +28,20 @@ enum DeskSnapshotBuilder {
         return DeskSnapshot(
             snapshotID: "desk-current",
             sourceDeviceID: sourceDeviceID(),
-            schemaVersion: 1,
+            schemaVersion: 2,
             updatedAt: now,
-            codex: makeToolSnapshot(from: codexQuota, label: "Codex", now: now),
-            claude: makeToolSnapshot(from: claudeQuota, label: "Claude", now: now)
+            codex: makeCodexSnapshot(
+                from: codexQuota,
+                accounts: codexAccounts,
+                fallbackQuotas: fallbackQuotas,
+                now: now
+            ),
+            claude: makeClaudeSnapshot(
+                from: claudeQuota,
+                usage: claudeUsage,
+                fallbackQuotas: fallbackQuotas,
+                now: now
+            )
         )
     }
 
@@ -74,7 +84,50 @@ enum DeskSnapshotBuilder {
         return remaining >= 0
     }
 
-    private static func makeToolSnapshot(from quota: ToolQuota, label: String, now: Date) -> DeskToolSnapshot {
+    private static func makeCodexSnapshot(
+        from quota: ToolQuota,
+        accounts: [CodexAccountSnapshot],
+        fallbackQuotas _: [QuotaRecord],
+        now: Date
+    ) -> DeskToolSnapshot {
+        let weeklyWindow = accounts
+            .first(where: \.isCurrent)?
+            .limits?
+            .oneWeekWindow
+            .flatMap { makeWindowSnapshot(label: "7d Weekly", from: $0) }
+
+        return makeToolSnapshot(
+            from: quota,
+            label: "Codex",
+            weekly: weeklyWindow,
+            now: now
+        )
+    }
+
+    private static func makeClaudeSnapshot(
+        from quota: ToolQuota,
+        usage: ClaudeUsageResponse?,
+        fallbackQuotas _: [QuotaRecord],
+        now: Date
+    ) -> DeskToolSnapshot {
+        let weeklyWindow = usage?
+            .sevenDay
+            .flatMap { makeWindowSnapshot(label: "7d Weekly", from: $0) }
+
+        return makeToolSnapshot(
+            from: quota,
+            label: "Claude",
+            weekly: weeklyWindow,
+            now: now
+        )
+    }
+
+    private static func makeToolSnapshot(
+        from quota: ToolQuota,
+        label: String,
+        weekly: DeskQuotaWindowSnapshot?,
+        now: Date
+    ) -> DeskToolSnapshot {
         let status = DeskQuotaStatus.resolve(
             remaining: quota.remaining,
             total: quota.total,
@@ -89,27 +142,83 @@ enum DeskSnapshotBuilder {
             total: quota.total,
             fraction: quota.fraction,
             resetAt: quota.resetAt,
+            weekly: weekly,
             status: status,
             petState: petState(for: status)
         )
     }
 
+    private static func makeWindowSnapshot(label: String, from window: CodexWindow) -> DeskQuotaWindowSnapshot? {
+        makeWindowSnapshot(
+            label: label,
+            remaining: Int(window.remainingPercent.rounded()),
+            total: 100,
+            resetAt: window.resetDate
+        )
+    }
+
+    private static func makeWindowSnapshot(label: String, from window: UsageWindow) -> DeskQuotaWindowSnapshot? {
+        guard let utilization = window.utilization else {
+            return nil
+        }
+
+        return makeWindowSnapshot(
+            label: label,
+            remaining: max(0, Int((100 - utilization).rounded())),
+            total: 100,
+            resetAt: window.resetDate
+        )
+    }
+
+    private static func makeWindowSnapshot(
+        label: String,
+        remaining: Int?,
+        total: Int?,
+        resetAt: Date?
+    ) -> DeskQuotaWindowSnapshot? {
+        guard let resetAt else {
+            return nil
+        }
+
+        let fraction: Double? = if let remaining, let total, total > 0 {
+            Double(remaining) / Double(total)
+        } else {
+            nil
+        }
+
+        return DeskQuotaWindowSnapshot(
+            label: label,
+            remaining: remaining,
+            total: total,
+            fraction: fraction,
+            resetAt: resetAt
+        )
+    }
+
     private static func fallbackQuota(for tool: Tool, in fallbackQuotas: [QuotaRecord]) -> QuotaRecord? {
-        fallbackQuotas
-            .filter { record in
-                guard record.tool == tool else { return false }
-                if tool == .codex {
-                    return record.accountKey == nil
-                }
-                return true
-            }
+        let matchingRecords = fallbackQuotas
+            .filter { $0.tool == tool }
             .filter { isUsable($0.toModel()) }
-            .max { lhs, rhs in
-                if lhs.updatedAt != rhs.updatedAt {
-                    return lhs.updatedAt < rhs.updatedAt
-                }
-                return (lhs.resetAt ?? .distantPast) < (rhs.resetAt ?? .distantPast)
+
+        if tool == .codex {
+            let genericRecord = bestFallbackQuota(
+                from: matchingRecords.filter { $0.accountKey == nil }
+            )
+            if let genericRecord {
+                return genericRecord
             }
+        }
+
+        return bestFallbackQuota(from: matchingRecords)
+    }
+
+    private static func bestFallbackQuota(from records: [QuotaRecord]) -> QuotaRecord? {
+        records.max { lhs, rhs in
+            if lhs.updatedAt != rhs.updatedAt {
+                return lhs.updatedAt < rhs.updatedAt
+            }
+            return (lhs.resetAt ?? .distantPast) < (rhs.resetAt ?? .distantPast)
+        }
     }
 
     private static func petState(for status: DeskQuotaStatus) -> DeskPetState {
