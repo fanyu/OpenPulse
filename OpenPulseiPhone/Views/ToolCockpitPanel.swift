@@ -31,12 +31,8 @@ struct ToolCockpitPanel: View {
         }
         .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(brandTint.opacity(0.04))
+        .background(.black)
         .glassEffect(.regular, in: .rect(cornerRadius: 32))
-        .overlay {
-            RoundedRectangle(cornerRadius: 32, style: .continuous)
-                .strokeBorder(.white.opacity(0.12), lineWidth: 1.5)
-        }
     }
 
     @ViewBuilder
