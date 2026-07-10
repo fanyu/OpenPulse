@@ -52,6 +52,7 @@
 		96950433BB59A1B34ED7AF1B /* CodexAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00887B511AFC8B11A0DCBC2 /* CodexAccount.swift */; };
 		9B3399EEB8EDBE10BC0BAFB3 /* DeskSnapshotStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17E651D1FDFFE5962CFE6F74 /* DeskSnapshotStatus.swift */; };
 		9B55BE0FE4AF691EB7E7DB4B /* QuotaView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42286951DA0BA5C7591060C1 /* QuotaView.swift */; };
+		9B7FC1F6533F976E30302DAF /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 286B3F5BD5A8E159BD60C5BC /* Assets.xcassets */; };
 		9EE166A477B452E864116449 /* OpenPulseiPhoneApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EBE61111110DE52D6658CF8 /* OpenPulseiPhoneApp.swift */; };
 		A3B98E5E9F03105E78B007DB /* DeskSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF29881A5F817072F5E1D8BA /* DeskSnapshot.swift */; };
 		A47C83F64EF5FDEDDFEC8550 /* DeskSnapshotPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A9AE21683AF7CC1231E7F06 /* DeskSnapshotPublisher.swift */; };
@@ -540,6 +541,7 @@
 			buildConfigurationList = 1A696621DDF6B6C0758B05EE /* Build configuration list for PBXNativeTarget "OpenPulseiPhone" */;
 			buildPhases = (
 				E765264BB842CAC0C3304EAB /* Sources */,
+				67FD725D2E49E894947993E6 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -664,6 +666,14 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		67FD725D2E49E894947993E6 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9B7FC1F6533F976E30302DAF /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		B32FD361EE3011DEA8AF7833 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;

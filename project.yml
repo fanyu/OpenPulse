@@ -169,8 +169,8 @@ targets:
       - path: OpenPulseiPhone/Data
       - path: OpenPulseiPhone/Models
       - path: OpenPulseiPhone/Views
-    resources:
       - path: OpenPulse/Resources/Assets.xcassets
+        buildPhase: resources
     info:
       path: OpenPulseiPhone/Info.plist
       properties:
