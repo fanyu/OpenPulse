@@ -460,11 +460,65 @@ struct CopilotProviderContent: View {
 struct AntigravityProviderContent: View {
     let appStore: AppStore
     @AppStorage("ag.hiddenAccountEmails") private var hiddenAccountEmailsRaw = ""
+    @State private var ownedAccounts: [AGStoredAccount] = []
+    @State private var isWorking = false
+    @State private var errorMessage: String?
 
     private var hiddenAccountEmails: Set<String> { Set(hiddenAccountEmailsRaw.components(separatedBy: ",").filter { !$0.isEmpty }) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
+            Text("扫描本地 `~/.cli-proxy-api` 授权，或直接在 App 内用 Google 登录添加账号；额度按 5 小时 / 每周窗口显示。")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 12) {
+                Button(isWorking ? "登录中..." : "添加 Antigravity 账号") {
+                    runAsyncAction {
+                        _ = try await appStore.antigravityAccountService.addAccountViaOAuth()
+                        await reload()
+                        await appStore.syncService?.refreshTool(.antigravity)
+                    }
+                }
+                .buttonStyle(ProminentActionButtonStyle(fillColor: Color.black.opacity(0.82)))
+                .controlSize(.small)
+                .disabled(isWorking)
+                Button("刷新额度") {
+                    runAsyncAction { await appStore.syncService?.refreshTool(.antigravity) }
+                }
+                .buttonStyle(ProminentActionButtonStyle(fillColor: Color.black.opacity(0.58)))
+                .controlSize(.small)
+                .disabled(isWorking)
+            }
+
+            if let errorMessage {
+                Text(errorMessage).font(.caption).foregroundStyle(.red)
+            }
+
+            if !ownedAccounts.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("App 内登录的账号").font(.caption).foregroundStyle(.tertiary)
+                    ForEach(ownedAccounts, id: \.email) { account in
+                        HStack {
+                            Image(systemName: "person.crop.circle").foregroundStyle(.secondary)
+                            Text(account.label).font(.system(size: 12, weight: .medium))
+                            Spacer()
+                            Button {
+                                runAsyncAction {
+                                    await appStore.antigravityAccountService.deleteAccount(email: account.email)
+                                    await reload()
+                                    await appStore.syncService?.refreshTool(.antigravity)
+                                }
+                            } label: { Image(systemName: "trash").foregroundStyle(.red) }
+                            .buttonStyle(.plain)
+                            .disabled(isWorking)
+                        }
+                        .padding(.horizontal, 12).padding(.vertical, 8)
+                        .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 10))
+                    }
+                }
+            }
+
             if let accounts = appStore.syncService?.latestAntigravityAccounts, !accounts.isEmpty {
                 VStack(spacing: 16) {
                     ForEach(accounts) { account in
@@ -474,6 +528,24 @@ struct AntigravityProviderContent: View {
             } else {
                 Text("正在加载账号数据...").font(.caption).foregroundStyle(.tertiary)
             }
+        }
+        .task { await reload() }
+    }
+
+    private func reload() async {
+        ownedAccounts = await appStore.antigravityAccountService.listAccounts()
+    }
+
+    private func runAsyncAction(_ action: @escaping () async throws -> Void) {
+        isWorking = true
+        errorMessage = nil
+        Task {
+            do { try await action() }
+            catch {
+                errorMessage = error.localizedDescription
+                AppLogger.shared.warning("[antigravity] \(error.localizedDescription)")
+            }
+            isWorking = false
         }
     }
 
