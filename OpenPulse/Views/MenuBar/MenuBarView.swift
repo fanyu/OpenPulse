@@ -1080,8 +1080,14 @@ private struct AGMenuBarAccountQuotaBody: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                Text(account.email).font(.system(size: 11, weight: .semibold)).lineLimit(1)
-                AGTierBadge(tier: account.tier)
+                Text(account.email)
+                    .font(.system(size: 11, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(account.badgeLabel)
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
+                    .fixedSize()
                 Spacer()
             }
             ForEach(account.groups) { AGMenuBarGroupCard(group: $0) }

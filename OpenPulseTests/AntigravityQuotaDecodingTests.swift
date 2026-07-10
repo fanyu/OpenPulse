@@ -42,4 +42,47 @@ struct AntigravityQuotaDecodingTests {
         #expect(paid?.isPaid == true)
         #expect(paid?.badgeLabel == "Google AI Pro")
     }
+
+    @Test func completeConsumerQuotaWindowsAreGoogleAIPro() throws {
+        let groups = try AntigravityParser.decodeQuotaGroups(from: summaryJSON)
+        let account = AGAccountQuota(
+            email: "pro@example.com",
+            tier: AGTier(id: "free-tier", name: "Antigravity"),
+            groups: groups
+        )
+
+        #expect(account.isPaid)
+        #expect(account.badgeLabel == "Google AI Pro")
+    }
+
+    @Test func incompleteFreeQuotaWindowsRemainFree() throws {
+        let groups = try AntigravityParser.decodeQuotaGroups(from: summaryJSON)
+        let weeklyOnly = groups.map { group in
+            AGQuotaGroup(
+                id: group.id,
+                displayName: group.displayName,
+                fiveHour: nil,
+                weekly: group.weekly
+            )
+        }
+        let account = AGAccountQuota(
+            email: "free@example.com",
+            tier: AGTier(id: "free-tier", name: "Antigravity"),
+            groups: weeklyOnly
+        )
+
+        #expect(!account.isPaid)
+        #expect(account.badgeLabel == "Free")
+    }
+
+    @Test func nonFreeTierRemainsPaidWithoutQuotaWindows() {
+        let account = AGAccountQuota(
+            email: "standard@example.com",
+            tier: AGTier(id: "standard-tier", name: "Antigravity"),
+            groups: []
+        )
+
+        #expect(account.isPaid)
+        #expect(account.badgeLabel == "Google AI Pro")
+    }
 }

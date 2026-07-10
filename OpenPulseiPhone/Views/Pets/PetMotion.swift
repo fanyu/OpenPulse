@@ -1,14 +1,40 @@
 import SwiftUI
 
+struct PetMovement: Equatable {
+    let offset: CGSize
+    let facingScaleX: CGFloat
+    let stride: CGFloat
+    let shadowScaleX: CGFloat
+}
+
 enum PetMotion {
-    static func offset(for style: DeskMotionStyle, phase: CGFloat) -> CGSize {
+    static func movement(for style: DeskMotionStyle, phase: CGFloat) -> PetMovement {
         switch style {
-        case .patrol: .init(width: sin(phase) * 16, height: cos(phase * 2.4) * 5)
-        case .pause: .init(width: sin(phase * 0.8) * 4, height: cos(phase * 2.1) * 2.5)
-        case .alert: .init(width: sin(phase * 4.6) * 8, height: cos(phase * 6) * 1.5)
-        case .exhausted: .init(width: 0, height: 10 + sin(phase * 0.8) * 1.5)
-        case .waiting: .init(width: sin(phase * 0.45) * 1.5, height: sin(phase) * 2)
+        case .patrol:
+            patrolMovement(phase: phase, range: 48, pauseFraction: 0.12, bobAmplitude: 3)
+        case .pause:
+            patrolMovement(phase: phase, range: 28, pauseFraction: 0.16, bobAmplitude: 2)
+        case .alert:
+            patrolMovement(phase: phase, range: 34, pauseFraction: 0.06, bobAmplitude: 2.5, jitter: 1.5)
+        case .exhausted:
+            .init(
+                offset: .init(width: 0, height: 10 + sin(phase * 0.8) * 1.5),
+                facingScaleX: 1,
+                stride: 0,
+                shadowScaleX: 1
+            )
+        case .waiting:
+            .init(
+                offset: .init(width: sin(phase * 0.45) * 1.5, height: sin(phase) * 2),
+                facingScaleX: 1,
+                stride: 0,
+                shadowScaleX: 1
+            )
         }
+    }
+
+    static func offset(for style: DeskMotionStyle, phase: CGFloat) -> CGSize {
+        movement(for: style, phase: phase).offset
     }
 
     static func phase(at date: Date, for style: DeskMotionStyle) -> CGFloat {
@@ -65,16 +91,16 @@ enum PetMotion {
         return .degrees(Double(degrees))
     }
 
-    static func limbSwing(for style: DeskMotionStyle, phase: CGFloat, index: Int) -> CGFloat {
+    static func limbSwing(for style: DeskMotionStyle, phase: CGFloat, index: Int, strideScale: CGFloat = 1) -> CGFloat {
         let direction: CGFloat = index.isMultiple(of: 2) ? 1 : -1
 
         switch style {
         case .patrol:
-            return sin(phase * 2.4 + (direction * .pi / 3)) * 14
+            return sin(phase * 2.4 + (direction * .pi / 3)) * 14 * strideScale
         case .pause:
-            return sin(phase * 1.8 + (direction * .pi / 4)) * 6
+            return sin(phase * 1.8 + (direction * .pi / 4)) * 6 * strideScale
         case .alert:
-            return sin(phase * 5.2 + CGFloat(index)) * 18
+            return sin(phase * 5.2 + CGFloat(index)) * 18 * strideScale
         case .exhausted:
             return direction * -8
         case .waiting:
@@ -82,16 +108,16 @@ enum PetMotion {
         }
     }
 
-    static func limbLift(for style: DeskMotionStyle, phase: CGFloat, index: Int) -> CGFloat {
-        let stride = max(0, sin(phase * 2.4 + (index.isMultiple(of: 2) ? 0 : .pi)))
+    static func limbLift(for style: DeskMotionStyle, phase: CGFloat, index: Int, strideScale: CGFloat = 1) -> CGFloat {
+        let stepLift = max(0, sin(phase * 2.4 + (index.isMultiple(of: 2) ? 0 : .pi)))
 
         switch style {
         case .patrol:
-            return stride * -5
+            return stepLift * -5 * strideScale
         case .pause:
-            return max(0, sin(phase * 1.8 + CGFloat(index))) * -2
+            return max(0, sin(phase * 1.8 + CGFloat(index))) * -2 * strideScale
         case .alert:
-            return max(0, sin(phase * 5 + CGFloat(index))) * -4
+            return max(0, sin(phase * 5 + CGFloat(index))) * -4 * strideScale
         case .exhausted:
             return 3
         case .waiting:
@@ -125,5 +151,55 @@ enum PetMotion {
         case .waiting:
             return .zero
         }
+    }
+
+    private static func patrolMovement(
+        phase: CGFloat,
+        range: CGFloat,
+        pauseFraction: CGFloat,
+        bobAmplitude: CGFloat,
+        jitter: CGFloat = 0
+    ) -> PetMovement {
+        let fullCycle = 2 * CGFloat.pi
+        let cycle = (phase / fullCycle).truncatingRemainder(dividingBy: 1)
+        let walkingDuration = 0.5 - pauseFraction
+        let position: CGFloat
+        let facingScaleX: CGFloat
+        let stride: CGFloat
+
+        switch cycle {
+        case ..<pauseFraction:
+            position = -range
+            facingScaleX = 1
+            stride = 0
+        case ..<(0.5 - pauseFraction):
+            let progress = (cycle - pauseFraction) / walkingDuration
+            position = -range + (2 * range * eased(progress))
+            facingScaleX = 1
+            stride = 1
+        case ..<(0.5 + pauseFraction):
+            position = range
+            facingScaleX = -1
+            stride = 0
+        default:
+            let progress = (cycle - 0.5 - pauseFraction) / walkingDuration
+            position = range - (2 * range * eased(progress))
+            facingScaleX = -1
+            stride = 1
+        }
+
+        let bob = abs(sin(phase * 3.2)) * bobAmplitude * stride
+        let shake = sin(phase * 7) * jitter * stride
+        let shadowScaleX = 1 - (abs(sin(phase * 3.2)) * 0.14 * stride)
+        return .init(
+            offset: .init(width: position + shake, height: -bob),
+            facingScaleX: facingScaleX,
+            stride: stride,
+            shadowScaleX: shadowScaleX
+        )
+    }
+
+    private static func eased(_ progress: CGFloat) -> CGFloat {
+        0.5 - (cos(progress * .pi) * 0.5)
     }
 }

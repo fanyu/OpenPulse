@@ -395,6 +395,21 @@ struct AGAccountQuota: Sendable, Identifiable {
     let groups: [AGQuotaGroup]
     var id: String { email }
 
+    private var hasConsumerProQuotaWindows: Bool {
+        ["gemini", "3p"].allSatisfy { id in
+            guard let group = groups.first(where: { $0.id == id }) else { return false }
+            return group.fiveHour != nil && group.weekly != nil
+        }
+    }
+
+    var isPaid: Bool {
+        tier?.isPaid == true || hasConsumerProQuotaWindows
+    }
+
+    var badgeLabel: String {
+        isPaid ? "Google AI Pro" : "Free"
+    }
+
     /// Gemini group's worst remaining fraction (drives menu-bar aggregate).
     var geminiRemainingFraction: Double? {
         guard let g = groups.first(where: { $0.id == "gemini" }) else { return nil }

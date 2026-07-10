@@ -6,7 +6,7 @@ struct CodexPetView: View {
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 24.0)) { timeline in
             let phase = PetMotion.phase(at: timeline.date, for: motion) * 0.72
-            let offset = PetMotion.offset(for: motion, phase: phase)
+            let movement = PetMotion.movement(for: motion, phase: phase)
             let squash = PetMotion.squash(for: motion, phase: phase)
             let blink = PetMotion.blinkScale(for: motion, phase: phase)
             let pupilOffset = PetMotion.pupilOffset(for: motion, phase: phase)
@@ -16,7 +16,8 @@ struct CodexPetView: View {
                     .fill(Color.black.opacity(0.18))
                     .frame(width: 124, height: 20)
                     .blur(radius: 2)
-                    .offset(y: 60)
+                    .scaleEffect(x: movement.shadowScaleX, y: 1, anchor: .center)
+                    .offset(x: movement.offset.width, y: 60)
 
                 ZStack {
                     RoundedRectangle(cornerRadius: 32, style: .continuous)
@@ -69,14 +70,14 @@ struct CodexPetView: View {
                         .offset(y: -6)
 
                     HStack(spacing: 44) {
-                        leg(index: 0, phase: phase)
-                        leg(index: 1, phase: phase)
+                        leg(index: 0, phase: phase, strideScale: movement.stride)
+                        leg(index: 1, phase: phase, strideScale: movement.stride)
                     }
                     .offset(y: 56)
                 }
-                .scaleEffect(x: 1.0, y: squash, anchor: .bottom)
+                .scaleEffect(x: movement.facingScaleX, y: squash, anchor: .bottom)
                 .rotationEffect(PetMotion.rotation(for: motion, phase: phase))
-                .offset(offset)
+                .offset(movement.offset)
                 .shadow(color: faceLight.opacity(motion == .alert ? 0.45 : 0.22), radius: motion == .alert ? 22 : 12)
                 .opacity(motion == .waiting ? 0.9 : 1)
             }
@@ -90,11 +91,11 @@ struct CodexPetView: View {
             : Color(red: 0.52, green: 0.95, blue: 0.99)
     }
 
-    private func leg(index: Int, phase: CGFloat) -> some View {
+    private func leg(index: Int, phase: CGFloat, strideScale: CGFloat) -> some View {
         Capsule()
             .fill(Color(red: 0.14, green: 0.39, blue: 0.74))
             .frame(width: 14, height: 22)
-            .rotationEffect(.degrees(PetMotion.limbSwing(for: motion, phase: phase, index: index)))
-            .offset(y: PetMotion.limbLift(for: motion, phase: phase, index: index))
+            .rotationEffect(.degrees(PetMotion.limbSwing(for: motion, phase: phase, index: index, strideScale: strideScale)))
+            .offset(y: PetMotion.limbLift(for: motion, phase: phase, index: index, strideScale: strideScale))
     }
 }

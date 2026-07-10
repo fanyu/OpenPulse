@@ -1,16 +1,14 @@
 import SwiftUI
 
 struct AGTierBadge: View {
-    let tier: AGTier?
+    let account: AGAccountQuota
     var body: some View {
-        if let tier {
-            Text(tier.badgeLabel)
-                .font(.system(size: 9, weight: .bold))
-                .padding(.horizontal, 6).padding(.vertical, 2)
-                .background(tier.isPaid ? Color.accentColor.opacity(0.18) : Color.primary.opacity(0.08),
-                            in: Capsule())
-                .foregroundStyle(tier.isPaid ? Color.accentColor : .secondary)
-        }
+        Text(account.badgeLabel)
+            .font(.system(size: 9, weight: .bold))
+            .padding(.horizontal, 6).padding(.vertical, 2)
+            .background(account.isPaid ? Color.accentColor.opacity(0.18) : Color.primary.opacity(0.08),
+                        in: Capsule())
+            .foregroundStyle(account.isPaid ? Color.accentColor : .secondary)
     }
 }
 
@@ -50,7 +48,7 @@ struct AGAccountQuotaBody: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Text(account.email).font(.system(size: 13, weight: .bold)).lineLimit(1)
-                AGTierBadge(tier: account.tier)
+                AGTierBadge(account: account)
                 Spacer()
             }
             ForEach(account.groups) { AGGroupCard(group: $0) }
