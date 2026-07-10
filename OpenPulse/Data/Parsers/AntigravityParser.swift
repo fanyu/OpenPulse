@@ -289,7 +289,14 @@ actor AntigravityParser {
     private func credentials() async -> [AGCredential] {
         let cli = ((try? FileManager.default.contentsOfDirectory(at: proxyDir, includingPropertiesForKeys: nil)) ?? [])
             .filter { $0.lastPathComponent.hasPrefix("antigravity-") && $0.pathExtension == "json" }
-            .map { AGCredential(email: emailFromFilename($0.deletingPathExtension().lastPathComponent), source: .cliProxy($0)) }
+            .map { file -> AGCredential in
+                // Match fetchAccountQuota's .cliProxy branch: prefer the auth file's JSON `email`,
+                // falling back to the filename, so credential identity matches the fetched quota's email.
+                let email = (try? Data(contentsOf: file))
+                    .flatMap { try? JSONDecoder().decode(AntigravityAuthFile.self, from: $0).email }
+                    ?? emailFromFilename(file.deletingPathExtension().lastPathComponent)
+                return AGCredential(email: email, source: .cliProxy(file))
+            }
         let op = await (accountService?.listAccounts() ?? []).map { AGCredential(email: $0.email, source: .openPulse) }
         return Self.mergeCredentials(cliProxy: cli, openPulse: op)
     }
