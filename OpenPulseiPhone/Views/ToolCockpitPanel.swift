@@ -31,9 +31,12 @@ struct ToolCockpitPanel: View {
         }
         .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        //.background(brandTint.opacity(0.04))
-        .background(.black)
+        .background(brandTint.opacity(0.04))
         .glassEffect(.regular, in: .rect(cornerRadius: 32))
+        .overlay {
+            RoundedRectangle(cornerRadius: 32, style: .continuous)
+                .strokeBorder(.white.opacity(0.12), lineWidth: 1.5)
+        }
     }
 
     @ViewBuilder
@@ -187,14 +190,14 @@ struct ToolCockpitPanel: View {
             .padding(.horizontal, 9)
             .padding(.vertical, 7)
             .background(accent.opacity(0.16), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-//            .overlay {
-//                RoundedRectangle(cornerRadius: 14, style: .continuous)
-//                    .strokeBorder(.white.opacity(0.1), lineWidth: 1)
-//            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(.white.opacity(0.1), lineWidth: 1)
+            }
             .shadow(color: accent.opacity(0.22), radius: 14, y: 6)
             .offset(x: sin(phase * 0.9) * 1.5, y: cos(phase * 1.2) * 2)
             .scaleEffect(1 + (sin(phase * 1.6) * 0.02))
-            .glassEffect(.regular, in: .rect(cornerRadius: 14))
+            //.glassEffect(.regular, in: .rect(cornerRadius: 14))
         }
     }
 

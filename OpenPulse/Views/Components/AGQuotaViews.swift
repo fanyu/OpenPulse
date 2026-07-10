@@ -15,7 +15,7 @@ struct AGTierBadge: View {
 }
 
 struct AGWindowRow: View {
-    let title: String
+    let title: LocalizedStringKey
     let window: AGWindow?
     private var color: Color {
         let f = window?.remainingFraction ?? 1
@@ -42,8 +42,8 @@ struct AGGroupCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(group.displayName).font(.system(size: 11, weight: .bold))
-            AGWindowRow(title: "5 小时", window: group.fiveHour)
-            AGWindowRow(title: "每周", window: group.weekly)
+            AGWindowRow(title: "5小时余量", window: group.fiveHour)
+            AGWindowRow(title: "本周余量", window: group.weekly)
         }
         .padding(10)
         .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 10))

@@ -27,7 +27,14 @@ struct TwinCockpitView: View {
             .padding(.horizontal, 10)
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
             .background(
-                Color.black
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.08, green: 0.11, blue: 0.18),
+                        Color(red: 0.15, green: 0.11, blue: 0.16),
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
             )
         }
     }

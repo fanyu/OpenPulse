@@ -23,9 +23,6 @@
     "%@" : {
 
     },
-    "%@ models available" : {
-
-    },
     "%@ sess" : {
 
     },
@@ -138,9 +135,6 @@
       }
     },
     "+%@" : {
-
-    },
-    "+%@ 个模型在主窗口查看" : {
 
     },
     "+%lld 个模型在主窗口查看" : {
@@ -476,6 +470,7 @@
       }
     },
     "No quota data" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -983,6 +978,7 @@
       }
     },
     "全部模型已隐藏" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2334,7 +2330,11 @@
         }
       }
     },
+    "暂无可用账号额度" : {
+
+    },
     "暂无可聚合的模型额度" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
