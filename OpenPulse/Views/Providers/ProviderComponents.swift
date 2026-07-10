@@ -490,7 +490,6 @@ struct AGAccountCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                AGTierBadge(tier: account.tier)
                 Spacer()
                 Toggle("", isOn: Binding(get: { !isAccountHidden }, set: { onToggleAccount($0) }))
                     .toggleStyle(.switch).labelsHidden().controlSize(.small)

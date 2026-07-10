@@ -165,8 +165,6 @@ struct ToolCockpitPanel: View {
         }
         .overlay(alignment: .topTrailing) {
             quotaBubble
-                .padding(.top, 10)
-                .padding(.trailing, 12)
         }
     }
 
@@ -176,7 +174,7 @@ struct ToolCockpitPanel: View {
 
             VStack(alignment: .trailing, spacing: 1) {
                 Text(presentation.session.percentText)
-                    .font(.system(size: 18, weight: .heavy, design: .rounded))
+                    .font(.system(size: 30, weight: .heavy, design: .rounded))
                     .foregroundStyle(.white)
                     .monospacedDigit()
 
@@ -191,7 +189,7 @@ struct ToolCockpitPanel: View {
             .background(accent.opacity(0.16), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(.white.opacity(0.08), lineWidth: 1)
+                    .strokeBorder(.white.opacity(0.1), lineWidth: 1)
             }
             .shadow(color: accent.opacity(0.22), radius: 14, y: 6)
             .offset(x: sin(phase * 0.9) * 1.5, y: cos(phase * 1.2) * 2)

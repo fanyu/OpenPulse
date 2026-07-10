@@ -42,6 +42,7 @@ struct TwinCockpitView: View {
 
             Text(statusText)
                 .font(.system(size: 12, weight: .bold, design: .rounded))
+                .monospaced()
                 .foregroundStyle(.white.opacity(0.72))
                 .lineLimit(1)
         }
