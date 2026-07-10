@@ -11,7 +11,7 @@ struct ToolCockpitPanel: View {
 
             ZStack {
                 RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    .fill(.white.opacity(0.06))
+                    //.fill(.white.opacity(0.06))
 
                 VStack(spacing: 0) {
                     Spacer(minLength: 0)
@@ -29,8 +29,10 @@ struct ToolCockpitPanel: View {
                 usageRow(presentation.weekly)
             }
         }
-        .padding(10)
+        .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        //.background(brandTint.opacity(0.04))
+        .background(.black)
         .glassEffect(.regular, in: .rect(cornerRadius: 32))
     }
 
@@ -46,7 +48,7 @@ struct ToolCockpitPanel: View {
 
                 Text(usage.resetText)
                     .font(.system(size: 10, weight: .medium, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.58))
+                    .foregroundStyle(.white)
                     .monospacedDigit()
                     .lineLimit(1)
 
