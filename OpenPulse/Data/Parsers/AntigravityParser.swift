@@ -363,7 +363,13 @@ struct AGWindow: Sendable {
         return resetTime
     }
     var resetCountdown: String? {
-        validatedResetDate.map { countdownString(to: $0) }
+        guard let date = validatedResetDate else { return nil }
+        switch kind {
+        case .fiveHour:
+            return date.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
+        case .weekly:
+            return countdownString(to: date)
+        }
     }
 }
 

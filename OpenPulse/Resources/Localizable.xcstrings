@@ -862,6 +862,7 @@
       }
     },
     "余量优先" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3577,6 +3578,7 @@
       }
     },
     "额度仪表盘" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
