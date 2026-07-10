@@ -1,5 +1,15 @@
 import Foundation
 
+/// OAuth credentials belonging to the Antigravity CLI application itself — not personal credentials.
+/// Extracted from the open-source Antigravity/Quotio CLI tool source code.
+/// Source: https://github.com/nguyenphutrong/quotio
+enum AntigravityOAuth {
+    static let clientId = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
+    static let clientSecret = "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"
+    static let tokenEndpoint = "https://oauth2.googleapis.com/token"
+    static let scopes = "openid email profile https://www.googleapis.com/auth/cloud-platform"
+}
+
 /// Parses Antigravity (Gemini Code Assist) task data from ~/.gemini/antigravity/brain/
 /// and fetches quota via the Google Cloud Code Assist internal API.
 actor AntigravityParser {
@@ -7,12 +17,6 @@ actor AntigravityParser {
     private let proxyDir: URL
     private let session: URLSession
 
-    /// OAuth credentials belonging to the Antigravity CLI application itself — not personal credentials.
-    /// Extracted from the open-source Antigravity/Quotio CLI tool source code.
-    /// Source: https://github.com/nguyenphutrong/quotio
-    private let oauthClientId = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
-    private let oauthClientSecret = "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"
-    private let tokenEndpoint = "https://oauth2.googleapis.com/token"
     private let loadCodeAssistEndpoint = "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist"
     private let retrieveUserQuotaSummaryEndpoint = "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary"
     private let userAgent = "antigravity/1.11.3 Darwin/arm64"
@@ -153,12 +157,12 @@ actor AntigravityParser {
     // MARK: - Auth
 
     private func refreshAccessToken(refreshToken: String) async throws -> (String, Int) {
-        var request = URLRequest(url: URL(string: tokenEndpoint)!)
+        var request = URLRequest(url: URL(string: AntigravityOAuth.tokenEndpoint)!)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         let params = [
-            "client_id": oauthClientId,
-            "client_secret": oauthClientSecret,
+            "client_id": AntigravityOAuth.clientId,
+            "client_secret": AntigravityOAuth.clientSecret,
             "refresh_token": refreshToken,
             "grant_type": "refresh_token"
         ]

@@ -56,6 +56,7 @@
 		A3B98E5E9F03105E78B007DB /* DeskSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF29881A5F817072F5E1D8BA /* DeskSnapshot.swift */; };
 		A47C83F64EF5FDEDDFEC8550 /* DeskSnapshotPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A9AE21683AF7CC1231E7F06 /* DeskSnapshotPublisher.swift */; };
 		A7F5BB96B28B86404C636C2C /* AntigravityParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17FF3012B7E2288F242C0B7 /* AntigravityParser.swift */; };
+		AA62F58A873777530589382E /* AntigravityAccountServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A6F7077CA0D27B6BDB61005 /* AntigravityAccountServiceTests.swift */; };
 		ACFE41DA09FDB63087A5CC73 /* CommonUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = E44DFE8B1FF414DC177BEF99 /* CommonUI.swift */; };
 		B366739390D07B800F0310F7 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A57ADBD61505E897EDD99EBF /* Localizable.xcstrings */; };
 		B845C780045F45F642B7C190 /* ProviderComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C298F3CBB422846FB83A5FF /* ProviderComponents.swift */; };
@@ -84,6 +85,7 @@
 		F9CED1BCE8F2D85F21019532 /* DeskModeAppStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4C4C93A9C7C926692B04B3B /* DeskModeAppStore.swift */; };
 		FC608AD2FF7457A67AB70153 /* ClaudeCodeParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1495475A35ED9D5528C01B35 /* ClaudeCodeParser.swift */; };
 		FE99542E14E79742B1569A6B /* WindowCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D300FEA511990F4AFED88925 /* WindowCoordinator.swift */; };
+		FEBE80073C3C9E76E4971110 /* AntigravityAccountService.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACEBE0AE555CC217177ACD78 /* AntigravityAccountService.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -105,6 +107,7 @@
 
 /* Begin PBXFileReference section */
 		002E5778BE7AC8F60942BA31 /* SessionHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionHistoryView.swift; sourceTree = "<group>"; };
+		0A6F7077CA0D27B6BDB61005 /* AntigravityAccountServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AntigravityAccountServiceTests.swift; sourceTree = "<group>"; };
 		11A27406725668E5D228E646 /* PetMotion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PetMotion.swift; sourceTree = "<group>"; };
 		1495475A35ED9D5528C01B35 /* ClaudeCodeParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeCodeParser.swift; sourceTree = "<group>"; };
 		1697B77668B01C0DED7FD802 /* OpenPulseiPhoneTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = OpenPulseiPhoneTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -160,6 +163,7 @@
 		A494FF8BD7215CF0925772F8 /* AppStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStore.swift; sourceTree = "<group>"; };
 		A57ADBD61505E897EDD99EBF /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		AAE363D258692709B22F2620 /* AppLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLogger.swift; sourceTree = "<group>"; };
+		ACEBE0AE555CC217177ACD78 /* AntigravityAccountService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AntigravityAccountService.swift; sourceTree = "<group>"; };
 		AD19B5E14DF8670708D6A8C0 /* ModelPricing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelPricing.swift; sourceTree = "<group>"; };
 		AEAF18F33337B779D4773E08 /* DeskSnapshotCloudKitClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeskSnapshotCloudKitClient.swift; sourceTree = "<group>"; };
 		B225807FEB6829DD500E63EB /* Provider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Provider.swift; sourceTree = "<group>"; };
@@ -285,6 +289,7 @@
 		3524F7C150CDDAD65761D136 /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				ACEBE0AE555CC217177ACD78 /* AntigravityAccountService.swift */,
 				AAE363D258692709B22F2620 /* AppLogger.swift */,
 				CDD4CF2C5EDE7491AE3E099C /* ClaudeCodeBridgeInstaller.swift */,
 				70978988BAE12EE3FFBBB75A /* CodexAccountService.swift */,
@@ -355,6 +360,7 @@
 		68CCC27517777277E2542509 /* OpenPulseTests */ = {
 			isa = PBXGroup;
 			children = (
+				0A6F7077CA0D27B6BDB61005 /* AntigravityAccountServiceTests.swift */,
 				4F46B64F1721A887975ED14E /* AntigravityQuotaDecodingTests.swift */,
 				46B3675E70F8FE20C314691D /* DeskSnapshotBuilderTests.swift */,
 			);
@@ -671,6 +677,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AA62F58A873777530589382E /* AntigravityAccountServiceTests.swift in Sources */,
 				079865A4843F16AD4EB903BA /* AntigravityQuotaDecodingTests.swift in Sources */,
 				BF06B609A4E880A4B563C576 /* DeskSnapshotBuilderTests.swift in Sources */,
 			);
@@ -689,6 +696,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				21CE939FE442438317191E86 /* AGQuotaViews.swift in Sources */,
+				FEBE80073C3C9E76E4971110 /* AntigravityAccountService.swift in Sources */,
 				A7F5BB96B28B86404C636C2C /* AntigravityParser.swift in Sources */,
 				DB9441BF2084C275703BE518 /* AppLogger.swift in Sources */,
 				8A245E69560FCDDB793578B1 /* AppStore.swift in Sources */,
