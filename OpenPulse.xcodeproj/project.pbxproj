@@ -42,6 +42,7 @@
 		7C004E6EC2DBCB001E80E0A8 /* CopilotAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40AC44480FE7CED374FE367D /* CopilotAPIClient.swift */; };
 		7FB9F2A8ECCC0B3539C6C429 /* CompareView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D05939178581C41AF8FC17BF /* CompareView.swift */; };
 		88E842D5D0DAFD92629A68D4 /* SQLite in Frameworks */ = {isa = PBXBuildFile; productRef = 20E251EA3ACA7A06A6007A56 /* SQLite */; };
+		89CB652709B7AD494CADEB55 /* OAuthLoopbackSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B34440038AB8696805CCB365 /* OAuthLoopbackSupport.swift */; };
 		8A245E69560FCDDB793578B1 /* AppStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A494FF8BD7215CF0925772F8 /* AppStore.swift */; };
 		8A72C7937F644C5C7AFE3F4D /* OpenPulseBrandView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81921BD303D05CDD163141CA /* OpenPulseBrandView.swift */; };
 		8DCA34358535ACF567C1B86B /* CodexAccountService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70978988BAE12EE3FFBBB75A /* CodexAccountService.swift */; };
@@ -162,6 +163,7 @@
 		AD19B5E14DF8670708D6A8C0 /* ModelPricing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelPricing.swift; sourceTree = "<group>"; };
 		AEAF18F33337B779D4773E08 /* DeskSnapshotCloudKitClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeskSnapshotCloudKitClient.swift; sourceTree = "<group>"; };
 		B225807FEB6829DD500E63EB /* Provider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Provider.swift; sourceTree = "<group>"; };
+		B34440038AB8696805CCB365 /* OAuthLoopbackSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OAuthLoopbackSupport.swift; sourceTree = "<group>"; };
 		B4C4C93A9C7C926692B04B3B /* DeskModeAppStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeskModeAppStore.swift; sourceTree = "<group>"; };
 		BB866DDFA50543294192F4E7 /* TwinCockpitView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TwinCockpitView.swift; sourceTree = "<group>"; };
 		BCCDA4DF0EC129A5D3945AA3 /* DailyStatsRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyStatsRecord.swift; sourceTree = "<group>"; };
@@ -175,7 +177,7 @@
 		E44DFE8B1FF414DC177BEF99 /* CommonUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommonUI.swift; sourceTree = "<group>"; };
 		EBBC6CEAD1FDBCFC5BFBEE38 /* DeskSnapshotRecordCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeskSnapshotRecordCodec.swift; sourceTree = "<group>"; };
 		F1E0BA47A399C82114B0BE45 /* ConfigsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigsView.swift; sourceTree = "<group>"; };
-		F9D6958E1A6594912C924872 /* OpenPulseiPhone.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OpenPulseiPhone.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		F9D6958E1A6594912C924872 /* OpenPulseiPhone.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = OpenPulseiPhone.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		FA613E3CB91EF6FF4D66FE15 /* DailyStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyStats.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -294,6 +296,7 @@
 				C462CDABE8B53296DB5A87C1 /* DotTextAPIService.swift */,
 				A3BA6F0CC3FDD8DFCCCF7CD5 /* KeychainService.swift */,
 				9AC7AD8BD5E6F4A728B429D9 /* NotificationService.swift */,
+				B34440038AB8696805CCB365 /* OAuthLoopbackSupport.swift */,
 				8A861A46E5DC496FBF634333 /* ToolSyncState.swift */,
 			);
 			path = Services;
@@ -635,7 +638,7 @@
 			mainGroup = 259F6CFA96D2EC24F6BD224D;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				C3DFABD442685BF2F25B19FE /* XCRemoteSwiftPackageReference "SQLite" */,
+				C3DFABD442685BF2F25B19FE /* XCRemoteSwiftPackageReference "SQLite.swift" */,
 				CC46313A9273438FCDF44A48 /* XCRemoteSwiftPackageReference "SwiftZSTD" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -719,6 +722,7 @@
 				E0B47DD84E5433B04F1E56C2 /* MenuBarView.swift in Sources */,
 				2B82DB8B5FDD88D24079D486 /* ModelPricing.swift in Sources */,
 				D6D35E8BE1BF0D02FE6B7A64 /* NotificationService.swift in Sources */,
+				89CB652709B7AD494CADEB55 /* OAuthLoopbackSupport.swift in Sources */,
 				EE4954ADE342C53CAC9CC50E /* OpenPulseApp.swift in Sources */,
 				3E86B004DEBEBA5D9B0AE530 /* Provider.swift in Sources */,
 				B845C780045F45F642B7C190 /* ProviderComponents.swift in Sources */,
@@ -795,9 +799,6 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.fanyu.OpenPulseiPhone;
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
-				SUPPORTS_MACCATALYST = NO;
-				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
-				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
@@ -888,9 +889,6 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.fanyu.OpenPulseiPhone;
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
-				SUPPORTS_MACCATALYST = NO;
-				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
-				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
@@ -1106,7 +1104,7 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		C3DFABD442685BF2F25B19FE /* XCRemoteSwiftPackageReference "SQLite" */ = {
+		C3DFABD442685BF2F25B19FE /* XCRemoteSwiftPackageReference "SQLite.swift" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/stephencelis/SQLite.swift";
 			requirement = {
@@ -1127,7 +1125,7 @@
 /* Begin XCSwiftPackageProductDependency section */
 		20E251EA3ACA7A06A6007A56 /* SQLite */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = C3DFABD442685BF2F25B19FE /* XCRemoteSwiftPackageReference "SQLite" */;
+			package = C3DFABD442685BF2F25B19FE /* XCRemoteSwiftPackageReference "SQLite.swift" */;
 			productName = SQLite;
 		};
 		A34676B78475615CA09E7538 /* SwiftZSTD */ = {
