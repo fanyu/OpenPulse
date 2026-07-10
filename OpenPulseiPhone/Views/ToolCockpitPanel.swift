@@ -187,13 +187,14 @@ struct ToolCockpitPanel: View {
             .padding(.horizontal, 9)
             .padding(.vertical, 7)
             .background(accent.opacity(0.16), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(.white.opacity(0.1), lineWidth: 1)
-            }
+//            .overlay {
+//                RoundedRectangle(cornerRadius: 14, style: .continuous)
+//                    .strokeBorder(.white.opacity(0.1), lineWidth: 1)
+//            }
             .shadow(color: accent.opacity(0.22), radius: 14, y: 6)
             .offset(x: sin(phase * 0.9) * 1.5, y: cos(phase * 1.2) * 2)
             .scaleEffect(1 + (sin(phase * 1.6) * 0.02))
+            .glassEffect(.regular, in: .rect(cornerRadius: 14))
         }
     }
 
