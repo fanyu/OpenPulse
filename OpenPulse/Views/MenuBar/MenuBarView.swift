@@ -152,15 +152,10 @@ struct MenuBarView: View {
                 }
             }
             Spacer()
-            VStack(alignment: .trailing, spacing: 3) {
-                Text("额度仪表盘")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(.primary)
-                Text("余量优先")
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(.tertiary)
-            }
-            .padding(.trailing, 8)
+            Image(nsImage: NSApp.applicationIconImage)
+                .resizable()
+                .frame(width: 28, height: 28)
+                .padding(.trailing, 8)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)

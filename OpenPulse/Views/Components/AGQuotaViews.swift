@@ -15,24 +15,18 @@ struct AGTierBadge: View {
 }
 
 struct AGWindowRow: View {
-    let title: LocalizedStringKey
+    let title: String
     let window: AGWindow?
-    private var color: Color {
-        let f = window?.remainingFraction ?? 1
-        return f < 0.1 ? .red : (f < 0.3 ? .orange : Color("AntigravityPurple"))
-    }
+    
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack {
-                Text(title).font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary)
-                Spacer()
-                Text(window?.remainingPercentText ?? "—").font(.system(size: 10, weight: .bold))
-                if let cd = window?.resetCountdown {
-                    Text(cd).font(.system(size: 9)).foregroundStyle(.tertiary)
-                }
-            }
-            QuotaProgressBar(fraction: window?.remainingFraction, color: color)
-        }
+        let usedPercent = window?.remainingFraction.map { Int(round((1.0 - $0) * 100)) }
+        UnifiedQuotaRow(
+            title: NSLocalizedString(title, comment: ""),
+            fraction: window?.remainingFraction,
+            primaryValue: window?.remainingPercentText ?? "—",
+            secondaryValue: usedPercent.map { "\($0)% used" },
+            countdown: window?.resetCountdown
+        )
         .help(window?.description ?? "")
     }
 }
