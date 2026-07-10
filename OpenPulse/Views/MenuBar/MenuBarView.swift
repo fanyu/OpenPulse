@@ -1051,6 +1051,51 @@ struct CopilotQuotaCard: View {
 
 // MARK: - Antigravity
 
+private struct AGMenuBarGroupCard: View {
+    let group: AGQuotaGroup
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(group.displayName)
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(.primary.opacity(0.85))
+            
+            HStack(spacing: 8) {
+                MenuBarQuotaPanel(
+                    title: "5小时余量",
+                    fraction: group.fiveHour?.remainingFraction,
+                    primaryValue: group.fiveHour?.remainingPercentText ?? "—",
+                    countdown: group.fiveHour?.resetCountdown,
+                    footer: nil
+                )
+                
+                MenuBarQuotaPanel(
+                    title: "本周余量",
+                    fraction: group.weekly?.remainingFraction,
+                    primaryValue: group.weekly?.remainingPercentText ?? "—",
+                    countdown: group.weekly?.resetCountdown,
+                    footer: nil
+                )
+            }
+        }
+        .padding(10)
+        .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 10))
+    }
+}
+
+private struct AGMenuBarAccountQuotaBody: View {
+    let account: AGAccountQuota
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text(account.email).font(.system(size: 13, weight: .bold)).lineLimit(1)
+                AGTierBadge(tier: account.tier)
+                Spacer()
+            }
+            ForEach(account.groups) { AGMenuBarGroupCard(group: $0) }
+        }
+    }
+}
+
 /// Top-level card: shared header (logo + title + ConfigShortcut + TodayTokenBadge),
 /// then one section per account separated by dividers — mirrors CodexMultiAccountQuotaCard.
 struct AntigravityMultiAccountCard: View {
@@ -1108,7 +1153,7 @@ struct AntigravityAggregateCard: View {
             } else {
                 VStack(spacing: 10) {
                     ForEach(visibleAccounts) { account in
-                        AGAccountQuotaBody(account: account)
+                        AGMenuBarAccountQuotaBody(account: account)
                         if account.id != visibleAccounts.last?.id {
                             Divider().opacity(0.18)
                         }
@@ -1131,7 +1176,7 @@ struct AntigravityAccountSection: View {
 
     var body: some View {
         if isAccountHidden { EmptyView() } else {
-            AGAccountQuotaBody(account: account)
+            AGMenuBarAccountQuotaBody(account: account)
         }
     }
 }
