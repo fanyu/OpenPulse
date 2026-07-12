@@ -3,6 +3,10 @@ import Foundation
 @testable import OpenPulse
 
 struct AntigravityQuotaDecodingTests {
+    @Test @MainActor func antigravityPollsEveryThreeMinutes() {
+        #expect(DataSyncService.defaultPollInterval[.antigravity] == 180)
+    }
+
     private let summaryJSON = """
     {"groups":[
       {"displayName":"Gemini Models","buckets":[

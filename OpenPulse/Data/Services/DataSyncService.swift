@@ -73,10 +73,10 @@ final class DataSyncService {
     }
 
     /// Default background poll intervals per tool (seconds).
-    private static let defaultPollInterval: [Tool: TimeInterval] = [
+    static let defaultPollInterval: [Tool: TimeInterval] = [
         .claudeCode:   300,
         .codex:        300,
-        .antigravity:  300,
+        .antigravity:  180,
         .copilot:     3600,
     ]
 
