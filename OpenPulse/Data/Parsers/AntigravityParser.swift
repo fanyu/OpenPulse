@@ -20,7 +20,7 @@ actor AntigravityParser {
 
     private let loadCodeAssistEndpoint = "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist"
     private let retrieveUserQuotaSummaryEndpoint = "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary"
-    private let userAgent = "antigravity/1.11.3 Darwin/arm64"
+    private let userAgent = "antigravity/hub/2.1.4 darwin/arm64"
 
     init(session: URLSession = .shared, accountService: AntigravityAccountService? = AntigravityAccountService()) {
         brainDir = URL.homeDirectory.appending(path: ".gemini/antigravity/brain")
@@ -145,6 +145,9 @@ actor AntigravityParser {
 
     /// Fetches quota for a single credential (cli-proxy auth file or OpenPulse-owned OAuth account).
     private func fetchAccountQuota(for cred: AGCredential) async throws -> AGAccountQuota {
+        let token: String
+        let email: String
+
         switch cred.source {
         case .cliProxy(let file):
             let rawData = try Data(contentsOf: file)
@@ -157,24 +160,20 @@ actor AntigravityParser {
                 persistRefreshedToken(at: file, originalData: rawData, newToken: newToken, expiresIn: expiresIn)
             }
 
-            let token = auth.accessToken
-            // Derive email from filename: "antigravity-user_gmail_com.json" → "user@gmail.com"
-            let email = auth.email ?? emailFromFilename(file.deletingPathExtension().lastPathComponent)
-
-            let (projectId, tier) = try await fetchProjectAndTier(token: token)
-            let groups = try await fetchQuotaSummary(token: token, projectId: projectId)
-            return AGAccountQuota(email: email, tier: tier, groups: groups)
+            token = auth.accessToken
+            email = auth.email ?? emailFromFilename(file.deletingPathExtension().lastPathComponent)
 
         case .openPulse:
-            guard let refreshToken = await accountService?.refreshToken(for: cred.email), !refreshToken.isEmpty else {
+            guard let rt = await accountService?.refreshToken(for: cred.email), !rt.isEmpty else {
                 throw AntigravityError.noAuthFile
             }
-            let (token, _) = try await refreshAccessToken(refreshToken: refreshToken)
-
-            let (projectId, tier) = try await fetchProjectAndTier(token: token)
-            let groups = try await fetchQuotaSummary(token: token, projectId: projectId)
-            return AGAccountQuota(email: cred.email, tier: tier, groups: groups)
+            (token, _) = try await refreshAccessToken(refreshToken: rt)
+            email = cred.email
         }
+
+        let (projectId, tier) = try await fetchProjectAndTier(token: token)
+        let groups = try await fetchQuotaSummary(token: token, projectId: projectId)
+        return AGAccountQuota(email: email, tier: tier, groups: groups)
     }
 
     // MARK: - Auth
@@ -422,6 +421,8 @@ struct AGAccountQuota: Sendable, Identifiable {
 }
 
 extension AntigravityParser {
+    /// `retrieveUserQuotaSummary` returns explicit `5h` / `weekly` buckets per model group,
+    /// so no window inference is needed — take them as given.
     static func decodeQuotaGroups(from data: Data) throws -> [AGQuotaGroup] {
         let resp = try JSONDecoder().decode(AGQuotaSummaryResponse.self, from: data)
         return resp.groups.map { group in

@@ -89,4 +89,35 @@ struct AntigravityQuotaDecodingTests {
         #expect(account.isPaid)
         #expect(account.badgeLabel == "Google AI Pro")
     }
+
+    @Test func pastResetReturnsNilForBothWindows() {
+        let past = Date().addingTimeInterval(-3600)
+        let daily = AGWindow(kind: .fiveHour, remainingFraction: 0.5, resetTime: past, description: nil)
+        #expect(daily.validatedResetDate == nil)
+
+        let weekly = AGWindow(kind: .weekly, remainingFraction: 0.5, resetTime: past, description: nil)
+        #expect(weekly.validatedResetDate == nil)
+    }
+
+    @Test func futureResetReturnsDateForBothWindows() {
+        let future = Date().addingTimeInterval(3600)
+        let daily = AGWindow(kind: .fiveHour, remainingFraction: 0.5, resetTime: future, description: nil)
+        #expect(daily.validatedResetDate != nil)
+
+        let weekly = AGWindow(kind: .weekly, remainingFraction: 0.5, resetTime: future, description: nil)
+        #expect(weekly.validatedResetDate != nil)
+    }
+
+    @Test func resetCountdownFormat() {
+        let future = Date().addingTimeInterval(3600)
+        let daily = AGWindow(kind: .fiveHour, remainingFraction: 0.5, resetTime: future, description: nil)
+        #expect(daily.resetCountdown != nil)
+        // HH:mm format — no slash (date separator) in output
+        #expect(daily.resetCountdown?.contains("/") == false)
+
+        let weekly = AGWindow(kind: .weekly, remainingFraction: 0.5, resetTime: future, description: nil)
+        #expect(weekly.resetCountdown != nil)
+        // MM/dd HH:mm format — must contain slash
+        #expect(weekly.resetCountdown?.contains("/") == true)
+    }
 }

@@ -1067,7 +1067,7 @@ private struct AGMenuBarGroupCard: View {
                     title: "本周余量",
                     fraction: group.weekly?.remainingFraction,
                     primaryValue: group.weekly?.remainingPercentText ?? "—",
-                    countdown: group.weekly?.validatedResetDate.map { menuBarShortResetString(for: $0) },
+                    countdown: group.weekly?.validatedResetDate.map { $0.formatted(.dateTime.month(.twoDigits).day(.twoDigits).hour(.twoDigits(amPM: .omitted)).minute(.twoDigits)) },
                     footer: nil
                 )
             }
