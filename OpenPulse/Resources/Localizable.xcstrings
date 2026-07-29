@@ -526,6 +526,9 @@
     "OpenPulse" : {
 
     },
+    "Pro 账号额度聚合 (%@个账号)" : {
+
+    },
     "Providers" : {
       "localizations" : {
         "en" : {
@@ -1666,6 +1669,9 @@
           }
         }
       }
+    },
+    "开启后在 Menu Bar 中合并所有 Pro 账号额度，按模型（Gemini/3P）计算平均剩余量与最早重置时间。" : {
+
     },
     "开始使用 AI 编程工具后将在此记录详情。" : {
       "extractionState" : "stale",
@@ -3010,6 +3016,9 @@
           }
         }
       }
+    },
+    "菜单栏 Pro 账号额度聚合" : {
+
     },
     "菜单栏操作快捷键" : {
       "localizations" : {
