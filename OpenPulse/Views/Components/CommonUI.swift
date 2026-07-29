@@ -401,15 +401,12 @@ struct StatCard: View {
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(isGlass ? Color.clear : Color.primary.opacity(0.03))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .background(Color(NSColor.controlBackgroundColor), in: RoundedRectangle(cornerRadius: 16))
+        .shadow(color: Color.black.opacity(0.03), radius: 8, y: 4)
         .overlay(
             RoundedRectangle(cornerRadius: 16)
-                .stroke(Color.primary.opacity(0.06), lineWidth: 1)
+                .stroke(Color.primary.opacity(0.05), lineWidth: 1)
         )
-        .if(isGlass) { view in
-            view.glassEffect(.regular, in: .rect(cornerRadius: 16))
-        }
     }
 
     @ViewBuilder
