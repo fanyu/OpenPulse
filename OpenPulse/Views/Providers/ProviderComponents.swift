@@ -460,7 +460,6 @@ struct CopilotProviderContent: View {
 struct AntigravityProviderContent: View {
     let appStore: AppStore
     @AppStorage("ag.hiddenAccountEmails") private var hiddenAccountEmailsRaw = ""
-    @AppStorage("menubar.antigravityDisplayMode") private var antigravityDisplayMode = "accounts"
     @State private var ownedAccounts: [AGStoredAccount] = []
     @State private var isWorking = false
     @State private var errorMessage: String?
@@ -472,26 +471,6 @@ struct AntigravityProviderContent: View {
             Text("扫描本地 `~/.cli-proxy-api` 授权，或直接在 App 内用 Google 登录添加账号；额度按 5 小时 / 每周窗口显示。")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("菜单栏 Pro 账号额度聚合")
-                            .font(.system(size: 13, weight: .medium))
-                        Text("开启后在 Menu Bar 中合并所有 Pro 账号额度，按模型（Gemini/3P）计算平均剩余量与最早重置时间。")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Toggle("", isOn: Binding(
-                        get: { antigravityDisplayMode == "aggregate" },
-                        set: { antigravityDisplayMode = $0 ? "aggregate" : "accounts" }
-                    ))
-                    .toggleStyle(.switch)
-                }
-            }
-            .padding(12)
-            .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 12))
 
             HStack(spacing: 12) {
                 Button(isWorking ? "登录中..." : "添加 Antigravity 账号") {
