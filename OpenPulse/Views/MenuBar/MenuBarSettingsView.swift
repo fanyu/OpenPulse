@@ -66,20 +66,70 @@ struct MenuBarSettingsView: View {
             VStack(alignment: .leading, spacing: 24) {
                 // 快捷键
                 SettingsCard(title: "快捷键", icon: "keyboard") {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("全局快捷键")
-                                .font(.body)
-                            Text("按下快捷键随时显示或隐藏 OpenPulse 菜单栏窗口")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 16) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("激活菜单栏")
+                                    .font(.body)
+                                Text(hotkeyKeyCode == 0
+                                     ? "点击右侧按钮录制，可在任何界面通过快捷键激活菜单栏"
+                                     : "在任何界面按下快捷键即可激活菜单栏")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+
+                            let isRecording = GlobalHotkeyService.shared.isRecording
+                            HStack(spacing: 8) {
+                                if isRecording {
+                                    Text("请按下快捷键…")
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 6)
+                                        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
+
+                                    Button("取消") { GlobalHotkeyService.shared.stopRecording() }
+                                        .buttonStyle(.plain)
+                                        .foregroundStyle(.secondary)
+                                } else {
+                                    Button(action: { GlobalHotkeyService.shared.startRecording() }) {
+                                        Text(hotkeyKeyCode == 0 ? "点击录制" : hotkeyLabel)
+                                            .font(.subheadline.monospaced())
+                                            .padding(.horizontal, 12)
+                                            .padding(.vertical, 6)
+                                            .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
+                                    }
+                                    .buttonStyle(.plain)
+
+                                    if hotkeyKeyCode != 0 {
+                                        Button(action: {
+                                            hotkeyKeyCode = 0
+                                            hotkeyModifiers = 0
+                                            GlobalHotkeyService.shared.apply(keyCode: 0, carbonModifiers: 0)
+                                        }) {
+                                            Image(systemName: "xmark.circle.fill")
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                }
+                            }
                         }
-                        Spacer()
-                        HotkeyRecorderView(
-                            keyCode: $hotkeyKeyCode,
-                            modifiers: $hotkeyModifiers
-                        )
-                        .frame(width: 140, height: 28)
+
+                        Divider()
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("菜单栏操作快捷键")
+                                .font(.subheadline.weight(.medium))
+
+                            VStack(spacing: 6) {
+                                ShortcutRow(label: "刷新同步", shortcut: "⌘R")
+                                ShortcutRow(label: "打开主窗口", shortcut: "⌘O")
+                                ShortcutRow(label: "设置", shortcut: "⌘,")
+                                ShortcutRow(label: "退出", shortcut: "⌘Q")
+                            }
+                        }
                     }
                 }
 

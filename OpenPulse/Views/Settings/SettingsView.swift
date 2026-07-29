@@ -439,7 +439,7 @@ struct SettingsView: View {
 
 // MARK: - Shortcut Row
 
-private struct ShortcutRow: View {
+struct ShortcutRow: View {
     let label: LocalizedStringKey
     let shortcut: String
 
@@ -459,7 +459,7 @@ private struct ShortcutRow: View {
 }
 
 // MARK: - Settings Card
-private struct SettingsCard<Content: View>: View {
+struct SettingsCard<Content: View>: View {
     let title: LocalizedStringKey
     let icon: String
     @ViewBuilder let content: () -> Content
