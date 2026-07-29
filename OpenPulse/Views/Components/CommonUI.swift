@@ -589,9 +589,14 @@ struct UnifiedSessionRow: View {
                 .padding(.leading, 40)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 12))
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(Color(NSColor.controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
+        .shadow(color: Color.black.opacity(0.03), radius: 6, y: 3)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.primary.opacity(0.05), lineWidth: 1)
+        )
         .contentShape(Rectangle())
         .onTapGesture {
             onToggle?()
