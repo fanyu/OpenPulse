@@ -130,7 +130,7 @@ struct TrendsView: View {
     private var tokenUsageTrendSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             SectionHeader(title: "Token 使用趋势")
-            WeeklyAreaChart(data: timelinePoints, color: .accentColor).frame(height: 260).padding().background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 16)).overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.primary.opacity(0.05), lineWidth: 1))
+            WeeklyAreaChart(data: timelinePoints, color: .accentColor).frame(height: 260).padding().background(Color(NSColor.controlBackgroundColor), in: RoundedRectangle(cornerRadius: 16)).shadow(color: Color.black.opacity(0.03), radius: 8, y: 4).overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.primary.opacity(0.05), lineWidth: 1))
         }
     }
 
@@ -210,7 +210,8 @@ struct TrendsView: View {
                 .padding(.leading, 32)
             }
             .padding(24)
-            .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 24))
+            .background(Color(NSColor.controlBackgroundColor), in: RoundedRectangle(cornerRadius: 24))
+            .shadow(color: Color.black.opacity(0.03), radius: 8, y: 4)
             .overlay(RoundedRectangle(cornerRadius: 24).stroke(Color.primary.opacity(0.05), lineWidth: 1))
         }
     }
@@ -284,7 +285,8 @@ struct TrendsView: View {
                 }
                 .padding(24)
             }
-            .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 24))
+            .background(Color(NSColor.controlBackgroundColor), in: RoundedRectangle(cornerRadius: 24))
+            .shadow(color: Color.black.opacity(0.03), radius: 8, y: 4)
             .overlay(RoundedRectangle(cornerRadius: 24).stroke(Color.primary.opacity(0.05), lineWidth: 1))
         }
     }
@@ -327,7 +329,8 @@ struct TrendsView: View {
                 .padding(.leading, 32)
             }
             .padding(24)
-            .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 24))
+            .background(Color(NSColor.controlBackgroundColor), in: RoundedRectangle(cornerRadius: 24))
+            .shadow(color: Color.black.opacity(0.03), radius: 8, y: 4)
             .overlay(RoundedRectangle(cornerRadius: 24).stroke(Color.primary.opacity(0.05), lineWidth: 1))
         }
     }
@@ -403,7 +406,8 @@ struct TrendsView: View {
             }
         }
         .padding(16)
-        .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 18))
+        .background(Color(NSColor.controlBackgroundColor), in: RoundedRectangle(cornerRadius: 18))
+        .shadow(color: Color.black.opacity(0.03), radius: 8, y: 4)
         .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.primary.opacity(0.05), lineWidth: 1))
     }
 
@@ -503,7 +507,8 @@ struct TrendsView: View {
                     .padding(.leading, 32)
                 }
                 .padding(24)
-                .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 24))
+                .background(Color(NSColor.controlBackgroundColor), in: RoundedRectangle(cornerRadius: 24))
+                .shadow(color: Color.black.opacity(0.03), radius: 8, y: 4)
                 .overlay(RoundedRectangle(cornerRadius: 24).stroke(Color.primary.opacity(0.05), lineWidth: 1))
                 if !topModelCosts.isEmpty {
                     VStack(alignment: .leading, spacing: 10) {
@@ -522,7 +527,8 @@ struct TrendsView: View {
                         )
                     }
                     .padding(20)
-                    .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 16))
+                    .background(Color(NSColor.controlBackgroundColor), in: RoundedRectangle(cornerRadius: 16))
+                    .shadow(color: Color.black.opacity(0.03), radius: 8, y: 4)
                     .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.primary.opacity(0.05), lineWidth: 1))
                 }
             }
@@ -536,7 +542,8 @@ struct TrendsView: View {
                     }
                 }
                 .padding(20)
-                .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 16))
+                .background(Color(NSColor.controlBackgroundColor), in: RoundedRectangle(cornerRadius: 16))
+                .shadow(color: Color.black.opacity(0.03), radius: 8, y: 4)
                 .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.primary.opacity(0.05), lineWidth: 1))
             }
             Text("* 价格基于公开定价，仅供参考").font(.caption2).foregroundStyle(.tertiary)

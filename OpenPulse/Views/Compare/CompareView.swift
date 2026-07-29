@@ -81,7 +81,8 @@ struct CompareView: View {
             }
             .frame(height: 220)
             .padding()
-            .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 16))
+            .background(Color(NSColor.controlBackgroundColor), in: RoundedRectangle(cornerRadius: 16))
+            .shadow(color: Color.black.opacity(0.03), radius: 8, y: 4)
             .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.primary.opacity(0.05), lineWidth: 1))
         }
     }
@@ -122,7 +123,8 @@ struct CompareView: View {
                 }
             }
             .padding()
-            .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 16))
+            .background(Color(NSColor.controlBackgroundColor), in: RoundedRectangle(cornerRadius: 16))
+            .shadow(color: Color.black.opacity(0.03), radius: 8, y: 4)
             .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.primary.opacity(0.05), lineWidth: 1))
         }
     }
@@ -137,7 +139,8 @@ struct CompareView: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, minHeight: 80)
-                .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 16))
+                .background(Color(NSColor.controlBackgroundColor), in: RoundedRectangle(cornerRadius: 16))
+                .shadow(color: Color.black.opacity(0.03), radius: 8, y: 4)
                 .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.primary.opacity(0.05), lineWidth: 1))
         }
     }
