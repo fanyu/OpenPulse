@@ -20,6 +20,8 @@ struct SessionHistoryView: View {
 
     private var filtered: [SessionRecord] {
         sessions.filter { session in
+            let isActivityTool = session.tool == .codex || session.tool == .claudeCode
+            guard isActivityTool else { return false }
             let matchesTool = selectedTool == nil || session.tool == selectedTool
             let matchesSearch = debouncedSearchText.isEmpty ||
                 session.taskDescription.localizedStandardContains(debouncedSearchText) ||
@@ -110,7 +112,7 @@ struct SessionHistoryView: View {
                 FilterChip(label: "全部", isSelected: selectedTool == nil) {
                     withAnimation(.spring(duration: 0.3)) { selectedTool = nil }
                 }
-                ForEach(Tool.allCases, id: \.self) { tool in
+                ForEach([Tool.codex, Tool.claudeCode], id: \.self) { tool in
                     let count = toolSessionCounts[tool] ?? 0
                     FilterChip(label: "\(tool.displayName) (\(count))", isSelected: selectedTool == tool) {
                         withAnimation(.spring(duration: 0.3)) {
@@ -159,13 +161,6 @@ struct SessionHistoryView: View {
             }
 
             switch tool {
-            case .antigravity:
-                AGAnalysisView(sessions: sessions, range: .month)
-            case .copilot:
-                CopilotAnalysisView(
-                    snapshots: appStore.syncService?.latestCopilotSnapshots,
-                    resetAt: appStore.syncService?.latestCopilotResetAt
-                )
             case .claudeCode, .codex:
                 HStack(spacing: 16) {
                     StatCard(title: "平均消耗", value: (toolSessions.count > 0 ? toolSessions.reduce(0) { $0 + $1.totalTokens } / toolSessions.count : 0).compactTokenString, icon: "chart.bar.fill", color: .blue, isGlass: true)
