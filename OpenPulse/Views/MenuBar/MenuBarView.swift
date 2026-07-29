@@ -358,7 +358,7 @@ private struct MenuBarQuotaPanel: View {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(primaryValue)
                     .font(.system(size: 22, weight: .black, design: .monospaced))
-                    .foregroundStyle(isExhausted ? Color.red : .primary)
+                    .foregroundStyle(isExhausted ? Color.secondary.opacity(0.6) : .primary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
                 Spacer(minLength: 2)
@@ -397,23 +397,24 @@ private struct MenuBarResetLine: View {
         HStack(spacing: 5) {
             Image(systemName: "clock.arrow.circlepath")
                 .font(.system(size: 8, weight: .bold))
-                .foregroundStyle(isExhausted ? Color.red : .secondary)
+                .foregroundStyle(.secondary)
             Text(LocalizedStringKey(countdown ?? "—"))
                 .font(.system(size: 10, weight: .bold, design: .monospaced))
-                .foregroundStyle(isExhausted ? Color.red : Color.secondary)
+                .foregroundStyle(countdown == nil ? .tertiary : .secondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.76)
         }
         .padding(.horizontal, 7)
         .padding(.vertical, 4)
-        .background(isExhausted ? Color.red.opacity(0.12) : Color.primary.opacity(0.055), in: Capsule())
+        .background(Color.primary.opacity(0.055), in: Capsule())
         .accessibilityElement(children: .combine)
     }
 }
 
 private func menuBarQuotaBarColor(fraction: Double?) -> Color {
     guard let fraction else { return Color.primary.opacity(0.18) }
-    if fraction < 0.15 { return Color.red.opacity(0.82) }
+    if fraction <= 0.001 { return Color.primary.opacity(0.12) }
+    if fraction < 0.15 { return Color.red.opacity(0.75) }
     if fraction < 0.40 { return Color.orange.opacity(0.76) }
     return Color.green.opacity(0.58)
 }
