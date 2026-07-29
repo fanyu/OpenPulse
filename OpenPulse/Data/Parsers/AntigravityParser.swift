@@ -419,6 +419,68 @@ struct AGAccountQuota: Sendable, Identifiable {
         return [g.fiveHour?.validatedResetDate, g.weekly?.validatedResetDate].compactMap { $0 }.min()
     }
 }
+struct AGProAggregateSummary: Sendable {
+    let proAccountCount: Int
+    let groups: [AGQuotaGroup]
+}
+
+enum AntigravityProAggregator {
+    static func aggregate(accounts: [AGAccountQuota]) -> AGProAggregateSummary {
+        let proAccounts = accounts.filter(\.isPaid)
+        let targetAccounts = proAccounts.isEmpty ? accounts : proAccounts
+        
+        let groupIds = ["gemini", "3p"]
+        var aggregatedGroups: [AGQuotaGroup] = []
+        
+        for groupId in groupIds {
+            let matchingGroups = targetAccounts.compactMap { acc in
+                acc.groups.first(where: { $0.id == groupId })
+            }
+            guard !matchingGroups.isEmpty else { continue }
+            
+            let displayName = matchingGroups.first?.displayName ?? (groupId == "gemini" ? "Gemini Models" : "3P Models")
+            
+            // 5-hour window
+            let fiveHourWindows = matchingGroups.compactMap(\.fiveHour)
+            let fiveHourFractions = fiveHourWindows.compactMap(\.remainingFraction)
+            let fiveHourAvg = fiveHourFractions.isEmpty ? nil : (fiveHourFractions.reduce(0.0, +) / Double(fiveHourFractions.count))
+            let fiveHourEarliestReset = fiveHourWindows.compactMap(\.validatedResetDate).min()
+            
+            let fiveHourWindow: AGWindow? = fiveHourAvg.map { frac in
+                AGWindow(
+                    kind: .fiveHour,
+                    remainingFraction: frac,
+                    resetTime: fiveHourEarliestReset,
+                    description: nil
+                )
+            }
+            
+            // Weekly window
+            let weeklyWindows = matchingGroups.compactMap(\.weekly)
+            let weeklyFractions = weeklyWindows.compactMap(\.remainingFraction)
+            let weeklyAvg = weeklyFractions.isEmpty ? nil : (weeklyFractions.reduce(0.0, +) / Double(weeklyFractions.count))
+            let weeklyEarliestReset = weeklyWindows.compactMap(\.validatedResetDate).min()
+            
+            let weeklyWindow: AGWindow? = weeklyAvg.map { frac in
+                AGWindow(
+                    kind: .weekly,
+                    remainingFraction: frac,
+                    resetTime: weeklyEarliestReset,
+                    description: nil
+                )
+            }
+            
+            aggregatedGroups.append(AGQuotaGroup(
+                id: groupId,
+                displayName: displayName,
+                fiveHour: fiveHourWindow,
+                weekly: weeklyWindow
+            ))
+        }
+        
+        return AGProAggregateSummary(proAccountCount: targetAccounts.count, groups: aggregatedGroups)
+    }
+}
 
 extension AntigravityParser {
     /// `retrieveUserQuotaSummary` returns explicit `5h` / `weekly` buckets per model group,
