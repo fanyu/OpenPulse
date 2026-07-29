@@ -53,6 +53,7 @@ enum AppTab: String, CaseIterable {
     case trends    = "总览"
     case quota     = "配额"
     case activity  = "活动"
+    case menuBar   = "菜单栏"
     case providers = "接入"
     case configs   = "配置"
     case settings  = "设置"
@@ -62,9 +63,10 @@ enum AppTab: String, CaseIterable {
         switch self {
         case .trends:    "chart.line.uptrend.xyaxis"
         case .quota:     "chart.pie.fill"
-        case .activity:  "list.bullet.rectangle.fill"
+        case .activity:  "terminal.fill"
+        case .menuBar:   "menubar.dock.rectangle"
         case .providers: "cable.connector"
-        case .configs:   "folder.badge.gearshape"
+        case .configs:   "doc.badge.gearshape.fill"
         case .settings:  "gearshape.fill"
         case .logs:      "scroll"
         }
@@ -75,6 +77,7 @@ enum AppTab: String, CaseIterable {
         case .trends:    "总览"
         case .quota:     "配额"
         case .activity:  "活动"
+        case .menuBar:   "菜单栏"
         case .providers: "接入"
         case .configs:   "配置"
         case .settings:  "设置"

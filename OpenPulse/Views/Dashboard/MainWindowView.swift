@@ -23,6 +23,7 @@ struct MainWindowView: View {
         case .trends:    TrendsView()
         case .quota:     QuotaView()
         case .activity:  SessionHistoryView()
+        case .menuBar:   MenuBarSettingsView()
         case .providers: ProviderView()
         case .configs:   ConfigsView()
         case .settings:  SettingsView()
