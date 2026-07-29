@@ -83,11 +83,16 @@ struct TrendsView: View {
 
     private var welcomeHeader: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
+            HStack(alignment: .center, spacing: 12) {
                 let hour = cal.component(.hour, from: Date())
-                let greeting = hour < 12 ? "早上好" : (hour < 18 ? "下午好" : "晚上好")
-                Text("\(greeting), Developer")
-                    .font(.system(size: 28, weight: .bold))
+                let (greeting, icon) = hour < 12 ? ("早上好", "sun.max.fill") : (hour < 18 ? ("下午好", "sun.horizon.fill") : ("晚上好", "moon.stars.fill"))
+                HStack(spacing: 8) {
+                    Image(systemName: icon)
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundStyle(hour < 18 ? Color.orange.gradient : Color.indigo.gradient)
+                    Text("\(greeting), Developer")
+                        .font(.system(size: 26, weight: .bold))
+                }
                 Spacer()
                 Picker("时间范围", selection: $range) {
                     ForEach(ChartRange.allCases, id: \.self) { Text($0.rawValue).tag($0) }
@@ -98,10 +103,16 @@ struct TrendsView: View {
             }
             
             HStack(spacing: 12) {
-
-                Label("今日已消耗 \(todayTotalTokens.compactTokenString) tokens", systemImage: "bolt.fill").font(.subheadline).foregroundStyle(.secondary)
+                Label("今日已消耗 \(todayTotalTokens.compactTokenString) tokens", systemImage: "bolt.fill")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
                 if let delta = percentDelta(today: todayTotalTokens, yesterday: yesterdayTotalTokens) {
-                    Label("\(abs(delta))%", systemImage: delta >= 0 ? "arrow.up" : "arrow.down").font(.caption.bold()).foregroundStyle(delta >= 0 ? .red : .green).padding(.horizontal, 6).padding(.vertical, 2).background((delta >= 0 ? Color.red : Color.green).opacity(0.1), in: Capsule())
+                    Label("\(abs(delta))%", systemImage: delta >= 0 ? "arrow.up" : "arrow.down")
+                        .font(.caption.bold())
+                        .foregroundStyle(delta >= 0 ? .red : .green)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background((delta >= 0 ? Color.red : Color.green).opacity(0.12), in: Capsule())
                 }
             }
         }
