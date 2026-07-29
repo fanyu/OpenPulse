@@ -81,7 +81,8 @@ struct CompareView: View {
             }
             .frame(height: 220)
             .padding()
-            .glassEffect(.regular, in: .rect(cornerRadius: 16))
+            .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 16))
+            .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.primary.opacity(0.05), lineWidth: 1))
         }
     }
 
@@ -121,7 +122,8 @@ struct CompareView: View {
                 }
             }
             .padding()
-            .glassEffect(.regular, in: .rect(cornerRadius: 16))
+            .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 16))
+            .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.primary.opacity(0.05), lineWidth: 1))
         }
     }
 
@@ -135,7 +137,8 @@ struct CompareView: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, minHeight: 80)
-                .glassEffect(.regular, in: .rect(cornerRadius: 16))
+                .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 16))
+                .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.primary.opacity(0.05), lineWidth: 1))
         }
     }
 }

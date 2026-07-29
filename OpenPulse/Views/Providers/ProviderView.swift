@@ -72,9 +72,8 @@ private struct ProviderCardContainer: View {
             providerContent
         }
         .padding(24)
-        .clipShape(RoundedRectangle(cornerRadius: 24))
+        .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 24))
         .overlay(RoundedRectangle(cornerRadius: 24).stroke(Color.primary.opacity(0.05), lineWidth: 1))
-        .glassEffect(.regular, in: .rect(cornerRadius: 24))
     }
     
     @ViewBuilder

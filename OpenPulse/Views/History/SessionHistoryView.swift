@@ -163,15 +163,15 @@ struct SessionHistoryView: View {
             switch tool {
             case .claudeCode, .codex:
                 HStack(spacing: 16) {
-                    StatCard(title: "平均消耗", value: (toolSessions.count > 0 ? toolSessions.reduce(0) { $0 + $1.totalTokens } / toolSessions.count : 0).compactTokenString, icon: "chart.bar.fill", color: .blue, isGlass: true)
-                    StatCard(title: "最常服务项目", value: favoriteProject(for: toolSessions), icon: "folder.fill", color: .indigo, isGlass: true)
+                    StatCard(title: "平均消耗", value: (toolSessions.count > 0 ? toolSessions.reduce(0) { $0 + $1.totalTokens } / toolSessions.count : 0).compactTokenString, icon: "chart.bar.fill", color: .blue, isGlass: false)
+                    StatCard(title: "最常服务项目", value: favoriteProject(for: toolSessions), icon: "folder.fill", color: .indigo, isGlass: false)
                 }
             default:
                 EmptyView()
             }
         }
         .padding(24)
-        .glassEffect(.regular, in: .rect(cornerRadius: 24))
+        .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 24))
         .overlay(RoundedRectangle(cornerRadius: 24).stroke(Color.primary.opacity(0.05), lineWidth: 1))
     }
 

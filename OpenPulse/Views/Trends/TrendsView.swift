@@ -130,7 +130,7 @@ struct TrendsView: View {
     private var tokenUsageTrendSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             SectionHeader(title: "Token 使用趋势")
-            WeeklyAreaChart(data: timelinePoints, color: .accentColor).frame(height: 260).padding().glassEffect(.regular, in: .rect(cornerRadius: 16))
+            WeeklyAreaChart(data: timelinePoints, color: .accentColor).frame(height: 260).padding().background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 16)).overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.primary.opacity(0.05), lineWidth: 1))
         }
     }
 
@@ -210,7 +210,8 @@ struct TrendsView: View {
                 .padding(.leading, 32)
             }
             .padding(24)
-            .glassEffect(.regular, in: .rect(cornerRadius: 24))
+            .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 24))
+            .overlay(RoundedRectangle(cornerRadius: 24).stroke(Color.primary.opacity(0.05), lineWidth: 1))
         }
     }
 
@@ -283,7 +284,8 @@ struct TrendsView: View {
                 }
                 .padding(24)
             }
-            .glassEffect(.regular, in: .rect(cornerRadius: 24))
+            .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 24))
+            .overlay(RoundedRectangle(cornerRadius: 24).stroke(Color.primary.opacity(0.05), lineWidth: 1))
         }
     }
 
@@ -325,7 +327,8 @@ struct TrendsView: View {
                 .padding(.leading, 32)
             }
             .padding(24)
-            .glassEffect(.regular, in: .rect(cornerRadius: 24))
+            .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 24))
+            .overlay(RoundedRectangle(cornerRadius: 24).stroke(Color.primary.opacity(0.05), lineWidth: 1))
         }
     }
 
@@ -400,7 +403,8 @@ struct TrendsView: View {
             }
         }
         .padding(16)
-        .glassEffect(.regular, in: .rect(cornerRadius: 18))
+        .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.primary.opacity(0.05), lineWidth: 1))
     }
 
     private func percentDelta(today: Int, yesterday: Int) -> Int? { guard yesterday > 0 else { return nil }; return Int(((Double(today) - Double(yesterday)) / Double(yesterday) * 100).rounded()) }
@@ -499,7 +503,8 @@ struct TrendsView: View {
                     .padding(.leading, 32)
                 }
                 .padding(24)
-                .glassEffect(.regular, in: .rect(cornerRadius: 24))
+                .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 24))
+                .overlay(RoundedRectangle(cornerRadius: 24).stroke(Color.primary.opacity(0.05), lineWidth: 1))
                 if !topModelCosts.isEmpty {
                     VStack(alignment: .leading, spacing: 10) {
                         Label("模型成本排行 TOP 5", systemImage: "cpu.fill").font(.subheadline.bold()).foregroundStyle(.secondary)
@@ -517,7 +522,8 @@ struct TrendsView: View {
                         )
                     }
                     .padding(20)
-                    .glassEffect(.regular, in: .rect(cornerRadius: 16))
+                    .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 16))
+                    .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.primary.opacity(0.05), lineWidth: 1))
                 }
             }
             if !balanceQuotas.isEmpty {
@@ -530,7 +536,8 @@ struct TrendsView: View {
                     }
                 }
                 .padding(20)
-                .glassEffect(.regular, in: .rect(cornerRadius: 16))
+                .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 16))
+                .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.primary.opacity(0.05), lineWidth: 1))
             }
             Text("* 价格基于公开定价，仅供参考").font(.caption2).foregroundStyle(.tertiary)
         }
