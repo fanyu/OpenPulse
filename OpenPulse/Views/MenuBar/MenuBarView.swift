@@ -1150,12 +1150,20 @@ struct AntigravityAggregateCard: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
-                VStack(spacing: 10) {
-                    ForEach(visibleAccounts) { account in
-                        AGMenuBarAccountQuotaBody(account: account)
-                        if account.id != visibleAccounts.last?.id {
-                            Divider().opacity(0.18)
-                        }
+                let summary = AntigravityProAggregator.aggregate(accounts: visibleAccounts)
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "square.stack.3d.up.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                        Text("Pro 账号额度聚合 (\(summary.proAccountCount)个账号)")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                    }
+                    
+                    ForEach(summary.groups) { group in
+                        AGMenuBarGroupCard(group: group)
                     }
                 }
             }
