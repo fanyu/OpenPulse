@@ -344,6 +344,10 @@ private struct MenuBarQuotaPanel: View {
     let countdown: String?
     let footer: String?
 
+    private var isExhausted: Bool {
+        (fraction ?? 1.0) <= 0.001 || primaryValue == "0%"
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
             Text(LocalizedStringKey(title))
@@ -354,13 +358,12 @@ private struct MenuBarQuotaPanel: View {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(primaryValue)
                     .font(.system(size: 22, weight: .black, design: .monospaced))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(isExhausted ? Color.red : .primary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
                 Spacer(minLength: 2)
-                MenuBarResetLine(countdown: countdown)
+                MenuBarResetLine(countdown: countdown, isExhausted: isExhausted)
             }
-
             QuotaProgressBar(
                 fraction: fraction,
                 color: menuBarQuotaBarColor(fraction: fraction),
@@ -388,21 +391,22 @@ private struct MenuBarQuotaPanel: View {
 
 private struct MenuBarResetLine: View {
     let countdown: String?
+    var isExhausted: Bool = false
 
     var body: some View {
         HStack(spacing: 5) {
             Image(systemName: "clock.arrow.circlepath")
                 .font(.system(size: 8, weight: .bold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(isExhausted ? Color.red : .secondary)
             Text(LocalizedStringKey(countdown ?? "—"))
                 .font(.system(size: 10, weight: .bold, design: .monospaced))
-                .foregroundStyle(countdown == nil ? .tertiary : .secondary)
+                .foregroundStyle(isExhausted ? Color.red : Color.secondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.76)
         }
         .padding(.horizontal, 7)
         .padding(.vertical, 4)
-        .background(Color.primary.opacity(0.055), in: Capsule())
+        .background(isExhausted ? Color.red.opacity(0.12) : Color.primary.opacity(0.055), in: Capsule())
         .accessibilityElement(children: .combine)
     }
 }
