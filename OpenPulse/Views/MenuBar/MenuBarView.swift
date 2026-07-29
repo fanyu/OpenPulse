@@ -343,11 +343,11 @@ private struct MenuBarQuotaPanel: View {
     let primaryValue: String
     let countdown: String?
     let footer: String?
+    var isExhaustedOverride: Bool? = nil
 
     private var isExhausted: Bool {
-        (fraction ?? 1.0) <= 0.001 || primaryValue == "0%"
+        isExhaustedOverride ?? ((fraction ?? 1.0) <= 0.001 || primaryValue == "0%")
     }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
             Text(LocalizedStringKey(title))
@@ -1059,16 +1059,16 @@ private struct AGMenuBarGroupCard: View {
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.secondary)
             
-            let eff5h = group.effectiveFiveHour
+            let is5hUnusable = group.isFiveHourUnusable || (group.fiveHour?.remainingFraction ?? 1.0) <= 0.001
             HStack(spacing: 8) {
                 MenuBarQuotaPanel(
                     title: "5小时余量",
-                    fraction: eff5h?.remainingFraction,
-                    primaryValue: eff5h?.remainingPercentText ?? "—",
-                    countdown: eff5h?.validatedResetDate.map { menuBarTimeOnlyResetString(for: $0) },
-                    footer: nil
+                    fraction: group.fiveHour?.remainingFraction,
+                    primaryValue: group.fiveHour?.remainingPercentText ?? "—",
+                    countdown: group.fiveHour?.validatedResetDate.map { menuBarTimeOnlyResetString(for: $0) },
+                    footer: nil,
+                    isExhaustedOverride: is5hUnusable
                 )
-                
                 MenuBarQuotaPanel(
                     title: "本周余量",
                     fraction: group.weekly?.remainingFraction,

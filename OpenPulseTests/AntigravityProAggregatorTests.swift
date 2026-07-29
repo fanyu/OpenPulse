@@ -61,7 +61,7 @@ final class AntigravityProAggregatorTests: XCTestCase {
         // Weekly average = (0.6 + 0.4) / 2 = 0.5
         XCTAssertEqual(geminiGroup?.weekly?.remainingFraction ?? 0, 0.5, accuracy: 0.001)
     }
-    func testZeroWeeklyQuotaSetsEffectiveFiveHourToZero() {
+    func testZeroWeeklyQuotaMarksFiveHourUnusableWhilePreservingPercentage() {
         let date = Date().addingTimeInterval(3600)
         let groupWithZeroWeekly = AGQuotaGroup(
             id: "gemini",
@@ -70,8 +70,8 @@ final class AntigravityProAggregatorTests: XCTestCase {
             weekly: AGWindow(kind: .weekly, remainingFraction: 0.0, resetTime: date, description: nil)
         )
         
-        XCTAssertEqual(groupWithZeroWeekly.effectiveFiveHour?.remainingFraction, 0.0)
-        XCTAssertEqual(groupWithZeroWeekly.effectiveFiveHour?.remainingPercentText, "0%")
+        XCTAssertTrue(groupWithZeroWeekly.isFiveHourUnusable)
+        XCTAssertEqual(groupWithZeroWeekly.fiveHour?.remainingPercentText, "100%")
         
         let account = AGAccountQuota(
             email: "pro1@gmail.com",
@@ -81,6 +81,7 @@ final class AntigravityProAggregatorTests: XCTestCase {
         
         let summary = AntigravityProAggregator.aggregate(accounts: [account])
         let geminiGroup = summary.groups.first { $0.id == "gemini" }
-        XCTAssertEqual(geminiGroup?.fiveHour?.remainingFraction, 0.0)
+        XCTAssertEqual(geminiGroup?.fiveHour?.remainingFraction, 1.0)
+        XCTAssertTrue(geminiGroup?.isFiveHourUnusable == true)
     }
 }
