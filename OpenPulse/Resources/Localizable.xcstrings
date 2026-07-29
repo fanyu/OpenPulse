@@ -275,7 +275,11 @@
         }
       }
     },
+    "Antigravity Pro 账号额度聚合" : {
+
+    },
     "Antigravity 展示方式" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2985,6 +2989,7 @@
       }
     },
     "聚合" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2999,6 +3004,9 @@
           }
         }
       }
+    },
+    "聚合 Pro 账号" : {
+
     },
     "自动换行" : {
       "extractionState" : "stale",
@@ -3016,9 +3024,6 @@
           }
         }
       }
-    },
-    "菜单栏 Pro 账号额度聚合" : {
-
     },
     "菜单栏操作快捷键" : {
       "localizations" : {
@@ -3407,6 +3412,7 @@
       }
     },
     "逐账号显示会保留每个账号和模型的明细；聚合显示会把所有账号合并成一个视图，并按模型分别计算平均余量。" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
