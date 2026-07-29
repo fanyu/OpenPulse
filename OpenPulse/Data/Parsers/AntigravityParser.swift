@@ -377,6 +377,21 @@ struct AGQuotaGroup: Sendable, Identifiable {
     let displayName: String
     let fiveHour: AGWindow?
     let weekly: AGWindow?
+
+    /// Effective 5-hour window. If the weekly window is 0% (exhausted),
+    /// the 5h window is effectively 0% as well (unusable capacity).
+    var effectiveFiveHour: AGWindow? {
+        guard let fiveHour else { return nil }
+        if let w = weekly, let frac = w.remainingFraction, frac <= 0.001 {
+            return AGWindow(
+                kind: .fiveHour,
+                remainingFraction: 0.0,
+                resetTime: fiveHour.validatedResetDate,
+                description: fiveHour.description
+            )
+        }
+        return fiveHour
+    }
 }
 
 struct AGTier: Sendable {
@@ -440,8 +455,8 @@ enum AntigravityProAggregator {
             
             let displayName = matchingGroups.first?.displayName ?? (groupId == "gemini" ? "Gemini Models" : "3P Models")
             
-            // 5-hour window
-            let fiveHourWindows = matchingGroups.compactMap(\.fiveHour)
+            // 5-hour window: use effectiveFiveHour so 0% weekly accounts contribute 0.0 to 5h
+            let fiveHourWindows = matchingGroups.compactMap(\.effectiveFiveHour)
             let fiveHourFractions = fiveHourWindows.compactMap(\.remainingFraction)
             let fiveHourAvg = fiveHourFractions.isEmpty ? nil : (fiveHourFractions.reduce(0.0, +) / Double(fiveHourFractions.count))
             let fiveHourEarliestReset = fiveHourWindows.compactMap(\.validatedResetDate).min()

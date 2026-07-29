@@ -61,4 +61,26 @@ final class AntigravityProAggregatorTests: XCTestCase {
         // Weekly average = (0.6 + 0.4) / 2 = 0.5
         XCTAssertEqual(geminiGroup?.weekly?.remainingFraction ?? 0, 0.5, accuracy: 0.001)
     }
+    func testZeroWeeklyQuotaSetsEffectiveFiveHourToZero() {
+        let date = Date().addingTimeInterval(3600)
+        let groupWithZeroWeekly = AGQuotaGroup(
+            id: "gemini",
+            displayName: "Gemini",
+            fiveHour: AGWindow(kind: .fiveHour, remainingFraction: 1.0, resetTime: date, description: nil),
+            weekly: AGWindow(kind: .weekly, remainingFraction: 0.0, resetTime: date, description: nil)
+        )
+        
+        XCTAssertEqual(groupWithZeroWeekly.effectiveFiveHour?.remainingFraction, 0.0)
+        XCTAssertEqual(groupWithZeroWeekly.effectiveFiveHour?.remainingPercentText, "0%")
+        
+        let account = AGAccountQuota(
+            email: "pro1@gmail.com",
+            tier: AGTier(id: "gai-pro", name: "Google AI Pro"),
+            groups: [groupWithZeroWeekly]
+        )
+        
+        let summary = AntigravityProAggregator.aggregate(accounts: [account])
+        let geminiGroup = summary.groups.first { $0.id == "gemini" }
+        XCTAssertEqual(geminiGroup?.fiveHour?.remainingFraction, 0.0)
+    }
 }

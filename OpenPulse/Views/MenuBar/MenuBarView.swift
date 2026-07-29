@@ -1059,12 +1059,13 @@ private struct AGMenuBarGroupCard: View {
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.secondary)
             
+            let eff5h = group.effectiveFiveHour
             HStack(spacing: 8) {
                 MenuBarQuotaPanel(
                     title: "5小时余量",
-                    fraction: group.fiveHour?.remainingFraction,
-                    primaryValue: group.fiveHour?.remainingPercentText ?? "—",
-                    countdown: group.fiveHour?.validatedResetDate.map { menuBarTimeOnlyResetString(for: $0) },
+                    fraction: eff5h?.remainingFraction,
+                    primaryValue: eff5h?.remainingPercentText ?? "—",
+                    countdown: eff5h?.validatedResetDate.map { menuBarTimeOnlyResetString(for: $0) },
                     footer: nil
                 )
                 
