@@ -19,6 +19,7 @@ struct QuotaProgressBar: View {
                         .fill(color.gradient)
                         .frame(width: geo.size.width * CGFloat(max(0, min(1, f))), height: height)
                         .shadow(color: showsGlow ? color.opacity(0.25) : .clear, radius: showsGlow ? 2 : 0, y: showsGlow ? 1 : 0)
+                        .animation(.spring(duration: 0.4, bounce: 0.1), value: f)
                 }
             }
         }
@@ -42,8 +43,10 @@ struct FilterChip: View {
                 .background(isSelected ? Color.accentColor : Color.primary.opacity(0.05))
                 .foregroundStyle(isSelected ? .white : .primary)
                 .clipShape(Capsule())
+                .overlay(Capsule().stroke(isSelected ? Color.clear : Color.primary.opacity(0.08), lineWidth: 1))
         }
         .buttonStyle(.plain)
+        .animation(.spring(duration: 0.3, bounce: 0.15), value: isSelected)
     }
 }
 
@@ -402,7 +405,7 @@ struct StatCard: View {
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .overlay(
             RoundedRectangle(cornerRadius: 16)
-                .stroke(Color.primary.opacity(0.05), lineWidth: 1)
+                .stroke(Color.primary.opacity(0.06), lineWidth: 1)
         )
         .if(isGlass) { view in
             view.glassEffect(.regular, in: .rect(cornerRadius: 16))
