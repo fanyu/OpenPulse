@@ -44,6 +44,7 @@
 		7C004E6EC2DBCB001E80E0A8 /* CopilotAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40AC44480FE7CED374FE367D /* CopilotAPIClient.swift */; };
 		7FB9F2A8ECCC0B3539C6C429 /* CompareView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D05939178581C41AF8FC17BF /* CompareView.swift */; };
 		88E842D5D0DAFD92629A68D4 /* SQLite in Frameworks */ = {isa = PBXBuildFile; productRef = 20E251EA3ACA7A06A6007A56 /* SQLite */; };
+		89BF8D46FF5379EBDC21B8CE /* MenuBarSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75065533B7AD109887CAE561 /* MenuBarSettingsView.swift */; };
 		89CB652709B7AD494CADEB55 /* OAuthLoopbackSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B34440038AB8696805CCB365 /* OAuthLoopbackSupport.swift */; };
 		8A245E69560FCDDB793578B1 /* AppStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A494FF8BD7215CF0925772F8 /* AppStore.swift */; };
 		8A72C7937F644C5C7AFE3F4D /* OpenPulseBrandView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81921BD303D05CDD163141CA /* OpenPulseBrandView.swift */; };
@@ -152,6 +153,7 @@
 		6D058DCA8091F77E73442094 /* LogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogView.swift; sourceTree = "<group>"; };
 		7086BEBA8F024D0188556DD4 /* SessionRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionRecord.swift; sourceTree = "<group>"; };
 		70978988BAE12EE3FFBBB75A /* CodexAccountService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexAccountService.swift; sourceTree = "<group>"; };
+		75065533B7AD109887CAE561 /* MenuBarSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarSettingsView.swift; sourceTree = "<group>"; };
 		81921BD303D05CDD163141CA /* OpenPulseBrandView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenPulseBrandView.swift; sourceTree = "<group>"; };
 		8642E4FD57B2DE5BF7B8B591 /* DeskSnapshotPublishStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeskSnapshotPublishStore.swift; sourceTree = "<group>"; };
 		8918557F1ECC6689CA035E80 /* ToolAnalysisViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolAnalysisViews.swift; sourceTree = "<group>"; };
@@ -334,6 +336,7 @@
 		520F63C81C5A063C8B4C1D72 /* MenuBar */ = {
 			isa = PBXGroup;
 			children = (
+				75065533B7AD109887CAE561 /* MenuBarSettingsView.swift */,
 				5FD375993BBFCE958374B4F4 /* MenuBarView.swift */,
 			);
 			path = MenuBar;
@@ -753,6 +756,7 @@
 				DA3DEB8874BEACF4CF1A51F5 /* KeychainService.swift in Sources */,
 				301E60B6321C36303453A64E /* LogView.swift in Sources */,
 				4B5F4624D23EE82803A69FE6 /* MainWindowView.swift in Sources */,
+				89BF8D46FF5379EBDC21B8CE /* MenuBarSettingsView.swift in Sources */,
 				E0B47DD84E5433B04F1E56C2 /* MenuBarView.swift in Sources */,
 				2B82DB8B5FDD88D24079D486 /* ModelPricing.swift in Sources */,
 				D6D35E8BE1BF0D02FE6B7A64 /* NotificationService.swift in Sources */,
