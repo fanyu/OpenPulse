@@ -302,7 +302,8 @@ actor CodexParser {
                   event.type == "event_msg",
                   let payload = event.payload,
                   payload.type == "token_count",
-                  let limits = payload.rateLimits else { continue }
+                  let limits = payload.rateLimits,
+                  limits.isGeneralCodexLimit else { continue }
             return LocalRateLimitSnapshot(limits: limits, sourceURL: url, modifiedAt: modifiedAt)
         }
         return nil
@@ -326,11 +327,39 @@ struct CodexRateLimits: Codable, Sendable {
     let credits: CodexCredits?
     let resetCredits: CodexResetCredits?
     let planType: String?
+    let limitID: String?
+    let limitName: String?
 
     enum CodingKeys: String, CodingKey {
         case primary, secondary, credits
         case resetCredits = "rate_limit_reset_credits"
         case planType = "plan_type"
+        case limitID = "limit_id"
+        case limitName = "limit_name"
+    }
+
+    init(
+        primary: CodexWindow?,
+        secondary: CodexWindow?,
+        credits: CodexCredits?,
+        resetCredits: CodexResetCredits?,
+        planType: String?,
+        limitID: String? = nil,
+        limitName: String? = nil
+    ) {
+        self.primary = primary
+        self.secondary = secondary
+        self.credits = credits
+        self.resetCredits = resetCredits
+        self.planType = planType
+        self.limitID = limitID
+        self.limitName = limitName
+    }
+
+    var isGeneralCodexLimit: Bool {
+        guard let limitID else { return true }
+        let normalized = limitID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty || normalized.caseInsensitiveCompare("codex") == .orderedSame
     }
 
     var fiveHourWindow: CodexWindow? {
@@ -354,7 +383,9 @@ struct CodexRateLimits: Codable, Sendable {
             secondary: secondary,
             credits: credits,
             resetCredits: resetCredits,
-            planType: planType
+            planType: planType,
+            limitID: limitID,
+            limitName: limitName
         )
     }
 
