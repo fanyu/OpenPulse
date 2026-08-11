@@ -406,15 +406,6 @@ actor CodexParser {
     }
 }
 
-enum CodexLocalQuotaFreshness {
-    static let maximumSnapshotAge: TimeInterval = 5 * 60
-
-    static func shouldPrefer(snapshotModifiedAt: Date?, now: Date = Date()) -> Bool {
-        guard let snapshotModifiedAt else { return false }
-        return now.timeIntervalSince(snapshotModifiedAt) <= maximumSnapshotAge
-    }
-}
-
 // MARK: - Decodable models
 
 struct CodexRateLimits: Codable, Sendable {
@@ -523,6 +514,66 @@ struct CodexRateLimits: Codable, Sendable {
         )
     }
 
+    func merging(_ incoming: CodexRateLimits) -> CodexRateLimits {
+        let incomingHasGeneralObservation = [incoming.primary, incoming.secondary]
+            .compactMap { $0 }
+            .contains { $0.durationSeconds == 5 * 60 * 60 || $0.durationSeconds == 7 * 24 * 60 * 60 }
+        let useIncomingGeneral = incomingHasGeneralObservation
+            && Self.isNewerObservation(incoming.observedAt, than: observedAt)
+
+        var mergedAdditionalLimits = additionalLimits
+        if let incomingAdditionalLimits = incoming.additionalLimits, !incomingAdditionalLimits.isEmpty {
+            var byIdentity: [String: CodexNamedRateLimit] = [:]
+            for limit in additionalLimits ?? [] {
+                guard let identity = Self.normalizedNamedLimitID(limit.id) else { continue }
+                byIdentity[identity] = limit.replacingID(identity)
+            }
+            for limit in incomingAdditionalLimits {
+                guard let identity = Self.normalizedNamedLimitID(limit.id) else { continue }
+                let normalizedLimit = limit.replacingID(identity)
+                if let existing = byIdentity[identity],
+                   !Self.isNewerObservation(normalizedLimit.observedAt, than: existing.observedAt) {
+                    continue
+                }
+                byIdentity[identity] = normalizedLimit
+            }
+            mergedAdditionalLimits = byIdentity.values.sorted { $0.id < $1.id }
+        }
+
+        return CodexRateLimits(
+            primary: useIncomingGeneral ? incoming.primary : primary,
+            secondary: useIncomingGeneral ? incoming.secondary : secondary,
+            credits: incoming.credits ?? credits,
+            resetCredits: incoming.resetCredits ?? resetCredits,
+            planType: incoming.planType ?? planType,
+            limitID: useIncomingGeneral ? (incoming.limitID ?? limitID) : limitID,
+            limitName: useIncomingGeneral ? (incoming.limitName ?? limitName) : limitName,
+            observedAt: useIncomingGeneral ? incoming.observedAt : observedAt,
+            additionalLimits: mergedAdditionalLimits
+        )
+    }
+
+    private static func normalizedNamedLimitID(_ rawID: String) -> String? {
+        let identity = rawID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !identity.isEmpty, identity.caseInsensitiveCompare("codex") != .orderedSame else {
+            return nil
+        }
+        return identity.lowercased()
+    }
+
+    private static func isNewerObservation(_ incoming: Date?, than existing: Date?) -> Bool {
+        switch (incoming, existing) {
+        case let (incoming?, existing?):
+            return incoming >= existing
+        case (.some, .none):
+            return true
+        case (.none, .some):
+            return false
+        case (.none, .none):
+            return true
+        }
+    }
+
     private func selectWindow(durationSeconds targetSeconds: Int) -> CodexWindow? {
         [primary, secondary]
             .compactMap { $0 }
@@ -540,6 +591,16 @@ struct CodexNamedRateLimit: Codable, Sendable, Identifiable {
     enum CodingKeys: String, CodingKey {
         case id, name, primary, secondary
         case observedAt = "observed_at"
+    }
+
+    fileprivate func replacingID(_ id: String) -> CodexNamedRateLimit {
+        CodexNamedRateLimit(
+            id: id,
+            name: name,
+            primary: primary,
+            secondary: secondary,
+            observedAt: observedAt
+        )
     }
 }
 

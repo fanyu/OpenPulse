@@ -4,18 +4,176 @@ import Testing
 
 struct CodexLocalQuotaFreshnessTests {
     @Test
-    func onlyRecentLocalSnapshotsCanOverrideAPIUsage() {
-        let now = Date(timeIntervalSince1970: 10_000)
+    func newerAndOlderObservationsMergeIndependentlyPerIdentity() {
+        let stored = makeRateLimits(
+            generalUsedPercent: 10,
+            observedAt: Date(timeIntervalSince1970: 100),
+            additionalLimits: [makeNamedLimit(id: "codex_bengalfox", usedPercent: 20, observedAt: Date(timeIntervalSince1970: 200))]
+        )
+        let incoming = makeRateLimits(
+            generalUsedPercent: 30,
+            observedAt: Date(timeIntervalSince1970: 300),
+            additionalLimits: [
+                makeNamedLimit(id: " CODEX_BENGALFOX ", usedPercent: 40, observedAt: Date(timeIntervalSince1970: 150)),
+                makeNamedLimit(id: "codex_other", usedPercent: 50, observedAt: Date(timeIntervalSince1970: 400)),
+            ]
+        )
 
-        #expect(CodexLocalQuotaFreshness.shouldPrefer(
-            snapshotModifiedAt: now.addingTimeInterval(-299),
-            now: now
-        ))
-        #expect(!CodexLocalQuotaFreshness.shouldPrefer(
-            snapshotModifiedAt: now.addingTimeInterval(-301),
-            now: now
-        ))
-        #expect(!CodexLocalQuotaFreshness.shouldPrefer(snapshotModifiedAt: nil, now: now))
+        let merged = stored.merging(incoming)
+
+        #expect(merged.primary?.usedPercent == 30)
+        #expect(merged.additionalLimits?.first(where: { $0.id == "codex_bengalfox" })?.primary?.usedPercent == 20)
+        #expect(merged.additionalLimits?.first(where: { $0.id == "codex_other" })?.primary?.usedPercent == 50)
+    }
+
+    @Test
+    func generalOnlyObservationPreservesLastKnownNamedLimits() {
+        let stored = makeRateLimits(
+            generalUsedPercent: 10,
+            observedAt: Date(timeIntervalSince1970: 100),
+            additionalLimits: [makeNamedLimit(id: "codex_bengalfox", usedPercent: 20, observedAt: Date(timeIntervalSince1970: 200))]
+        )
+        let incoming = makeRateLimits(
+            generalUsedPercent: 30,
+            observedAt: Date(timeIntervalSince1970: 300),
+            additionalLimits: nil
+        )
+
+        let merged = stored.merging(incoming)
+
+        #expect(merged.primary?.usedPercent == 30)
+        #expect(merged.additionalLimits?.map(\.id) == ["codex_bengalfox"])
+    }
+
+    @Test
+    func additionalOnlyObservationPreservesLastKnownGeneralQuota() {
+        let stored = makeRateLimits(
+            generalUsedPercent: 10,
+            observedAt: Date(timeIntervalSince1970: 100),
+            additionalLimits: [makeNamedLimit(id: "codex_bengalfox", usedPercent: 20, observedAt: Date(timeIntervalSince1970: 200))]
+        )
+        let incoming = makeRateLimits(
+            generalUsedPercent: nil,
+            observedAt: nil,
+            additionalLimits: [makeNamedLimit(id: "codex_bengalfox", usedPercent: 40, observedAt: Date(timeIntervalSince1970: 300))]
+        )
+
+        let merged = stored.merging(incoming)
+
+        #expect(merged.primary?.usedPercent == 10)
+        #expect(merged.additionalLimits?.first?.primary?.usedPercent == 40)
+        #expect(merged.observedAt == Date(timeIntervalSince1970: 100))
+    }
+
+    @Test
+    func emptyAdditionalLimitsPreserveLastKnownNamedQuota() {
+        let stored = makeRateLimits(
+            generalUsedPercent: 10,
+            observedAt: Date(timeIntervalSince1970: 100),
+            additionalLimits: [makeNamedLimit(id: "codex_bengalfox", usedPercent: 20, observedAt: Date(timeIntervalSince1970: 200))]
+        )
+        let incoming = makeRateLimits(
+            generalUsedPercent: 30,
+            observedAt: Date(timeIntervalSince1970: 300),
+            additionalLimits: []
+        )
+
+        let merged = stored.merging(incoming)
+
+        #expect(merged.primary?.usedPercent == 30)
+        #expect(merged.additionalLimits?.map(\.id) == ["codex_bengalfox"])
+        #expect(merged.additionalLimits?.first?.primary?.usedPercent == 20)
+    }
+
+    @Test
+    func versionOneCodexRateLimitsDecodeAndRoundTripWithoutNewFields() throws {
+        let legacyData = Data("""
+        {
+          "primary": {"used_percent": 12, "window_minutes": 300, "resets_at": 100000},
+          "secondary": null,
+          "credits": null,
+          "rate_limit_reset_credits": null,
+          "plan_type": "pro"
+        }
+        """.utf8)
+
+        let decoded = try JSONDecoder().decode(CodexRateLimits.self, from: legacyData)
+        let roundTripped = try JSONDecoder().decode(
+            CodexRateLimits.self,
+            from: JSONEncoder().encode(decoded)
+        )
+
+        #expect(decoded.observedAt == nil)
+        #expect(decoded.additionalLimits == nil)
+        #expect(roundTripped.primary?.usedPercent == 12)
+        #expect(roundTripped.additionalLimits == nil)
+    }
+
+    @Test
+    func apiAdditionalRateLimitMapsIdentityAndFetchObservationWithoutFabricatingGeneral() throws {
+        let fetchDate = Date(timeIntervalSince1970: 123_456)
+        let data = Data("""
+        {
+          "plan_type": "pro",
+          "rate_limit": null,
+          "additional_rate_limits": [
+            {
+              "metered_feature": "codex_bengalfox",
+              "limit_name": "GPT-5.3-Codex-Spark",
+              "rate_limit": {
+                "primary_window": {
+                  "used_percent": 0,
+                  "limit_window_seconds": 604800,
+                  "reset_at": 100000
+                },
+                "secondary_window": null
+              }
+            },
+            {
+              "metered_feature": "codex_empty",
+              "limit_name": "No data",
+              "rate_limit": null
+            }
+          ]
+        }
+        """.utf8)
+
+        let payload = try JSONDecoder().decode(CodexUsageAPIResponse.self, from: data)
+        let limits = payload.toRateLimits(observedAt: fetchDate)
+
+        #expect(limits.primary == nil)
+        #expect(limits.secondary == nil)
+        #expect(limits.observedAt == nil)
+        #expect(limits.additionalLimits?.map(\.id) == ["codex_bengalfox"])
+        #expect(limits.additionalLimits?.first?.name == "GPT-5.3-Codex-Spark")
+        #expect(limits.additionalLimits?.first?.observedAt == fetchDate)
+        #expect(limits.additionalLimits?.first?.primary?.durationSeconds == 604_800)
+    }
+
+    @Test
+    func apiEmptyGeneralRateLimitPreservesLastKnownGeneralQuota() throws {
+        let stored = makeRateLimits(
+            generalUsedPercent: 10,
+            observedAt: Date(timeIntervalSince1970: 100),
+            additionalLimits: nil
+        )
+        let data = Data("""
+        {
+          "rate_limit": {
+            "primary_window": null,
+            "secondary_window": null
+          },
+          "additional_rate_limits": []
+        }
+        """.utf8)
+
+        let payload = try JSONDecoder().decode(CodexUsageAPIResponse.self, from: data)
+        let incoming = payload.toRateLimits(observedAt: Date(timeIntervalSince1970: 300))
+        let merged = stored.merging(incoming)
+
+        #expect(incoming.observedAt == nil)
+        #expect(merged.primary?.usedPercent == 10)
+        #expect(merged.observedAt == Date(timeIntervalSince1970: 100))
     }
 
     @Test
@@ -258,6 +416,34 @@ struct CodexLocalQuotaFreshnessTests {
         let snapshot = await CodexParser(codexDir: codexDir).parseLatestRateLimitsSnapshot()
 
         #expect(snapshot?.limits.primary?.usedPercent == 12)
+    }
+
+    private func makeRateLimits(
+        generalUsedPercent: Double?,
+        observedAt: Date?,
+        additionalLimits: [CodexNamedRateLimit]?
+    ) -> CodexRateLimits {
+        CodexRateLimits(
+            primary: generalUsedPercent.map {
+                CodexWindow(usedPercent: $0, windowMinutes: 300, windowSeconds: nil, resetsAt: 100_000)
+            },
+            secondary: nil,
+            credits: nil,
+            resetCredits: nil,
+            planType: "pro",
+            observedAt: observedAt,
+            additionalLimits: additionalLimits
+        )
+    }
+
+    private func makeNamedLimit(id: String, usedPercent: Double, observedAt: Date) -> CodexNamedRateLimit {
+        CodexNamedRateLimit(
+            id: id,
+            name: id == "codex_bengalfox" ? "GPT-5.3-Codex-Spark" : nil,
+            primary: CodexWindow(usedPercent: usedPercent, windowMinutes: 300, windowSeconds: nil, resetsAt: 100_000),
+            secondary: nil,
+            observedAt: observedAt
+        )
     }
 
     private func writeQuotaEvent(

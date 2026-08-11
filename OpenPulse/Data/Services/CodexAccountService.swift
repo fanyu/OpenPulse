@@ -253,7 +253,7 @@ actor CodexAccountService {
 
         if let currentAccountID,
            let index = store.accounts.firstIndex(where: { $0.accountID == currentAccountID }) {
-            let mergedLimits = limits.preservingResetCredits(from: store.accounts[index].lastUsage)
+            let mergedLimits = store.accounts[index].lastUsage?.merging(limits) ?? limits
             store.accounts[index].lastUsage = mergedLimits
             store.accounts[index].planType = mergedLimits.planType ?? store.accounts[index].planType
             store.accounts[index].lastFetchedAt = now
@@ -1000,7 +1000,8 @@ actor CodexAccountService {
             account.email = extracted.email
             account.planType = extracted.planType ?? limits.planType ?? account.planType
             account.teamName = extracted.teamName ?? account.teamName
-            account.lastUsage = limits
+            account.lastUsage = account.lastUsage?.merging(limits) ?? limits
+            account.planType = account.planType ?? account.lastUsage?.planType
             account.lastFetchedAt = now
             account.usageError = nil
         } catch {
@@ -1041,7 +1042,7 @@ actor CodexAccountService {
                 let decoder = JSONDecoder()
                 decoder.dateDecodingStrategy = .iso8601
                 let payload = try decoder.decode(CodexUsageAPIResponse.self, from: data)
-                let limits = payload.toRateLimits()
+                let limits = payload.toRateLimits(observedAt: Date())
                 let resetCredits: CodexResetCredits?
                 do {
                     resetCredits = try await fetchResetCredits(
@@ -1236,7 +1237,7 @@ private struct ProcessResult {
     let output: Data
 }
 
-private struct CodexUsageAPIResponse: Decodable {
+struct CodexUsageAPIResponse: Decodable {
     let planType: String?
     let rateLimit: CodexUsageRateLimit?
     let additionalRateLimits: [CodexUsageAdditionalRateLimit]?
@@ -1251,28 +1252,45 @@ private struct CodexUsageAPIResponse: Decodable {
         case resetCredits = "rate_limit_reset_credits"
     }
 
-    func toRateLimits() -> CodexRateLimits {
-        var windows: [CodexWindow] = []
-        if let primary = rateLimit?.primaryWindow { windows.append(primary) }
-        if let secondary = rateLimit?.secondaryWindow { windows.append(secondary) }
-        for item in additionalRateLimits ?? [] {
-            if let primary = item.rateLimit?.primaryWindow { windows.append(primary) }
-            if let secondary = item.rateLimit?.secondaryWindow { windows.append(secondary) }
-        }
+    func toRateLimits(observedAt: Date? = nil) -> CodexRateLimits {
+        let namedLimits = (additionalRateLimits ?? []).compactMap { item -> CodexNamedRateLimit? in
+            guard let rawID = item.meteredFeature?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !rawID.isEmpty,
+                  rawID.caseInsensitiveCompare("codex") != .orderedSame,
+                  let rateLimit = item.rateLimit else { return nil }
+            let primary = rateLimit.primaryWindow
+            let secondary = rateLimit.secondaryWindow
+            guard [primary, secondary]
+                .compactMap({ $0 })
+                .contains(where: { $0.durationSeconds == 5 * 60 * 60 || $0.durationSeconds == 7 * 24 * 60 * 60 }) else {
+                return nil
+            }
+            return CodexNamedRateLimit(
+                id: rawID.lowercased(),
+                name: item.limitName,
+                primary: primary,
+                secondary: secondary,
+                observedAt: observedAt
+            )
+        }.sorted { $0.id < $1.id }
 
-        let primary = windows.min { abs($0.durationSeconds - 5 * 60 * 60) < abs($1.durationSeconds - 5 * 60 * 60) }
-        let secondary = windows.min { abs($0.durationSeconds - 7 * 24 * 60 * 60) < abs($1.durationSeconds - 7 * 24 * 60 * 60) }
+        let hasGeneralRateLimit = [rateLimit?.primaryWindow, rateLimit?.secondaryWindow]
+            .compactMap { $0 }
+            .contains { $0.durationSeconds == 5 * 60 * 60 || $0.durationSeconds == 7 * 24 * 60 * 60 }
         return CodexRateLimits(
-            primary: primary,
-            secondary: secondary,
+            primary: rateLimit?.primaryWindow,
+            secondary: rateLimit?.secondaryWindow,
             credits: credits,
             resetCredits: resetCredits,
-            planType: planType
+            planType: planType,
+            limitID: hasGeneralRateLimit ? "codex" : nil,
+            observedAt: hasGeneralRateLimit ? observedAt : nil,
+            additionalLimits: namedLimits.isEmpty ? nil : namedLimits
         )
     }
 }
 
-private struct CodexUsageRateLimit: Decodable {
+struct CodexUsageRateLimit: Decodable {
     let primaryWindow: CodexWindow?
     let secondaryWindow: CodexWindow?
 
@@ -1282,11 +1300,14 @@ private struct CodexUsageRateLimit: Decodable {
     }
 }
 
-private struct CodexUsageAdditionalRateLimit: Decodable {
+struct CodexUsageAdditionalRateLimit: Decodable {
+    let meteredFeature: String?
+    let limitName: String?
     let rateLimit: CodexUsageRateLimit?
 
     enum CodingKeys: String, CodingKey {
+        case meteredFeature = "metered_feature"
+        case limitName = "limit_name"
         case rateLimit = "rate_limit"
     }
 }
-
