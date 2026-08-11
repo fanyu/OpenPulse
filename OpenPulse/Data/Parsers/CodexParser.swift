@@ -11,6 +11,15 @@ actor CodexParser {
         let modifiedAt: Date?
     }
 
+    private struct RateLimitCandidate {
+        let identity: String
+        let limits: CodexRateLimits
+        let observedAt: Date?
+        let sourceURL: URL
+        let modifiedAt: Date?
+        let lineIndex: Int
+    }
+
     private enum ParserError: LocalizedError {
         case transientDatabaseUnavailable(String)
 
@@ -236,12 +245,9 @@ actor CodexParser {
     }
 
     private func scanRecentlyModifiedFilesForRateLimits() -> LocalRateLimitSnapshot? {
-        for file in recentlyModifiedJSONLFiles(in: [sessionsDir, archivedDir], limit: 200) {
-            if let snapshot = parseRateLimitsFromFile(file) {
-                return snapshot
-            }
-        }
-        return nil
+        let candidates = recentlyModifiedJSONLFiles(in: [sessionsDir, archivedDir], limit: 200)
+            .flatMap(parseRateLimitCandidatesFromFile)
+        return makeRateLimitSnapshot(from: candidates)
     }
 
     private func recentlyModifiedJSONLFiles(in roots: [URL], limit: Int) -> [URL] {
@@ -283,30 +289,120 @@ actor CodexParser {
                 return lhs > rhs
             }) ?? []
 
-        for file in files {
-            if let snapshot = parseRateLimitsFromFile(file) { return snapshot }
-        }
-        return nil
+        return makeRateLimitSnapshot(from: files.flatMap(parseRateLimitCandidatesFromFile))
     }
 
-    private func parseRateLimitsFromFile(_ url: URL) -> LocalRateLimitSnapshot? {
+    private func parseRateLimitCandidatesFromFile(_ url: URL) -> [RateLimitCandidate] {
         guard let data = try? Data(contentsOf: url),
-              let content = String(data: data, encoding: .utf8) else { return nil }
-        let lines = content.components(separatedBy: "\n").reversed()
+              let content = String(data: data, encoding: .utf8) else { return [] }
+        let lines = content.components(separatedBy: "\n")
         let decoder = JSONDecoder()
         let modifiedAt = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+        var candidates: [RateLimitCandidate] = []
 
-        for line in lines {
+        for (lineIndex, line) in lines.enumerated() {
             guard let lineData = line.data(using: .utf8),
                   let event = try? decoder.decode(CodexEvent.self, from: lineData),
                   event.type == "event_msg",
                   let payload = event.payload,
                   payload.type == "token_count",
-                  let limits = payload.rateLimits,
-                  limits.isGeneralCodexLimit else { continue }
-            return LocalRateLimitSnapshot(limits: limits, sourceURL: url, modifiedAt: modifiedAt)
+                  let limits = payload.rateLimits else { continue }
+
+            let identity = normalizedLimitIdentity(for: limits)
+            let eventTimestamp = parseEventTimestamp(event.timestamp)
+            candidates.append(RateLimitCandidate(
+                identity: identity,
+                limits: limits,
+                observedAt: eventTimestamp ?? modifiedAt,
+                sourceURL: url,
+                modifiedAt: modifiedAt,
+                lineIndex: lineIndex
+            ))
         }
-        return nil
+        return candidates
+    }
+
+    private func makeRateLimitSnapshot(from candidates: [RateLimitCandidate]) -> LocalRateLimitSnapshot? {
+        guard !candidates.isEmpty else { return nil }
+
+        var latestByIdentity: [String: RateLimitCandidate] = [:]
+        for candidate in candidates {
+            guard candidate.limits.fiveHourWindow != nil || candidate.limits.oneWeekWindow != nil else { continue }
+            if let existing = latestByIdentity[candidate.identity], !isNewer(candidate, than: existing) {
+                continue
+            }
+            latestByIdentity[candidate.identity] = candidate
+        }
+
+        guard let general = latestByIdentity[Self.generalLimitIdentity] else { return nil }
+        let additionalLimits = latestByIdentity
+            .filter { $0.key != Self.generalLimitIdentity }
+            .values
+            .sorted { lhs, rhs in lhs.identity < rhs.identity }
+            .map { candidate in
+                CodexNamedRateLimit(
+                    id: candidate.identity,
+                    name: candidate.limits.limitName,
+                    primary: candidate.limits.primary,
+                    secondary: candidate.limits.secondary,
+                    observedAt: candidate.observedAt
+                )
+            }
+
+        let generalLimits = general.limits
+            .replacingObservedAt(general.observedAt)
+            .replacingAdditionalLimits(additionalLimits.isEmpty ? nil : additionalLimits)
+        return LocalRateLimitSnapshot(
+            limits: generalLimits,
+            sourceURL: general.sourceURL,
+            modifiedAt: general.modifiedAt
+        )
+    }
+
+    private static let generalLimitIdentity = "codex"
+
+    private func normalizedLimitIdentity(for limits: CodexRateLimits) -> String {
+        guard let rawID = limits.limitID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawID.isEmpty,
+              rawID.caseInsensitiveCompare(Self.generalLimitIdentity) != .orderedSame else {
+            return Self.generalLimitIdentity
+        }
+        return rawID
+    }
+
+    private func isNewer(_ lhs: RateLimitCandidate, than rhs: RateLimitCandidate) -> Bool {
+        switch (lhs.observedAt, rhs.observedAt) {
+        case let (left?, right?) where left != right:
+            return left > right
+        case (.some, .none):
+            return true
+        case (.none, .some):
+            return false
+        default:
+            break
+        }
+
+        switch (lhs.modifiedAt, rhs.modifiedAt) {
+        case let (left?, right?) where left != right:
+            return left > right
+        case (.some, .none):
+            return true
+        case (.none, .some):
+            return false
+        default:
+            return lhs.lineIndex > rhs.lineIndex
+        }
+    }
+
+    private func parseEventTimestamp(_ raw: String?) -> Date? {
+        guard let raw, !raw.isEmpty else { return nil }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: raw) {
+            return date
+        }
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: raw)
     }
 }
 
@@ -329,6 +425,8 @@ struct CodexRateLimits: Codable, Sendable {
     let planType: String?
     let limitID: String?
     let limitName: String?
+    let observedAt: Date?
+    let additionalLimits: [CodexNamedRateLimit]?
 
     enum CodingKeys: String, CodingKey {
         case primary, secondary, credits
@@ -336,6 +434,8 @@ struct CodexRateLimits: Codable, Sendable {
         case planType = "plan_type"
         case limitID = "limit_id"
         case limitName = "limit_name"
+        case observedAt = "observed_at"
+        case additionalLimits = "additional_limits"
     }
 
     init(
@@ -345,7 +445,9 @@ struct CodexRateLimits: Codable, Sendable {
         resetCredits: CodexResetCredits?,
         planType: String?,
         limitID: String? = nil,
-        limitName: String? = nil
+        limitName: String? = nil,
+        observedAt: Date? = nil,
+        additionalLimits: [CodexNamedRateLimit]? = nil
     ) {
         self.primary = primary
         self.secondary = secondary
@@ -354,6 +456,8 @@ struct CodexRateLimits: Codable, Sendable {
         self.planType = planType
         self.limitID = limitID
         self.limitName = limitName
+        self.observedAt = observedAt
+        self.additionalLimits = additionalLimits
     }
 
     var isGeneralCodexLimit: Bool {
@@ -363,11 +467,11 @@ struct CodexRateLimits: Codable, Sendable {
     }
 
     var fiveHourWindow: CodexWindow? {
-        selectNearestWindow(targetSeconds: 5 * 60 * 60)
+        selectWindow(durationSeconds: 5 * 60 * 60)
     }
 
     var oneWeekWindow: CodexWindow? {
-        selectNearestWindow(targetSeconds: 7 * 24 * 60 * 60)
+        selectWindow(durationSeconds: 7 * 24 * 60 * 60)
     }
 
     func preservingResetCredits(from fallback: CodexRateLimits?) -> CodexRateLimits {
@@ -385,16 +489,57 @@ struct CodexRateLimits: Codable, Sendable {
             resetCredits: resetCredits,
             planType: planType,
             limitID: limitID,
-            limitName: limitName
+            limitName: limitName,
+            observedAt: observedAt,
+            additionalLimits: additionalLimits
         )
     }
 
-    private func selectNearestWindow(targetSeconds: Int) -> CodexWindow? {
+    func replacingObservedAt(_ observedAt: Date?) -> CodexRateLimits {
+        CodexRateLimits(
+            primary: primary,
+            secondary: secondary,
+            credits: credits,
+            resetCredits: resetCredits,
+            planType: planType,
+            limitID: limitID,
+            limitName: limitName,
+            observedAt: observedAt,
+            additionalLimits: additionalLimits
+        )
+    }
+
+    func replacingAdditionalLimits(_ additionalLimits: [CodexNamedRateLimit]?) -> CodexRateLimits {
+        CodexRateLimits(
+            primary: primary,
+            secondary: secondary,
+            credits: credits,
+            resetCredits: resetCredits,
+            planType: planType,
+            limitID: limitID,
+            limitName: limitName,
+            observedAt: observedAt,
+            additionalLimits: additionalLimits
+        )
+    }
+
+    private func selectWindow(durationSeconds targetSeconds: Int) -> CodexWindow? {
         [primary, secondary]
             .compactMap { $0 }
-            .min { lhs, rhs in
-                abs(lhs.durationSeconds - targetSeconds) < abs(rhs.durationSeconds - targetSeconds)
-            }
+            .first { $0.durationSeconds == targetSeconds }
+    }
+}
+
+struct CodexNamedRateLimit: Codable, Sendable, Identifiable {
+    let id: String
+    let name: String?
+    let primary: CodexWindow?
+    let secondary: CodexWindow?
+    let observedAt: Date?
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, primary, secondary
+        case observedAt = "observed_at"
     }
 }
 
@@ -540,6 +685,7 @@ struct CodexResetCredit: Codable, Sendable, Identifiable {
 }
 
 private struct CodexEvent: Decodable {
+    let timestamp: String?
     let type: String?
     let payload: CodexEventPayload?
 }
