@@ -21,7 +21,10 @@ struct CodexStoredAccount: Codable, Identifiable, Sendable {
     var usageError: String?
 
     mutating func migrateLegacyUsageObservation() {
-        guard let lastUsage, lastUsage.observedAt == nil else { return }
+        guard usageError == nil,
+              let lastUsage,
+              lastUsage.observedAt == nil,
+              lastUsage.hasKnownGeneralWindow else { return }
         self.lastUsage = lastUsage.replacingObservedAt(lastFetchedAt ?? updatedAt)
     }
 }

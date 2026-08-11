@@ -262,6 +262,56 @@ struct CodexLocalQuotaFreshnessTests {
     }
 
     @Test
+    func legacyStoredAccountDoesNotMigrateFailedFetchTimeIntoUsageObservation() {
+        var account = CodexStoredAccount(
+            id: "account",
+            label: "Codex",
+            email: nil,
+            accountID: "account",
+            planType: "pro",
+            teamName: nil,
+            authJSONString: "{}",
+            addedAt: Date(timeIntervalSince1970: 80_000),
+            updatedAt: Date(timeIntervalSince1970: 100_000),
+            lastFetchedAt: Date(timeIntervalSince1970: 90_000),
+            lastUsage: makeRateLimits(generalUsedPercent: 10, observedAt: nil, additionalLimits: nil),
+            usageError: "request failed"
+        )
+
+        account.migrateLegacyUsageObservation()
+
+        #expect(account.lastUsage?.observedAt == nil)
+    }
+
+    @Test
+    func legacyStoredAccountDoesNotCreateGeneralObservationForNamedOnlyUsage() {
+        let namedLimit = makeNamedLimit(
+            id: "codex_bengalfox",
+            usedPercent: 10,
+            observedAt: Date(timeIntervalSince1970: 90_000)
+        )
+        var account = CodexStoredAccount(
+            id: "account",
+            label: "Codex",
+            email: nil,
+            accountID: "account",
+            planType: "pro",
+            teamName: nil,
+            authJSONString: "{}",
+            addedAt: Date(timeIntervalSince1970: 80_000),
+            updatedAt: Date(timeIntervalSince1970: 100_000),
+            lastFetchedAt: Date(timeIntervalSince1970: 90_000),
+            lastUsage: makeRateLimits(generalUsedPercent: nil, observedAt: nil, additionalLimits: [namedLimit]),
+            usageError: nil
+        )
+
+        account.migrateLegacyUsageObservation()
+
+        #expect(account.lastUsage?.observedAt == nil)
+        #expect(account.lastUsage?.additionalLimits?.first?.observedAt == namedLimit.observedAt)
+    }
+
+    @Test
     func modelSpecificQuotaDoesNotOverrideGeneralQuota() async throws {
         let fileManager = FileManager.default
         let codexDir = fileManager.temporaryDirectory
