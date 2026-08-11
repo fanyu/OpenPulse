@@ -1003,13 +1003,13 @@ actor CodexAccountService {
             account.lastUsage = account.lastUsage?.merging(limits) ?? limits
             account.planType = account.planType ?? account.lastUsage?.planType
             account.lastFetchedAt = now
+            account.updatedAt = now
             account.usageError = nil
         } catch {
             account.usageError = error.localizedDescription
             account.lastFetchedAt = now
         }
 
-        account.updatedAt = now
         return account
     }
 

@@ -377,12 +377,12 @@ final class DataSyncService {
 
         latestCodexAccounts = accounts
         removeStaleCodexQuotas(validAccountKeys: Set(accounts.map(\.accountID)), context: context)
-        accounts.map(\.quota).forEach { upsertQuota($0, context: context) }
+        accounts.compactMap(\.generalQuota).forEach { upsertQuota($0, context: context) }
 
         // Fallback quota from local rate limits when API returned nothing
         if accounts.isEmpty,
            let limits = rateLimitSnapshot?.limits,
-           isUsableCodexLimits(limits)
+           limits.hasUsableGeneralWindow()
         {
             let fallback = ToolQuota(
                 id: Tool.codex.rawValue, tool: .codex,
@@ -538,7 +538,7 @@ final class DataSyncService {
         let context  = makeWriteContext()
         latestCodexAccounts = accounts
         removeStaleCodexQuotas(validAccountKeys: Set(accounts.map(\.accountID)), context: context)
-        accounts.map(\.quota).forEach { upsertQuota($0, context: context) }
+        accounts.compactMap(\.generalQuota).forEach { upsertQuota($0, context: context) }
         try? context.save()
         AppLogger.shared.recordDiagnostic(scope: "codex.localQuota", message: "updated quota from local JSONL")
     }
@@ -546,16 +546,7 @@ final class DataSyncService {
     // MARK: - Helpers: Codex local rate limits
 
     private func isUsableCodexLimits(_ limits: CodexRateLimits) -> Bool {
-        let namedWindows = (limits.additionalLimits ?? []).flatMap { [$0.primary, $0.secondary] }
-        return ([limits.fiveHourWindow, limits.oneWeekWindow] + namedWindows)
-            .compactMap { window in
-                guard let window,
-                      window.durationSeconds == 5 * 60 * 60 || window.durationSeconds == 7 * 24 * 60 * 60 else {
-                    return nil
-                }
-                return window.resetDate
-            }
-            .contains { $0 > Date() }
+        limits.hasUsableKnownWindow()
     }
 
     private func shouldPreferLocalCodexLimits(_ snapshot: CodexParser.LocalRateLimitSnapshot, accountCount: Int) -> Bool {

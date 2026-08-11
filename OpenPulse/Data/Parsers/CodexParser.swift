@@ -367,9 +367,9 @@ actor CodexParser {
             snapshotLimits = CodexRateLimits(
                 primary: nil,
                 secondary: nil,
-                credits: newestNamed.limits.credits,
-                resetCredits: newestNamed.limits.resetCredits,
-                planType: newestNamed.limits.planType,
+                credits: nil,
+                resetCredits: nil,
+                planType: nil,
                 additionalLimits: additionalLimits.isEmpty ? nil : additionalLimits
             )
         } else {
@@ -390,7 +390,7 @@ actor CodexParser {
               rawID.caseInsensitiveCompare(Self.generalLimitIdentity) != .orderedSame else {
             return Self.generalLimitIdentity
         }
-        return rawID
+        return rawID.lowercased()
     }
 
     private func isNewer(_ lhs: RateLimitCandidate, than rhs: RateLimitCandidate) -> Bool {
@@ -486,6 +486,30 @@ struct CodexRateLimits: Codable, Sendable {
 
     var oneWeekWindow: CodexWindow? {
         selectWindow(durationSeconds: 7 * 24 * 60 * 60)
+    }
+
+    var hasKnownGeneralWindow: Bool {
+        fiveHourWindow != nil || oneWeekWindow != nil
+    }
+
+    func hasUsableGeneralWindow(at now: Date = Date()) -> Bool {
+        [fiveHourWindow, oneWeekWindow]
+            .compactMap { $0?.resetDate }
+            .contains { $0 > now }
+    }
+
+    func hasUsableKnownWindow(at now: Date = Date()) -> Bool {
+        if hasUsableGeneralWindow(at: now) { return true }
+        return (additionalLimits ?? [])
+            .flatMap { [$0.primary, $0.secondary] }
+            .compactMap { window -> Date? in
+                guard let window,
+                      window.durationSeconds == 5 * 60 * 60 || window.durationSeconds == 7 * 24 * 60 * 60 else {
+                    return nil
+                }
+                return window.resetDate
+            }
+            .contains { $0 > now }
     }
 
     func preservingResetCredits(from fallback: CodexRateLimits?) -> CodexRateLimits {

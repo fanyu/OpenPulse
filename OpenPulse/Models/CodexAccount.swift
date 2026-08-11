@@ -84,6 +84,10 @@ struct CodexAccountSnapshot: Identifiable, Sendable {
         )
     }
 
+    var generalQuota: ToolQuota? {
+        limits?.hasKnownGeneralWindow == true ? quota : nil
+    }
+
     private var normalizedEmail: String? {
         guard let email else { return nil }
         let trimmed = email.trimmingCharacters(in: .whitespacesAndNewlines)

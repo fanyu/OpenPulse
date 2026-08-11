@@ -188,7 +188,7 @@ struct CodexLocalQuotaFreshnessTests {
         let sparkURL = sessionsDir.appending(path: "spark.jsonl")
         let sparkEvent = Date(timeIntervalSince1970: 90_000)
         try writeQuotaEvent(
-            limitID: "codex_bengalfox",
+            limitID: "CODEX_BENGALFOX",
             limitName: "GPT-5.3-Codex-Spark",
             usedPercent: 0,
             timestamp: sparkEvent,
@@ -211,8 +211,14 @@ struct CodexLocalQuotaFreshnessTests {
         #expect(namedLimitName("codex_bengalfox", in: snapshot?.limits) == "GPT-5.3-Codex-Spark")
         #expect(namedLimitObservedAt("codex_bengalfox", in: snapshot?.limits) == sparkEvent)
         #expect(snapshot?.sourceURL.standardizedFileURL == sparkURL.standardizedFileURL)
+        #expect(snapshot?.limits.planType == nil)
         #expect(merged?.primary?.usedPercent == 10)
+        #expect(merged?.planType == "pro")
         #expect(namedLimitUsedPercent("codex_bengalfox", in: merged) == 0)
+        #expect(snapshot?.limits.hasUsableKnownWindow() == true)
+        #expect(snapshot?.limits.hasUsableGeneralWindow() == false)
+        #expect(snapshot?.limits.hasKnownGeneralWindow == false)
+        #expect(makeAccountSnapshot(updatedAt: modifiedAt, limits: snapshot?.limits).generalQuota == nil)
     }
 
     @Test
@@ -578,6 +584,23 @@ struct CodexLocalQuotaFreshnessTests {
         let rows = codexMenuBarQuotaRows(for: limits)
 
         #expect(rows.map(\.id) == ["codex"])
+    }
+
+    @Test
+    func codexQuotaObservedRelativeTextUsesOnePastSuffix() {
+        let observedAt = Date(timeIntervalSince1970: 1)
+        let zhText = codexQuotaObservedRelativeText(
+            observedAt: observedAt,
+            locale: Locale(identifier: "zh_CN")
+        )
+        let enText = codexQuotaObservedRelativeText(
+            observedAt: observedAt,
+            locale: Locale(identifier: "en_US")
+        )
+
+        #expect(zhText.filter { $0 == "前" }.count == 1)
+        #expect(!zhText.contains("前前"))
+        #expect(enText.contains("ago"))
     }
 
     private func makeRateLimits(

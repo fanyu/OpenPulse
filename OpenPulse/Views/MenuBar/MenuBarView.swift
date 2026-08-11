@@ -521,6 +521,10 @@ private func codexMenuBarNamedTitle(for named: CodexNamedRateLimit, fallbackID: 
     return name
 }
 
+func codexQuotaObservedRelativeText(observedAt: Date, locale: Locale = .current) -> String {
+    observedAt.formatted(.relative(presentation: .named).locale(locale))
+}
+
 private struct CodexMenuBarQuotaRows: View {
     let limits: CodexRateLimits
 
@@ -556,7 +560,7 @@ private struct CodexMenuBarQuotaRowView: View {
             }
 
             if let observedAt = row.observedAt {
-                Text("更新于 \(observedAt, style: .relative)前")
+                Text("配额已更新于 \(codexQuotaObservedRelativeText(observedAt: observedAt))")
                     .font(.system(size: 9))
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
