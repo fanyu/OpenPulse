@@ -437,6 +437,147 @@ private struct CodexMenuBarWindowDisplayState {
     let footer: String?
 }
 
+struct CodexMenuBarQuotaRow: Identifiable, Sendable {
+    let id: String
+    let title: String
+    let fiveHourWindow: CodexWindow?
+    let oneWeekWindow: CodexWindow?
+    let observedAt: Date?
+}
+
+func codexMenuBarQuotaRows(for limits: CodexRateLimits?) -> [CodexMenuBarQuotaRow] {
+    guard let limits else { return [] }
+
+    var rows: [CodexMenuBarQuotaRow] = []
+    let generalFiveHour = limits.fiveHourWindow
+    let generalOneWeek = limits.oneWeekWindow
+    if generalFiveHour != nil || generalOneWeek != nil {
+        rows.append(
+            CodexMenuBarQuotaRow(
+                id: "codex",
+                title: "通用额度",
+                fiveHourWindow: generalFiveHour,
+                oneWeekWindow: generalOneWeek,
+                observedAt: limits.observedAt
+            )
+        )
+    }
+
+    let namedRows = (limits.additionalLimits ?? []).compactMap { named -> CodexMenuBarQuotaRow? in
+        let id = named.id.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !id.isEmpty else { return nil }
+
+        let windows = codexMenuBarNamedWindows(for: named)
+        guard windows.fiveHour != nil || windows.oneWeek != nil else { return nil }
+
+        return CodexMenuBarQuotaRow(
+            id: id,
+            title: codexMenuBarNamedTitle(for: named, fallbackID: id),
+            fiveHourWindow: windows.fiveHour,
+            oneWeekWindow: windows.oneWeek,
+            observedAt: named.observedAt
+        )
+    }
+
+    rows.append(contentsOf: namedRows.sorted { lhs, rhs in
+        let lhsName = lhs.title.lowercased()
+        let rhsName = rhs.title.lowercased()
+        if lhsName != rhsName { return lhsName < rhsName }
+        let lhsID = lhs.id.lowercased()
+        let rhsID = rhs.id.lowercased()
+        if lhsID != rhsID { return lhsID < rhsID }
+        if lhs.title != rhs.title { return lhs.title < rhs.title }
+        return lhs.id < rhs.id
+    })
+    return rows
+}
+
+private func codexMenuBarNamedWindows(
+    for named: CodexNamedRateLimit
+) -> (fiveHour: CodexWindow?, oneWeek: CodexWindow?) {
+    var fiveHour: CodexWindow?
+    var oneWeek: CodexWindow?
+
+    for window in [named.primary, named.secondary].compactMap({ $0 }) {
+        switch window.durationSeconds {
+        case 18_000:
+            if fiveHour == nil { fiveHour = window }
+        case 604_800:
+            if oneWeek == nil { oneWeek = window }
+        default:
+            continue
+        }
+    }
+
+    return (fiveHour, oneWeek)
+}
+
+private func codexMenuBarNamedTitle(for named: CodexNamedRateLimit, fallbackID: String) -> String {
+    let name = named.name?.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let name, !name.isEmpty else { return fallbackID }
+    if name.caseInsensitiveCompare("GPT-5.3-Codex-Spark") == .orderedSame {
+        return "Spark"
+    }
+    return name
+}
+
+private struct CodexMenuBarQuotaRows: View {
+    let limits: CodexRateLimits
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(codexMenuBarQuotaRows(for: limits)) { row in
+                CodexMenuBarQuotaRowView(row: row)
+            }
+        }
+    }
+}
+
+private struct CodexMenuBarQuotaRowView: View {
+    let row: CodexMenuBarQuotaRow
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .top, spacing: 8) {
+                Text(verbatim: row.title)
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .frame(width: 64, alignment: .leading)
+
+                HStack(spacing: 8) {
+                    if let window = row.fiveHourWindow {
+                        quotaPanel(label: "5小时余量", isFiveHour: true, window: window)
+                    }
+                    if let window = row.oneWeekWindow {
+                        quotaPanel(label: "本周余量", isFiveHour: false, window: window)
+                    }
+                }
+            }
+
+            if let observedAt = row.observedAt {
+                Text("更新于 \(observedAt, style: .relative)前")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .padding(.leading, 72)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func quotaPanel(label: String, isFiveHour: Bool, window: CodexWindow) -> some View {
+        let state = codexMenuBarDisplayState(for: window, isFiveHour: isFiveHour)
+        MenuBarQuotaPanel(
+            title: label,
+            fraction: state.fraction,
+            primaryValue: state.primaryValue,
+            countdown: state.countdown,
+            footer: state.footer
+        )
+    }
+}
+
 private func codexMenuBarDisplayState(for window: CodexWindow?, isFiveHour: Bool) -> CodexMenuBarWindowDisplayState {
     guard let window else {
         return CodexMenuBarWindowDisplayState(
@@ -567,11 +708,8 @@ struct CodexQuotaCard: View {
             }
         } content: {
             VStack(alignment: .leading, spacing: 8) {
-                if let limits {
-                    HStack(spacing: 8) {
-                        codexPanel(label: "5小时余量", isFiveHour: true, window: limits.fiveHourWindow)
-                        codexPanel(label: "本周余量", isFiveHour: false, window: limits.oneWeekWindow)
-                    }
+                if let limits, !codexMenuBarQuotaRows(for: limits).isEmpty {
+                    CodexMenuBarQuotaRows(limits: limits)
                 } else if let q = fallbackQuota, let r = q.remaining, let t = q.total {
                     let frac = Double(r) / Double(t)
                     let pct = Int((frac * 100).rounded())
@@ -591,18 +729,6 @@ struct CodexQuotaCard: View {
                 }
             }
         }
-    }
-
-    @ViewBuilder
-    private func codexPanel(label: String, isFiveHour: Bool, window: CodexWindow?) -> some View {
-        let state = codexMenuBarDisplayState(for: window, isFiveHour: isFiveHour)
-        MenuBarQuotaPanel(
-            title: label,
-            fraction: state.fraction,
-            primaryValue: state.primaryValue,
-            countdown: state.countdown,
-            footer: state.footer
-        )
     }
 }
 
@@ -658,9 +784,13 @@ struct CodexAccountQuotaCard: View {
             }
 
             if let limits = account.limits {
-                HStack(spacing: 8) {
-                    accountPanel(label: "5小时余量", isFiveHour: true, window: limits.fiveHourWindow)
-                    accountPanel(label: "本周余量", isFiveHour: false, window: limits.oneWeekWindow)
+                if codexMenuBarQuotaRows(for: limits).isEmpty {
+                    Text("尚未获取配额")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    CodexMenuBarQuotaRows(limits: limits)
                 }
                 if let resetCredits = limits.resetCredits {
                     CodexResetCreditsLine(resetCredits: resetCredits)
@@ -671,18 +801,6 @@ struct CodexAccountQuotaCard: View {
                 Text("尚未获取配额").font(.caption2).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-    }
-
-    @ViewBuilder
-    private func accountPanel(label: String, isFiveHour: Bool, window: CodexWindow?) -> some View {
-        let state = codexMenuBarDisplayState(for: window, isFiveHour: isFiveHour)
-        MenuBarQuotaPanel(
-            title: label,
-            fraction: state.fraction,
-            primaryValue: state.primaryValue,
-            countdown: state.countdown,
-            footer: state.footer
-        )
     }
 }
 

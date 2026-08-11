@@ -418,6 +418,114 @@ struct CodexLocalQuotaFreshnessTests {
         #expect(snapshot?.limits.primary?.usedPercent == 12)
     }
 
+    @Test
+    func menuBarRowsKeepGeneralOnlyWithoutAdditionalLimits() {
+        let limits = makeMenuBarLimits(
+            primary: menuBarWindow(minutes: 300),
+            secondary: menuBarWindow(minutes: 10_080)
+        )
+
+        let rows = codexMenuBarQuotaRows(for: limits)
+
+        #expect(rows.map(\.id) == ["codex"])
+        #expect(rows.first?.title == "通用额度")
+    }
+
+    @Test
+    func menuBarRowsShortenSparkName() {
+        let observedAt = Date(timeIntervalSince1970: 80_000)
+        let spark = CodexNamedRateLimit(
+            id: "codex_bengalfox",
+            name: "GPT-5.3-Codex-Spark",
+            primary: menuBarWindow(minutes: 10_080),
+            secondary: nil,
+            observedAt: observedAt
+        )
+        let limits = makeMenuBarLimits(
+            primary: menuBarWindow(minutes: 300),
+            additionalLimits: [spark]
+        )
+
+        let rows = codexMenuBarQuotaRows(for: limits)
+
+        #expect(rows.map(\.id) == ["codex", "codex_bengalfox"])
+        #expect(rows.last?.title == "Spark")
+        #expect(rows.last?.observedAt == observedAt)
+    }
+
+    @Test
+    func menuBarRowsKeepOnlyWeeklyWindowForWeeklyNamedLimit() {
+        let spark = CodexNamedRateLimit(
+            id: "codex_bengalfox",
+            name: "GPT-5.3-Codex-Spark",
+            primary: menuBarWindow(minutes: 10_080),
+            secondary: nil,
+            observedAt: Date(timeIntervalSince1970: 81_000)
+        )
+        let rows = codexMenuBarQuotaRows(for: makeMenuBarLimits(
+            primary: menuBarWindow(minutes: 300),
+            additionalLimits: [spark]
+        ))
+
+        let sparkRow = rows.last
+        #expect(sparkRow?.fiveHourWindow == nil)
+        #expect(sparkRow?.oneWeekWindow?.windowMinutes == 10_080)
+    }
+
+    @Test
+    func menuBarRowsKeepGeneralFirstAndSortNamedRowsByNameThenID() {
+        let named = [
+            CodexNamedRateLimit(
+                id: "zeta-id",
+                name: "Beta",
+                primary: menuBarWindow(minutes: 300),
+                secondary: nil,
+                observedAt: nil
+            ),
+            CodexNamedRateLimit(
+                id: "alpha-id",
+                name: "Alpha",
+                primary: menuBarWindow(minutes: 300),
+                secondary: nil,
+                observedAt: nil
+            ),
+            CodexNamedRateLimit(
+                id: "beta-id",
+                name: "Beta",
+                primary: menuBarWindow(minutes: 300),
+                secondary: nil,
+                observedAt: nil
+            ),
+        ]
+        let limits = makeMenuBarLimits(
+            primary: menuBarWindow(minutes: 300),
+            additionalLimits: named
+        )
+
+        let rows = codexMenuBarQuotaRows(for: limits)
+
+        #expect(rows.map(\.id) == ["codex", "alpha-id", "beta-id", "zeta-id"])
+    }
+
+    @Test
+    func menuBarRowsOmitNamedUnknownDuration() {
+        let unknown = CodexNamedRateLimit(
+            id: "codex_unknown",
+            name: "Unknown",
+            primary: menuBarWindow(minutes: 60),
+            secondary: nil,
+            observedAt: Date(timeIntervalSince1970: 82_000)
+        )
+        let limits = makeMenuBarLimits(
+            primary: menuBarWindow(minutes: 300),
+            additionalLimits: [unknown]
+        )
+
+        let rows = codexMenuBarQuotaRows(for: limits)
+
+        #expect(rows.map(\.id) == ["codex"])
+    }
+
     private func makeRateLimits(
         generalUsedPercent: Double?,
         observedAt: Date?,
@@ -534,5 +642,30 @@ struct CodexLocalQuotaFreshnessTests {
 
     private func observedAt(in limits: CodexRateLimits?) -> Date? {
         limits?.observedAt
+    }
+
+    private func makeMenuBarLimits(
+        primary: CodexWindow?,
+        secondary: CodexWindow? = nil,
+        additionalLimits: [CodexNamedRateLimit]? = nil
+    ) -> CodexRateLimits {
+        CodexRateLimits(
+            primary: primary,
+            secondary: secondary,
+            credits: nil,
+            resetCredits: nil,
+            planType: nil,
+            observedAt: Date(timeIntervalSince1970: 79_000),
+            additionalLimits: additionalLimits
+        )
+    }
+
+    private func menuBarWindow(minutes: Int, usedPercent: Double = 12) -> CodexWindow {
+        CodexWindow(
+            usedPercent: usedPercent,
+            windowMinutes: minutes,
+            windowSeconds: nil,
+            resetsAt: 100_000
+        )
     }
 }
