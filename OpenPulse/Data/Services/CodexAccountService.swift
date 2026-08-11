@@ -372,6 +372,7 @@ actor CodexAccountService {
 
         let now = Date()
         if let index = store.accounts.firstIndex(where: { $0.accountID == extracted.accountID }) {
+            store.accounts[index].migrateLegacyUsageObservation()
             store.accounts[index].email = extracted.email
             store.accounts[index].planType = extracted.planType
             store.accounts[index].teamName = extracted.teamName

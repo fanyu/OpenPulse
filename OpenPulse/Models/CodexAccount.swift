@@ -19,6 +19,11 @@ struct CodexStoredAccount: Codable, Identifiable, Sendable {
     var lastFetchedAt: Date?
     var lastUsage: CodexRateLimits?
     var usageError: String?
+
+    mutating func migrateLegacyUsageObservation() {
+        guard let lastUsage, lastUsage.observedAt == nil else { return }
+        self.lastUsage = lastUsage.replacingObservedAt(lastFetchedAt ?? updatedAt)
+    }
 }
 
 struct CodexAccountSnapshot: Identifiable, Sendable {

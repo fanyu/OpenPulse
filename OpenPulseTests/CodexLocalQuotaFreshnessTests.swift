@@ -237,6 +237,31 @@ struct CodexLocalQuotaFreshnessTests {
     }
 
     @Test
+    func legacyStoredAccountMigratesSuccessfulFetchTimeIntoUsageObservation() {
+        let accountUpdatedAt = Date(timeIntervalSince1970: 100_000)
+        let lastFetchedAt = Date(timeIntervalSince1970: 90_000)
+        var account = CodexStoredAccount(
+            id: "account",
+            label: "Codex",
+            email: nil,
+            accountID: "account",
+            planType: "pro",
+            teamName: nil,
+            authJSONString: "{}",
+            addedAt: Date(timeIntervalSince1970: 80_000),
+            updatedAt: accountUpdatedAt,
+            lastFetchedAt: lastFetchedAt,
+            lastUsage: makeRateLimits(generalUsedPercent: 10, observedAt: nil, additionalLimits: nil),
+            usageError: nil
+        )
+
+        account.migrateLegacyUsageObservation()
+        account.updatedAt = Date(timeIntervalSince1970: 110_000)
+
+        #expect(account.lastUsage?.observedAt == lastFetchedAt)
+    }
+
+    @Test
     func modelSpecificQuotaDoesNotOverrideGeneralQuota() async throws {
         let fileManager = FileManager.default
         let codexDir = fileManager.temporaryDirectory
