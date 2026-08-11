@@ -177,6 +177,60 @@ struct CodexLocalQuotaFreshnessTests {
     }
 
     @Test
+    func sparkOnlyJSONLProducesNamedSnapshotAndPreservesStoredGeneralQuota() async throws {
+        let fileManager = FileManager.default
+        let codexDir = fileManager.temporaryDirectory
+            .appending(path: "OpenPulse-CodexSparkOnly-\(UUID().uuidString)")
+        defer { try? fileManager.removeItem(at: codexDir) }
+
+        let sessionsDir = codexDir.appending(path: "sessions")
+        try fileManager.createDirectory(at: sessionsDir, withIntermediateDirectories: true)
+        let sparkURL = sessionsDir.appending(path: "spark.jsonl")
+        let sparkEvent = Date(timeIntervalSince1970: 90_000)
+        try writeQuotaEvent(
+            limitID: "codex_bengalfox",
+            limitName: "GPT-5.3-Codex-Spark",
+            usedPercent: 0,
+            timestamp: sparkEvent,
+            to: sparkURL
+        )
+        let modifiedAt = Date().addingTimeInterval(-30)
+        try fileManager.setAttributes([.modificationDate: modifiedAt], ofItemAtPath: sparkURL.path)
+
+        let snapshot = await CodexParser(codexDir: codexDir).parseLatestRateLimitsSnapshot()
+        let stored = makeRateLimits(
+            generalUsedPercent: 10,
+            observedAt: Date(timeIntervalSince1970: 80_000),
+            additionalLimits: nil
+        )
+        let merged = snapshot.map { stored.merging($0.limits) }
+
+        #expect(snapshot?.limits.fiveHourWindow == nil)
+        #expect(snapshot?.limits.oneWeekWindow == nil)
+        #expect(namedLimitIDs(in: snapshot?.limits) == ["codex_bengalfox"])
+        #expect(namedLimitName("codex_bengalfox", in: snapshot?.limits) == "GPT-5.3-Codex-Spark")
+        #expect(namedLimitObservedAt("codex_bengalfox", in: snapshot?.limits) == sparkEvent)
+        #expect(snapshot?.sourceURL.standardizedFileURL == sparkURL.standardizedFileURL)
+        #expect(merged?.primary?.usedPercent == 10)
+        #expect(namedLimitUsedPercent("codex_bengalfox", in: merged) == 0)
+    }
+
+    @Test
+    func quotaUpdatedAtUsesLimitObservationBeforeAccountMetadata() {
+        let observedAt = Date(timeIntervalSince1970: 90_000)
+        let accountUpdatedAt = Date(timeIntervalSince1970: 100_000)
+        let limits = makeRateLimits(generalUsedPercent: 10, observedAt: observedAt, additionalLimits: nil)
+        let observedSnapshot = makeAccountSnapshot(updatedAt: accountUpdatedAt, limits: limits)
+        let legacySnapshot = makeAccountSnapshot(
+            updatedAt: accountUpdatedAt,
+            limits: makeRateLimits(generalUsedPercent: 10, observedAt: nil, additionalLimits: nil)
+        )
+
+        #expect(observedSnapshot.quota.updatedAt == observedAt)
+        #expect(legacySnapshot.quota.updatedAt == accountUpdatedAt)
+    }
+
+    @Test
     func modelSpecificQuotaDoesNotOverrideGeneralQuota() async throws {
         let fileManager = FileManager.default
         let codexDir = fileManager.temporaryDirectory
@@ -551,6 +605,23 @@ struct CodexLocalQuotaFreshnessTests {
             primary: CodexWindow(usedPercent: usedPercent, windowMinutes: 300, windowSeconds: nil, resetsAt: 100_000),
             secondary: nil,
             observedAt: observedAt
+        )
+    }
+
+    private func makeAccountSnapshot(updatedAt: Date, limits: CodexRateLimits?) -> CodexAccountSnapshot {
+        CodexAccountSnapshot(
+            id: "account",
+            label: "Codex",
+            email: nil,
+            accountID: "account",
+            planType: "pro",
+            teamName: nil,
+            addedAt: updatedAt.addingTimeInterval(-1_000),
+            updatedAt: updatedAt,
+            lastFetchedAt: updatedAt,
+            limits: limits,
+            usageError: nil,
+            isCurrent: true
         )
     }
 

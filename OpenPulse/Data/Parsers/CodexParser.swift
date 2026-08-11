@@ -334,7 +334,6 @@ actor CodexParser {
             latestByIdentity[candidate.identity] = candidate
         }
 
-        guard let general = latestByIdentity[Self.generalLimitIdentity] else { return nil }
         let additionalLimits = latestByIdentity
             .filter { $0.key != Self.generalLimitIdentity }
             .values
@@ -349,13 +348,37 @@ actor CodexParser {
                 )
             }
 
-        let generalLimits = general.limits
-            .replacingObservedAt(general.observedAt)
-            .replacingAdditionalLimits(additionalLimits.isEmpty ? nil : additionalLimits)
+        let source: RateLimitCandidate
+        let snapshotLimits: CodexRateLimits
+        if let general = latestByIdentity[Self.generalLimitIdentity] {
+            source = general
+            snapshotLimits = general.limits
+                .replacingObservedAt(general.observedAt)
+                .replacingAdditionalLimits(additionalLimits.isEmpty ? nil : additionalLimits)
+        } else if let newestNamed = latestByIdentity
+            .filter({ $0.key != Self.generalLimitIdentity })
+            .values
+            .reduce(nil as RateLimitCandidate?, { newest, candidate in
+                guard let newest else { return candidate }
+                return isNewer(candidate, than: newest) ? candidate : newest
+            })
+        {
+            source = newestNamed
+            snapshotLimits = CodexRateLimits(
+                primary: nil,
+                secondary: nil,
+                credits: newestNamed.limits.credits,
+                resetCredits: newestNamed.limits.resetCredits,
+                planType: newestNamed.limits.planType,
+                additionalLimits: additionalLimits.isEmpty ? nil : additionalLimits
+            )
+        } else {
+            return nil
+        }
         return LocalRateLimitSnapshot(
-            limits: generalLimits,
-            sourceURL: general.sourceURL,
-            modifiedAt: general.modifiedAt
+            limits: snapshotLimits,
+            sourceURL: source.sourceURL,
+            modifiedAt: source.modifiedAt
         )
     }
 

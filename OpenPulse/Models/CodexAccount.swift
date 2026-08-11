@@ -79,7 +79,7 @@ struct CodexAccountSnapshot: Identifiable, Sendable {
             total: 100,
             unit: .tokens,
             resetAt: limits?.fiveHourWindow?.resetDate,
-            updatedAt: updatedAt,
+            updatedAt: limits?.observedAt ?? updatedAt,
             raw: limits
         )
     }

@@ -546,8 +546,15 @@ final class DataSyncService {
     // MARK: - Helpers: Codex local rate limits
 
     private func isUsableCodexLimits(_ limits: CodexRateLimits) -> Bool {
-        [limits.fiveHourWindow, limits.oneWeekWindow]
-            .compactMap { $0?.resetDate }
+        let namedWindows = (limits.additionalLimits ?? []).flatMap { [$0.primary, $0.secondary] }
+        return ([limits.fiveHourWindow, limits.oneWeekWindow] + namedWindows)
+            .compactMap { window in
+                guard let window,
+                      window.durationSeconds == 5 * 60 * 60 || window.durationSeconds == 7 * 24 * 60 * 60 else {
+                    return nil
+                }
+                return window.resetDate
+            }
             .contains { $0 > Date() }
     }
 
