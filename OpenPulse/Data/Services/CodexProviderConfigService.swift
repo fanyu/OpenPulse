@@ -16,6 +16,9 @@ struct CodexProviderConfigurationState: Sendable {
 }
 
 actor CodexProviderConfigService {
+    static let openAIProviderID = CodexRouterConstants.openAIProviderID
+    private static let codexRouterProviderID = CodexRouterConstants.codexRouterProviderID
+
     static func environmentVariableName(forProviderID providerID: String) -> String {
         let uppercase = providerID.uppercased()
         let sanitized = uppercase.replacingOccurrences(
@@ -36,6 +39,7 @@ actor CodexProviderConfigService {
         case providerNotFound
         case cannotDeleteBuiltIn
         case cannotDeleteCurrent
+        case routerNotConfigured
         case launchctlFailed(String)
         var errorDescription: String? {
             switch self {
@@ -53,6 +57,8 @@ actor CodexProviderConfigService {
                 "内建 OpenAI Provider 不能删除。"
             case .cannotDeleteCurrent:
                 "请先切换到其他 Provider，再删除当前 Provider。"
+            case .routerNotConfigured:
+                "未检测到 codex-router 配置。请先按 codex-router 指南完成安装后再切换。"
             case .launchctlFailed(let message):
                 message
             }
@@ -61,6 +67,7 @@ actor CodexProviderConfigService {
 
     private struct DefaultsStore: Codable {
         var defaultModels: [String: String] = [:]
+        var selectedProviderID: String?
     }
 
     private struct ParsedProviderSection {
@@ -78,28 +85,34 @@ actor CodexProviderConfigService {
         var currentModel: String = ""
         var currentProviderID: String = "openai"
         var providerSections: [ParsedProviderSection] = []
+        var hasCodexRouterProvider = false
     }
 
     private let fileManager: FileManager
     private let configURL: URL
     private let defaultsURL: URL
 
-    init(fileManager: FileManager = .default) {
+    init(
+        fileManager: FileManager = .default,
+        configURL: URL? = nil,
+        defaultsURL: URL? = nil
+    ) {
         self.fileManager = fileManager
-        self.configURL = URL.homeDirectory.appending(path: ".codex/config.toml")
-        self.defaultsURL = URL.homeDirectory.appending(path: ".openpulse/codex-provider-default-models.json")
+        self.configURL = configURL ?? URL.homeDirectory.appending(path: ".codex/config.toml")
+        self.defaultsURL = defaultsURL ?? URL.homeDirectory.appending(path: ".openpulse/codex-provider-default-models.json")
     }
 
     func loadState() throws -> CodexProviderConfigurationState {
         let parsed = try parseConfig()
         let defaults = loadDefaultsStore()
+        let hasRouterMode = parsed.hasCodexRouterProvider
 
         var providers: [CodexProviderConfig] = []
-        let openAIDefault = defaults.defaultModels["openai"]
-            ?? (parsed.currentProviderID == "openai" ? parsed.currentModel : "gpt-5.5")
+        let openAIDefault = defaults.defaultModels[Self.openAIProviderID]
+            ?? (parsed.currentProviderID == Self.openAIProviderID ? parsed.currentModel : "gpt-5.5")
         providers.append(
             CodexProviderConfig(
-                id: "openai",
+                id: Self.openAIProviderID,
                 name: "OpenAI",
                 baseURL: "",
                 envKey: "OPENAI_API_KEY",
@@ -108,7 +121,9 @@ actor CodexProviderConfigService {
             )
         )
 
-        for section in parsed.providerSections.sorted(by: { $0.id.localizedCaseInsensitiveCompare($1.id) == .orderedAscending }) {
+        for section in parsed.providerSections
+            .filter({ $0.id != Self.codexRouterProviderID })
+            .sorted(by: { $0.id.localizedCaseInsensitiveCompare($1.id) == .orderedAscending }) {
             let defaultModel = defaults.defaultModels[section.id]
                 ?? inferredDefaultModel(for: section.id, parsed: parsed)
             providers.append(
@@ -122,8 +137,15 @@ actor CodexProviderConfigService {
             )
         }
 
+        let currentProviderID = resolveCurrentProviderID(
+            parsed: parsed,
+            defaults: defaults,
+            providers: providers,
+            hasRouterMode: hasRouterMode
+        )
+
         return CodexProviderConfigurationState(
-            currentProviderID: parsed.currentProviderID,
+            currentProviderID: currentProviderID,
             currentModel: parsed.currentModel,
             providers: providers
         )
@@ -142,7 +164,8 @@ actor CodexProviderConfigService {
                 throw ServiceError.missingRequiredField("默认模型")
             }
             var defaults = loadDefaultsStore()
-            defaults.defaultModels["openai"] = provider.defaultModel.trimmingCharacters(in: .whitespacesAndNewlines)
+            defaults.selectedProviderID = Self.openAIProviderID
+            defaults.defaultModels[Self.openAIProviderID] = provider.defaultModel.trimmingCharacters(in: .whitespacesAndNewlines)
             try saveDefaultsStore(defaults)
             return try loadState()
         }
@@ -184,6 +207,7 @@ actor CodexProviderConfigService {
 
         var defaults = loadDefaultsStore()
         defaults.defaultModels[normalized.id] = normalized.defaultModel
+        defaults.selectedProviderID = normalized.id
         try saveDefaultsStore(defaults)
         try syncProviderSecret(
             providerID: normalized.id,
@@ -195,7 +219,7 @@ actor CodexProviderConfigService {
         return try loadState()
     }
 
-    func switchProvider(id: String) throws -> CodexProviderConfigurationState {
+    func switchProvider(id: String, allowThirdParty: Bool = true) throws -> CodexProviderConfigurationState {
         let state = try loadState()
         guard let provider = state.providers.first(where: { $0.id == id }) else {
             throw ServiceError.providerNotFound
@@ -205,11 +229,21 @@ actor CodexProviderConfigService {
         }
 
         var parsed = try parseConfig()
-        setTopLevel(key: "model_provider", value: provider.id, in: &parsed.lines)
+        if provider.id != Self.openAIProviderID && !allowThirdParty {
+            throw ServiceError.routerNotConfigured
+        }
+        guard provider.id == Self.openAIProviderID || parsed.hasCodexRouterProvider else {
+            throw ServiceError.routerNotConfigured
+        }
+
+        let useRouterProvider = shouldUseRouterProvider(for: provider.id, parsed: parsed)
+        let targetModelProvider = useRouterProvider ? Self.codexRouterProviderID : provider.id
+        setTopLevel(key: "model_provider", value: targetModelProvider, in: &parsed.lines)
         setTopLevel(key: "model", value: provider.defaultModel, in: &parsed.lines)
         try writeConfig(lines: parsed.lines)
 
         var defaults = loadDefaultsStore()
+        defaults.selectedProviderID = provider.id
         defaults.defaultModels[provider.id] = provider.defaultModel
         try saveDefaultsStore(defaults)
 
@@ -217,7 +251,7 @@ actor CodexProviderConfigService {
     }
 
     func deleteProvider(id: String) throws -> CodexProviderConfigurationState {
-        if id == "openai" {
+        if id == Self.openAIProviderID {
             throw ServiceError.cannotDeleteBuiltIn
         }
 
@@ -243,6 +277,9 @@ actor CodexProviderConfigService {
 
         var defaults = loadDefaultsStore()
         defaults.defaultModels.removeValue(forKey: id)
+        if defaults.selectedProviderID == id {
+            defaults.selectedProviderID = Self.openAIProviderID
+        }
         try saveDefaultsStore(defaults)
         removeProviderSecret(providerID: id, envKey: section.envKey)
 
@@ -283,6 +320,39 @@ actor CodexProviderConfigService {
             return parsed.currentModel
         }
         return ""
+    }
+
+    private func shouldUseRouterProvider(for providerID: String, parsed: ParsedConfig) -> Bool {
+        providerID != Self.openAIProviderID && parsed.hasCodexRouterProvider
+    }
+
+    private func resolveCurrentProviderID(
+        parsed: ParsedConfig,
+        defaults: DefaultsStore,
+        providers: [CodexProviderConfig],
+        hasRouterMode: Bool
+    ) -> String {
+        if parsed.currentProviderID == Self.openAIProviderID {
+            return Self.openAIProviderID
+        }
+
+        if !hasRouterMode || parsed.currentProviderID != Self.codexRouterProviderID {
+            if providers.contains(where: { $0.id == parsed.currentProviderID }) {
+                return parsed.currentProviderID
+            }
+        }
+
+        if hasRouterMode, let selectedID = defaults.selectedProviderID,
+           providers.contains(where: { $0.id == selectedID }) {
+            return selectedID
+        }
+
+        if hasRouterMode,
+           let match = providers.first(where: { !$0.isBuiltIn && $0.defaultModel == parsed.currentModel }) {
+            return match.id
+        }
+
+        return providers.first(where: { !$0.isBuiltIn })?.id ?? Self.openAIProviderID
     }
 
     private func parseConfig() throws -> ParsedConfig {
@@ -342,8 +412,11 @@ actor CodexProviderConfigService {
                 }
                 currentSectionPath = path
                 sectionStartLine = index
-                if path.hasPrefix("model_providers.") {
+                if path.lowercased().hasPrefix("model_providers.") {
                     sectionID = String(path.dropFirst("model_providers.".count))
+                    if sectionID?.lowercased() == Self.codexRouterProviderID {
+                        parsed.hasCodexRouterProvider = true
+                    }
                 } else {
                     sectionID = nil
                 }
@@ -351,11 +424,13 @@ actor CodexProviderConfigService {
             }
 
             if currentSectionPath == nil, let (key, value) = parseKeyValue(from: trimmed) {
-                switch key {
+                switch key.lowercased() {
                 case "model":
                     parsed.currentModel = value
                 case "model_provider":
                     parsed.currentProviderID = value
+                case "openai_base_url", "model_catalog_json":
+                    parsed.hasCodexRouterProvider = true
                 default:
                     break
                 }
@@ -386,7 +461,7 @@ actor CodexProviderConfigService {
         for (index, line) in lines.enumerated() {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             guard let path = sectionPath(for: trimmed) else { continue }
-            if !path.hasPrefix("model_providers.") {
+            if !path.lowercased().hasPrefix("model_providers.") {
                 return index
             }
         }

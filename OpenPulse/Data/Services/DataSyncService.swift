@@ -84,7 +84,9 @@ final class DataSyncService {
     private static let fsWatchRoots: [(path: String, tool: Tool)] = [
         (.homeDirectory + "/.claude/projects",            .claudeCode),
         (.homeDirectory + "/.config/claude/projects",     .claudeCode),
+        (.homeDirectory + "/.codex/config.toml",          .codex),
         (.homeDirectory + "/.codex/sessions",             .codex),
+        (.homeDirectory + "/.codex/codex-router/merged-models.json", .codex),
         (.homeDirectory + "/.gemini/antigravity/brain",   .antigravity),
     ]
 

@@ -563,7 +563,7 @@ struct CodexLocalQuotaFreshnessTests {
         let rows = codexMenuBarQuotaRows(for: limits)
 
         #expect(rows.map(\.id) == ["codex"])
-        #expect(rows.first?.title == "通用额度")
+        #expect(rows.first?.title == String(localized: "通用额度"))
     }
 
     @Test

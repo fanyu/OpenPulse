@@ -92,7 +92,7 @@ struct CodexProviderContent: View {
         }
         .task {
             if providerManager.providers.isEmpty {
-                await providerManager.load(using: appStore.codexProviderConfigService)
+                await providerManager.load(using: appStore.codexProviderConfigService, coordinator: appStore.codexRouterCoordinator)
             }
         }
     }
@@ -125,7 +125,7 @@ private struct CodexProviderManagerSection: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Providers")
                         .font(.headline)
-                    Text("维护第三方 Provider，并为每个 Provider 指定默认模型。菜单栏切换时会同步切换到这里配置的默认模型。")
+                    Text("维护第三方模型。内置 OpenAI 模型继续走 OpenAI 直连，其他模型会走 Router。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -138,12 +138,17 @@ private struct CodexProviderManagerSection: View {
                 .disabled(viewModel.isWorking)
             }
 
+            RouterControlPanel(
+                viewModel: viewModel,
+                appStore: appStore
+            )
+
             HStack(alignment: .top, spacing: 16) {
                 providerList
                     .frame(minWidth: 220, maxWidth: 240)
                 providerEditor
                     .frame(maxWidth: .infinity, alignment: .leading)
-            }
+                }
 
             if let errorMessage = viewModel.errorMessage {
                 Text(errorMessage)
@@ -194,6 +199,12 @@ private struct CodexProviderManagerSection: View {
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
+                                if !viewModel.canSelect(provider) && provider.id != CodexRouterConstants.openAIProviderID {
+                                    Text("第三方 Provider 需开启可用 Router")
+                                        .font(.caption2)
+                                        .foregroundStyle(.orange)
+                                        .lineLimit(2)
+                                }
                             }
                             Spacer()
                         }
@@ -245,7 +256,7 @@ private struct CodexProviderManagerSection: View {
                             .textFieldStyle(.roundedBorder)
                             .disabled(viewModel.isWorking || viewModel.draft.isBuiltIn || !viewModel.isCreatingNew)
                         if !viewModel.draft.isBuiltIn {
-                            Text("用于写入 Codex 配置、切换 provider，以及生成环境变量名。建议使用短的英文标识，例如 `mimo`、`openrouter`。")
+                            Text("用于写入 `~/.codex/config.toml` 并在路由模式下保存到会话中。建议使用短的英文标识，例如 `mimo`、`openrouter`。")
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }
@@ -294,12 +305,14 @@ private struct CodexProviderManagerSection: View {
                 .controlSize(.small)
                 .disabled(viewModel.isWorking)
 
-                Button("设为当前") {
+                Button("应用") {
                     Task {
-                        await viewModel.setCurrent(
-                            using: appStore.codexProviderConfigService,
-                            codexAccountService: appStore.codexAccountService
-                        )
+                        if viewModel.canSelectCurrentProvider() {
+                            await viewModel.setCurrent(
+                                using: appStore.codexProviderConfigService,
+                                coordinator: appStore.codexRouterCoordinator
+                            )
+                        }
                     }
                 }
                 .buttonStyle(ProminentActionButtonStyle(fillColor: Color.green.opacity(0.78)))
@@ -325,6 +338,78 @@ private struct CodexProviderManagerSection: View {
             .font(.system(size: 12, weight: .semibold))
             .foregroundStyle(.secondary)
             .frame(width: 82, alignment: .leading)
+    }
+
+    private struct RouterControlPanel: View {
+        @Bindable var viewModel: CodexProviderManagerViewModel
+        let appStore: AppStore
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Toggle("启用 Router", isOn: Binding(
+                        get: { viewModel.isRouterEnabled },
+                        set: { enabled in
+                            Task {
+                                await viewModel.setRouterEnabled(
+                                    enabled,
+                                    using: appStore.codexProviderConfigService,
+                                    coordinator: appStore.codexRouterCoordinator
+                                )
+                            }
+                        }
+                    ))
+                    .toggleStyle(.switch)
+                    .disabled(viewModel.isApplyingRouterState || viewModel.isLoading || viewModel.isWorking)
+
+                    Button(action: {
+                        Task { await viewModel.refreshRouterStatus(using: appStore.codexRouterCoordinator) }
+                    }) {
+                        HStack(spacing: 4) {
+                            Text(viewModel.isRefreshingRouterState ? "检测中…" : "检测状态")
+                            if viewModel.isRefreshingRouterState {
+                                ProgressView().controlSize(.small)
+                            }
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(viewModel.isRefreshingRouterState || viewModel.isApplyingRouterState)
+
+                    if viewModel.isApplyingRouterState {
+                        ProgressView().controlSize(.small)
+                    }
+                }
+
+                if let status = viewModel.routerStatus {
+                    HStack(spacing: 6) {
+                        Image(systemName: status.canUseRouter ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(status.canUseRouter ? .green : .orange)
+                        Text(status.statusText)
+                            .font(.caption)
+                            .foregroundStyle(status.canUseRouter ? Color.secondary : Color.orange)
+                            .lineLimit(2)
+                    }
+
+                    if status.isConfigured && !status.catalogFileExists {
+                        Text("模型目录不存在：\(status.modelCatalogPath ?? "merged-models.json")")
+                            .font(.caption2)
+                            .foregroundStyle(.red)
+                    }
+                } else {
+                    Text("正在检测 Router 配置…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(12)
+            .background(Color.primary.opacity(0.02), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+            )
+        }
     }
 }
 

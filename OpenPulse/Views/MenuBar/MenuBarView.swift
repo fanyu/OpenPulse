@@ -1,4 +1,5 @@
 import SwiftUI
+import Foundation
 import SwiftData
 import AppKit
 
@@ -455,7 +456,7 @@ func codexMenuBarQuotaRows(for limits: CodexRateLimits?) -> [CodexMenuBarQuotaRo
         rows.append(
             CodexMenuBarQuotaRow(
                 id: "codex",
-                title: "通用额度",
+                title: String(localized: "通用额度"),
                 fiveHourWindow: generalFiveHour,
                 oneWeekWindow: generalOneWeek,
                 observedAt: limits.observedAt
@@ -529,9 +530,14 @@ private struct CodexMenuBarQuotaRows: View {
     let limits: CodexRateLimits
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ForEach(codexMenuBarQuotaRows(for: limits)) { row in
-                CodexMenuBarQuotaRowView(row: row)
+        let rows = codexMenuBarQuotaRows(for: limits)
+        let hasMultipleRows = rows.count > 1
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(rows) { row in
+                CodexMenuBarQuotaRowView(
+                    row: row,
+                    showTitle: hasMultipleRows || row.id != "codex"
+                )
             }
         }
     }
@@ -539,38 +545,25 @@ private struct CodexMenuBarQuotaRows: View {
 
 private struct CodexMenuBarQuotaRowView: View {
     let row: CodexMenuBarQuotaRow
+    let showTitle: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .top, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
+            if showTitle {
                 Text(verbatim: row.title)
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                    .frame(width: 64, alignment: .leading)
-
-                HStack(spacing: 8) {
-                    if let window = row.fiveHourWindow {
-                        quotaPanel(label: "5小时余量", isFiveHour: true, window: window)
-                    }
-                    if let window = row.oneWeekWindow {
-                        quotaPanel(label: "本周余量", isFiveHour: false, window: window)
-                    }
-                }
             }
 
-            if let observedAt = row.observedAt {
-                Text("配额已更新于 \(codexQuotaObservedRelativeText(observedAt: observedAt))")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
-                    .padding(.leading, 72)
+            HStack(spacing: 8) {
+                quotaPanel(label: String(localized: "5小时余量"), isFiveHour: true, window: row.fiveHourWindow)
+                quotaPanel(label: String(localized: "本周余量"), isFiveHour: false, window: row.oneWeekWindow)
             }
         }
     }
-
     @ViewBuilder
-    private func quotaPanel(label: String, isFiveHour: Bool, window: CodexWindow) -> some View {
+    private func quotaPanel(label: String, isFiveHour: Bool, window: CodexWindow?) -> some View {
         let state = codexMenuBarDisplayState(for: window, isFiveHour: isFiveHour)
         MenuBarQuotaPanel(
             title: label,
@@ -601,7 +594,7 @@ private func codexMenuBarDisplayState(for window: CodexWindow?, isFiveHour: Bool
             fraction: 1,
             primaryValue: "100%",
             countdown: countdown,
-            footer: "已重置"
+            footer: String(localized: "已重置")
         )
     }
 
@@ -703,12 +696,7 @@ struct CodexQuotaCard: View {
                 subtitle: normalizedSubscriptionDisplayName(limits?.planType),
                 todayTokens: todayTokens
             ) {
-                HStack(spacing: 6) {
-                    CodexProviderMenuButton { message in
-                        statusMessage = message
-                    }
-                    ConfigShortcutButton(tool: .codex)
-                }
+                ConfigShortcutButton(tool: .codex)
             }
         } content: {
             VStack(alignment: .leading, spacing: 8) {
@@ -775,9 +763,7 @@ struct CodexAccountQuotaCard: View {
                     }
                 }
                 Spacer(minLength: 8)
-                if account.isCurrent {
-                    CodexProviderMenuButton(onMessage: onProviderMessage)
-                } else {
+                if !account.isCurrent {
                     Button("切换") {
                         onSwitch(account.id)
                     }
@@ -968,6 +954,7 @@ struct CodexMultiAccountQuotaCard: View {
 private struct CodexProviderMenuButton: View {
     @Environment(AppStore.self) private var appStore
     @State private var providerState: CodexProviderConfigurationState?
+    @State private var routerStatus: CodexRouterStatus?
     @State private var isSwitching = false
 
     let onMessage: (String) -> Void
@@ -987,7 +974,11 @@ private struct CodexProviderMenuButton: View {
             if let providerState {
                 ForEach(providerState.providers) { provider in
                     Button {
-                        switchProvider(provider)
+                        if canSwitchProvider(provider) {
+                            switchProvider(provider)
+                        } else {
+                            onMessage(switchDisabledReason(provider) ?? "该 Provider 当前不可用")
+                        }
                     } label: {
                         HStack {
                             Text(provider.name)
@@ -1001,7 +992,7 @@ private struct CodexProviderMenuButton: View {
                             }
                         }
                     }
-                    .disabled(isSwitching || provider.defaultModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(isSwitching)
                 }
             } else {
                 Text("读取中…")
@@ -1038,7 +1029,7 @@ private struct CodexProviderMenuButton: View {
         .controlSize(.mini)
         .focusEffectDisabled()
         .task {
-            if providerState == nil {
+                if providerState == nil {
                 await reloadState()
             }
         }
@@ -1052,12 +1043,15 @@ private struct CodexProviderMenuButton: View {
     private func reloadState() async {
         do {
             let state = try await appStore.codexProviderConfigService.loadState()
+            let status = await appStore.codexRouterCoordinator.loadStatus()
             await MainActor.run {
                 providerState = state
+                routerStatus = status
             }
         } catch {
             await MainActor.run {
                 providerState = nil
+                routerStatus = nil
                 onMessage(error.localizedDescription)
             }
         }
@@ -1065,24 +1059,133 @@ private struct CodexProviderMenuButton: View {
 
     private func switchProvider(_ provider: CodexProviderConfig) {
         isSwitching = true
+        let previousProviderID = providerState?.currentProviderID
         Task {
             do {
-                let state = try await appStore.codexProviderConfigService.switchProvider(id: provider.id)
-                _ = try await appStore.codexAccountService.relaunchCodex()
+                let state = try await appStore.codexProviderConfigService.switchProvider(
+                    id: provider.id,
+                    allowThirdParty: canSwitchProvider(provider)
+                )
+                let status = await appStore.codexRouterCoordinator.loadStatus()
                 await appStore.syncService?.sync(tool: .codex)
                 await MainActor.run {
                     providerState = state
+                    routerStatus = status
                     isSwitching = false
+                    AppLogger.shared.recordDiagnostic(
+                        level: .info,
+                        scope: CodexRouterDiagnostics.diagnosticScope,
+                        message: CodexRouterDiagnostics.switchedToProviderMessage(providerID: provider.id)
+                    )
                     onMessage(String(localized: "已切换到 \(provider.name)"))
                     GlobalHotkeyService.shared.closeMenuBar()
                 }
             } catch {
+                let originalError = error.localizedDescription
+                await MainActor.run {
+                    AppLogger.shared.recordDiagnostic(
+                        level: .warning,
+                        scope: CodexRouterDiagnostics.diagnosticScope,
+                        message: CodexRouterDiagnostics.switchProviderFailedMessage(
+                            target: provider.id,
+                            reason: originalError
+                        )
+                    )
+                }
                 await MainActor.run {
                     isSwitching = false
-                    onMessage(error.localizedDescription)
+                }
+
+                if let previousProviderID, previousProviderID != provider.id {
+                    let rollbackID = previousProviderID
+                    do {
+                        let rollbackState = try await appStore.codexProviderConfigService.switchProvider(
+                            id: rollbackID,
+                            allowThirdParty: true
+                        )
+                        let rollbackStatus = await appStore.codexRouterCoordinator.loadStatus()
+                        let rollbackSnapshot = describeRollbackTarget(
+                            providerID: rollbackID,
+                            in: rollbackState,
+                            at: Date()
+                        )
+                        await MainActor.run {
+                            providerState = rollbackState
+                            routerStatus = rollbackStatus
+                            AppLogger.shared.recordDiagnostic(
+                                level: .info,
+                                scope: CodexRouterDiagnostics.diagnosticScope,
+                                message: CodexRouterDiagnostics.rollbackSucceededMessage(snapshot: rollbackSnapshot)
+                            )
+                            onMessage(CodexRouterDiagnostics.userRollbackNoticeMessage(
+                                snapshot: rollbackSnapshot,
+                                reason: originalError
+                            ))
+                        }
+                    } catch {
+                        await MainActor.run {
+                            AppLogger.shared.recordDiagnostic(
+                                level: .error,
+                                scope: CodexRouterDiagnostics.diagnosticScope,
+                                message: CodexRouterDiagnostics.rollbackFailedMessage(
+                                    target: provider.id,
+                                    fallback: previousProviderID ?? provider.id,
+                                    reason: error.localizedDescription
+                                )
+                            )
+                        }
+                        await MainActor.run {
+                            onMessage(CodexRouterDiagnostics.userRollbackFailureMessage(
+                                rollbackError: error.localizedDescription,
+                                originalReason: originalError
+                            ))
+                        }
+                    }
+                } else {
+                    await MainActor.run {
+                        onMessage(originalError)
+                    }
                 }
             }
         }
+    }
+
+    private func canSwitchProvider(_ provider: CodexProviderConfig) -> Bool {
+        if provider.id == CodexRouterConstants.openAIProviderID {
+            return true
+        }
+        guard let routerStatus, routerStatus.canUseRouter else { return false }
+        return !provider.defaultModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func switchDisabledReason(_ provider: CodexProviderConfig) -> String? {
+        if provider.id == CodexRouterConstants.openAIProviderID {
+            return nil
+        }
+        if provider.defaultModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "该 Provider 未配置默认模型"
+        }
+        guard let status = routerStatus else {
+            return "Router 状态尚未就绪"
+        }
+        if !status.isConfigured {
+            return "未检测到 codex-router 配置"
+        }
+        if !status.isUserEnabled {
+            return "请先在 Providers 中开启 Router"
+        }
+        if !status.isRouterHealthy {
+            return status.healthError ?? "Router 未就绪"
+        }
+        return nil
+    }
+
+    private func describeRollbackTarget(
+        providerID: String,
+        in state: CodexProviderConfigurationState,
+        at timestamp: Date,
+    ) -> String {
+        CodexRouterDiagnostics.rollbackSnapshot(providerID: providerID, in: state, at: timestamp)
     }
 }
 

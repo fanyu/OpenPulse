@@ -100,7 +100,7 @@ struct QuotaView: View {
 
                     // Quota Cards Grid
                     VStack(alignment: .leading, spacing: 16) {
-                        SectionHeader(title: "实时配额详情")
+                        SectionHeader(title: String(localized: "实时配额详情"))
                         
                         if let tool = selectedTool {
                             // Single tool filtered view
@@ -394,15 +394,7 @@ struct CodexDetailCard: View {
             onRefresh: onRefresh
         ) {
             if let limits {
-                VStack(spacing: 12) {
-                    CodexDetailRow(label: "5h Session", window: limits.fiveHourWindow)
-                    Divider().opacity(0.5)
-                    CodexDetailRow(label: "7d Weekly", window: limits.oneWeekWindow)
-                    if let resetCredits = limits.resetCredits {
-                        Divider().opacity(0.5)
-                        CodexResetCreditsDetailRow(resetCredits: resetCredits)
-                    }
-                }
+                CodexRateLimitsDetailRows(limits: limits)
             } else if let q = fallbackQuota, let r = q.remaining, let t = q.total, t > 0 {
                 let frac = Double(r) / Double(t)
                 let pct = Int((frac * 100).rounded())
@@ -470,19 +462,37 @@ struct CodexAccountDetailRow: View {
                         .background(Color.green.opacity(0.12), in: Capsule())
                 }
             }
-
             if let limits = account.limits {
-                CodexDetailRow(label: "5h Session", window: limits.fiveHourWindow)
-                Divider().opacity(0.5)
-                CodexDetailRow(label: "7d Weekly", window: limits.oneWeekWindow)
-                if let resetCredits = limits.resetCredits {
-                    Divider().opacity(0.5)
-                    CodexResetCreditsDetailRow(resetCredits: resetCredits)
-                }
+                CodexRateLimitsDetailRows(limits: limits)
             } else if let error = account.usageError {
                 Text(error).foregroundStyle(.secondary)
             } else {
                 Text("尚未获取数据").foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+struct CodexRateLimitsDetailRows: View {
+    let limits: CodexRateLimits
+
+    var body: some View {
+        let rows = codexMenuBarQuotaRows(for: limits)
+        let hasMultipleRows = rows.count > 1
+        VStack(spacing: 12) {
+            ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                if index > 0 {
+                    Divider().opacity(0.5)
+                }
+                let prefix = (hasMultipleRows || row.id != "codex") ? "\(row.title) " : ""
+                CodexDetailRow(label: "\(prefix)5h Session", window: row.fiveHourWindow)
+                Divider().opacity(0.5)
+                CodexDetailRow(label: "\(prefix)7d Weekly", window: row.oneWeekWindow)
+            }
+
+            if let resetCredits = limits.resetCredits {
+                Divider().opacity(0.5)
+                CodexResetCreditsDetailRow(resetCredits: resetCredits)
             }
         }
     }
@@ -510,7 +520,7 @@ struct CodexDetailRow: View {
         let used = window?.usedPercent.map { Int($0.rounded()) }
         let rem = isStale ? 100 : used.map { max(0, 100 - $0) }
         let footer: String? = isStale
-            ? "已重置"
+            ? String(localized: "已重置")
             : window?.resetDate.map {
                 isLong
                     ? $0.formatted(.dateTime.month(.twoDigits).day(.twoDigits).hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))

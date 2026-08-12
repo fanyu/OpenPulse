@@ -376,8 +376,9 @@ private struct StatusBarCompactItem: Equatable {
         case .codex:
             let account = appStore.syncService?.latestCodexAccounts.first(where: \.isCurrent)
                 ?? appStore.syncService?.latestCodexAccounts.first
-            let fiveHour = account?.limits?.fiveHourWindow?.usedPercent.map { max(0, 100 - Int($0.rounded())) }
-            return StatusBarCompactItem(logoImageName: tool.menuBarIconName, fiveHourPercent: format(fiveHour))
+            let window = account?.limits?.fiveHourWindow ?? account?.limits?.oneWeekWindow ?? account?.limits?.primary
+            let percent = window?.usedPercent.map { max(0, 100 - Int($0.rounded())) }
+            return StatusBarCompactItem(logoImageName: tool.menuBarIconName, fiveHourPercent: format(percent))
         case .claudeCode:
             let fiveHour = appStore.syncService?.latestClaudeUsage?.fiveHour?.utilization.map { max(0, 100 - Int($0.rounded())) }
             return StatusBarCompactItem(logoImageName: tool.menuBarIconName, fiveHourPercent: format(fiveHour))

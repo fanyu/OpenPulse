@@ -10,6 +10,7 @@ final class AppStore {
     var lastSyncDate: Date?
     let codexAccountService = CodexAccountService()
     let codexProviderConfigService = CodexProviderConfigService()
+    let codexRouterCoordinator = CodexRouterCoordinator()
     let antigravityAccountService = AntigravityAccountService()
 
     let modelContainer: ModelContainer
