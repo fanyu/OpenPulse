@@ -1,3 +1,5 @@
+
+
 # OpenPulse
 
 A native macOS menu bar app that unifies token consumption and quota tracking across AI coding assistants: Claude Code, Codex, GitHub Copilot, and Gemini Code Assist.
@@ -66,7 +68,7 @@ OpenPulse also includes a landscape iPhone companion display for a desk-mounted 
 
 ```bash
 # Clone the repo
-git clone https://github.com/your-username/OpenPulse.git
+git clone https://github.com/fanyu/OpenPulse.git
 cd OpenPulse
 
 # Generate the Xcode project
@@ -229,7 +231,7 @@ OpenPulse 还提供横屏 iPhone 伴侣显示，适合将手机长期横放在�
 
 ```bash
 # 克隆仓库
-git clone https://github.com/your-username/OpenPulse.git
+git clone https://github.com/fanyu/OpenPulse.git
 cd OpenPulse
 
 # 生成 Xcode 项目
