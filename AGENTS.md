@@ -1,10 +1,23 @@
-# AGENTS.md
+# OpenPulse Project Rules
 
-This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
+OpenPulse is a native macOS menu bar app (SwiftUI, Swift 6.2, macOS 26+) that unifies token consumption and quota tracking across AI coding assistants: Claude Code, Codex, GitHub Copilot, and Gemini Code Assist (Antigravity).
 
-## Project Overview
+## Source Of Truth
 
-OpenPulse is a native macOS menu bar app (SwiftUI, Swift 6.2, macOS 26+) that unifies token consumption and quota tracking across AI coding assistants: Codex, Codex, GitHub Copilot, and Gemini Code Assist (Antigravity).
+- `project.yml` is authoritative for targets, schemes, deployment versions, build settings, and test targets. Regenerate `OpenPulse.xcodeproj` with `xcodegen generate` only when `project.yml` changes.
+- The architecture section below is orientation, not an inventory. Inspect the touched source and its callers before relying on it; it can lag the code.
+
+## Scope And Safety
+
+- Follow the global task-sizing rules. Small, explicit changes do not require a build or test unless requested.
+- Treat SwiftData models, migrations, Keychain access, OAuth credentials, file-system watchers, polling, and concurrency as higher-risk areas; inspect the active code path and use proportionate verification.
+- Never print, copy, or commit credentials, tokens, or private local-tool data.
+- Preserve unrelated changes and avoid updating generated Xcode project files directly when the corresponding `project.yml` change is required.
+
+## Verification
+
+- For standard work, choose the narrowest relevant scheme or test target declared in `project.yml`.
+- A build, unit test, Simulator check, and runtime credential/API validation are distinct evidence; report precisely what ran.
 
 ## Build Commands
 
@@ -44,7 +57,7 @@ AppStore.startSync()
 
 Each tool has a dedicated `actor` (thread-safe, no locks). Three integration patterns:
 
-1. **Local file parsers** — `ClaudeCodeParser` (JSONL files at `~/.Codex/projects/`), `CodexParser` (SQLite at `~/.codex/state_5.sqlite`), `AntigravityParser` (markdown at `~/.gemini/antigravity/brain/`)
+1. **Local file parsers** — `ClaudeCodeParser` (JSONL files at `~/.claude/projects/`), `CodexParser` (SQLite at `~/.codex/state_5.sqlite`), `AntigravityParser` (markdown at `~/.gemini/antigravity/brain/`)
 2. **REST API clients** — `CopilotAPIClient` (GitHub internal API)
 3. **Hybrid** — `AntigravityParser` reads local files for sessions + calls Google OAuth API for quota
 
