@@ -18,9 +18,16 @@ actor AntigravityParser {
     private let session: URLSession
     private let accountService: AntigravityAccountService?
 
-    private let loadCodeAssistEndpoint = "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist"
-    private let retrieveUserQuotaSummaryEndpoint = "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary"
-    private let userAgent = "antigravity/hub/2.1.4 darwin/arm64"
+    private let loadCodeAssistEndpoints = [
+        "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
+        "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist"
+    ]
+    private let retrieveUserQuotaSummaryEndpoints = [
+        "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+        "https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:retrieveUserQuotaSummary",
+        "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary"
+    ]
+    private let userAgent = "antigravity/cli/1.0.13 (aidev_client; os_type=darwin; arch=arm64)"
 
     init(session: URLSession = .shared, accountService: AntigravityAccountService? = AntigravityAccountService()) {
         brainDir = URL.homeDirectory.appending(path: ".gemini/antigravity/brain")
@@ -216,46 +223,70 @@ actor AntigravityParser {
     // MARK: - API calls
 
     private func fetchProjectAndTier(token: String) async throws -> (projectId: String?, tier: AGTier?) {
-        var request = URLRequest(url: URL(string: loadCodeAssistEndpoint)!)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
-        request.httpBody = try? JSONSerialization.data(withJSONObject: ["metadata": ["ideType": "ANTIGRAVITY"]])
-        request.timeoutInterval = 10
+        var lastError: Error?
+        for endpoint in loadCodeAssistEndpoints {
+            guard let url = URL(string: endpoint) else { continue }
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+            request.httpBody = try? JSONSerialization.data(withJSONObject: ["metadata": ["ideType": "ANTIGRAVITY"]])
+            request.timeoutInterval = 10
 
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else { return (nil, nil) }
-        guard (200..<300).contains(http.statusCode) else {
-            let body = String(data: data, encoding: .utf8) ?? ""
-            throw AntigravityError.apiFailed("loadCodeAssist HTTP \(http.statusCode): \(body.prefix(200))")
+            do {
+                let (data, response) = try await session.data(for: request)
+                guard let http = response as? HTTPURLResponse else { continue }
+                guard (200..<300).contains(http.statusCode) else {
+                    let body = String(data: data, encoding: .utf8) ?? ""
+                    lastError = AntigravityError.apiFailed("loadCodeAssist HTTP \(http.statusCode): \(body.prefix(200))")
+                    continue
+                }
+                let info = try? JSONDecoder().decode(AGLoadCodeAssistResponse.self, from: data)
+                let tier = Self.decodeTier(from: data)
+                return (info?.cloudaicompanionProject, tier)
+            } catch {
+                lastError = error
+            }
         }
-        let info = try? JSONDecoder().decode(AGLoadCodeAssistResponse.self, from: data)
-        let tier = Self.decodeTier(from: data)
-        return (info?.cloudaicompanionProject, tier)
+        if let lastError { throw lastError }
+        return (nil, nil)
     }
 
     private func fetchQuotaSummary(token: String, projectId: String?) async throws -> [AGQuotaGroup] {
-        var request = URLRequest(url: URL(string: retrieveUserQuotaSummaryEndpoint)!)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         var payload: [String: Any] = [:]
         if let projectId { payload["project"] = projectId }
-        request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
-        request.timeoutInterval = 10
+        let httpBody = try? JSONSerialization.data(withJSONObject: payload)
+        var lastError: Error?
 
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw AntigravityError.apiFailed("No HTTP response from retrieveUserQuotaSummary")
+        for endpoint in retrieveUserQuotaSummaryEndpoints {
+            guard let url = URL(string: endpoint) else { continue }
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+            request.httpBody = httpBody
+            request.timeoutInterval = 10
+
+            do {
+                let (data, response) = try await session.data(for: request)
+                guard let http = response as? HTTPURLResponse else { continue }
+                if http.statusCode == 403 {
+                    lastError = AntigravityError.apiFailed("403 Forbidden – check Google auth")
+                    continue
+                }
+                guard (200..<300).contains(http.statusCode) else {
+                    let body = String(data: data, encoding: .utf8) ?? ""
+                    lastError = AntigravityError.apiFailed("retrieveUserQuotaSummary HTTP \(http.statusCode): \(body.prefix(200))")
+                    continue
+                }
+                return try Self.decodeQuotaGroups(from: data)
+            } catch {
+                lastError = error
+            }
         }
-        if http.statusCode == 403 { throw AntigravityError.apiFailed("403 Forbidden – check Google auth") }
-        guard (200..<300).contains(http.statusCode) else {
-            let body = String(data: data, encoding: .utf8) ?? ""
-            throw AntigravityError.apiFailed("retrieveUserQuotaSummary HTTP \(http.statusCode): \(body.prefix(200))")
-        }
-        return try Self.decodeQuotaGroups(from: data)
+        throw lastError ?? AntigravityError.apiFailed("No successful response from retrieveUserQuotaSummary endpoints")
     }
 
     // MARK: - Helpers
