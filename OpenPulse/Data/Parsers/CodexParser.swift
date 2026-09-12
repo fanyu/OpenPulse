@@ -70,6 +70,15 @@ actor CodexParser {
     /// avoid re-enumerating potentially thousands of archived JSONL files every 5 min.
     private var cachedModelMap: [String: String]?
 
+    /// Running reduction of every rate-limit candidate seen so far, keyed by identity.
+    /// The reduction is "keep the newest per identity", which is associative and
+    /// commutative, so merging one freshly written file into this map is equivalent to
+    /// re-reducing all of them. FSEvents fires on every Codex log write, and without
+    /// this each burst re-read up to 200 files to find a line that lives in exactly one.
+    private var cachedRateLimitCandidates: [String: RateLimitCandidate] = [:]
+    /// mtime of the newest file consumed by the last scan; older files can't have changed.
+    private var rateLimitScanHighWaterMark: Date?
+
     init(codexDir: URL = .homeDirectory.appending(path: ".codex")) {
         self.codexDir = codexDir
     }
@@ -277,16 +286,41 @@ actor CodexParser {
         await parseLatestRateLimitsSnapshot()?.limits
     }
 
+    private static let rateLimitFileWindow: TimeInterval = 14 * 24 * 60 * 60
+
     private func scanRecentlyModifiedFilesForRateLimits() -> LocalRateLimitSnapshot? {
-        let candidates = recentlyModifiedJSONLFiles(in: [sessionsDir, archivedDir], limit: 200)
-            .flatMap(parseRateLimitCandidatesFromFile)
-        return makeRateLimitSnapshot(from: candidates)
+        let cutoff = Date().addingTimeInterval(-Self.rateLimitFileWindow)
+        let files = recentlyModifiedJSONLFiles(in: [sessionsDir, archivedDir], limit: 200, cutoff: cutoff)
+
+        // Only files touched since the last scan can hold a candidate we haven't seen.
+        // mtime granularity is coarse on some filesystems, so the boundary file is
+        // re-read (>=) rather than risk skipping a line appended in the same second.
+        let watermark = rateLimitScanHighWaterMark
+        for file in files where watermark == nil || file.modifiedAt >= watermark! {
+            for candidate in parseRateLimitCandidatesFromFile(file.url) {
+                if let existing = cachedRateLimitCandidates[candidate.identity],
+                   !isNewer(candidate, than: existing) { continue }
+                cachedRateLimitCandidates[candidate.identity] = candidate
+            }
+        }
+        rateLimitScanHighWaterMark = files.first?.modifiedAt ?? watermark
+
+        // Forget candidates whose source file has aged out of the window, so a limit
+        // can't outlive the files a full rescan would have read it from.
+        cachedRateLimitCandidates = cachedRateLimitCandidates.filter {
+            ($0.value.modifiedAt ?? .distantPast) >= cutoff
+        }
+
+        return makeRateLimitSnapshot(from: Array(cachedRateLimitCandidates.values))
     }
 
-    private func recentlyModifiedJSONLFiles(in roots: [URL], limit: Int) -> [URL] {
+    private func recentlyModifiedJSONLFiles(
+        in roots: [URL],
+        limit: Int,
+        cutoff: Date
+    ) -> [(url: URL, modifiedAt: Date)] {
         let fm = FileManager.default
         let keys: Set<URLResourceKey> = [.isRegularFileKey, .contentModificationDateKey]
-        let cutoff = Date().addingTimeInterval(-14 * 24 * 60 * 60)
         var candidates: [(url: URL, modifiedAt: Date)] = []
 
         for root in roots where fm.fileExists(atPath: root.path) {
@@ -306,10 +340,7 @@ actor CodexParser {
             }
         }
 
-        return candidates
-            .sorted { $0.modifiedAt > $1.modifiedAt }
-            .prefix(limit)
-            .map(\.url)
+        return Array(candidates.sorted { $0.modifiedAt > $1.modifiedAt }.prefix(limit))
     }
 
     private func scanDirForRateLimits(_ dir: URL) async -> LocalRateLimitSnapshot? {
