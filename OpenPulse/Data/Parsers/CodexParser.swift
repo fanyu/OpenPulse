@@ -1,6 +1,39 @@
 import Foundation
 import SQLite
 
+/// Streams a JSONL file one line at a time.
+///
+/// Lives here rather than in its own file so the Xcode project does not need
+/// regenerating; `ClaudeCodeParser` uses it too.
+///
+/// The previous `Data(contentsOf:)` + `String(data:)` + `components(separatedBy:)`
+/// approach materialised three full copies of every file. Codex session logs
+/// reach ~500 MB each, which drove multi-GB transient RSS on every rescan.
+/// Lines are handed back as raw bytes so callers can reject most of them
+/// without paying for a `String`.
+enum JSONLReader {
+    private static let newline = UInt8(0x0A)
+
+    static func forEachLine(of url: URL, _ body: (Data, Int) -> Void) {
+        // Memory-mapped: pages are faulted in on demand and can be evicted by the
+        // kernel, so a 500 MB log costs no lasting resident memory. Lines are handed
+        // back as raw bytes so callers can reject most of them before paying for a
+        // String, and can decode JSON straight from the slice.
+        guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return }
+
+        var lineStart = data.startIndex
+        var lineIndex = 0
+        while let newlineIndex = data[lineStart...].firstIndex(of: newline) {
+            body(data[lineStart..<newlineIndex], lineIndex)
+            lineIndex += 1
+            lineStart = data.index(after: newlineIndex)
+        }
+        if lineStart < data.endIndex {
+            body(data[lineStart...], lineIndex)
+        }
+    }
+}
+
 /// Parses OpenAI Codex CLI data from ~/.codex/
 /// - Token usage: state_5.sqlite threads table (created_at is Unix seconds)
 /// - Rate limits: latest token_count event from session JSONL files
@@ -292,34 +325,46 @@ actor CodexParser {
         return makeRateLimitSnapshot(from: files.flatMap(parseRateLimitCandidatesFromFile))
     }
 
+    private static let tokenCountNeedle = Data("token_count".utf8)
+
     private func parseRateLimitCandidatesFromFile(_ url: URL) -> [RateLimitCandidate] {
-        guard let data = try? Data(contentsOf: url),
-              let content = String(data: data, encoding: .utf8) else { return [] }
-        let lines = content.components(separatedBy: "\n")
         let decoder = JSONDecoder()
         let modifiedAt = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
-        var candidates: [RateLimitCandidate] = []
 
-        for (lineIndex, line) in lines.enumerated() {
-            guard let lineData = line.data(using: .utf8),
+        // Reduce per file rather than returning every candidate. `makeRateLimitSnapshot`
+        // keeps only the newest candidate per identity, and that reduction is
+        // associative, so collapsing here is equivalent — while keeping tens of
+        // thousands of candidates from accumulating across 200 files.
+        // The window filter below must match the one in `makeRateLimitSnapshot`:
+        // without it a window-less but newer candidate could evict a usable older
+        // one here and then be discarded there, losing the limit entirely.
+        var latestByIdentity: [String: RateLimitCandidate] = [:]
+
+        JSONLReader.forEachLine(of: url) { lineData, lineIndex in
+            // Cheap byte-level reject before the expensive decode — only token_count
+            // events carry rate limits. Decoding straight from the line bytes also
+            // avoids the old String round-trip.
+            guard lineData.range(of: Self.tokenCountNeedle) != nil,
                   let event = try? decoder.decode(CodexEvent.self, from: lineData),
                   event.type == "event_msg",
                   let payload = event.payload,
                   payload.type == "token_count",
-                  let limits = payload.rateLimits else { continue }
+                  let limits = payload.rateLimits,
+                  limits.fiveHourWindow != nil || limits.oneWeekWindow != nil else { return }
 
             let identity = normalizedLimitIdentity(for: limits)
-            let eventTimestamp = parseEventTimestamp(event.timestamp)
-            candidates.append(RateLimitCandidate(
+            let candidate = RateLimitCandidate(
                 identity: identity,
                 limits: limits,
-                observedAt: eventTimestamp ?? modifiedAt,
+                observedAt: parseEventTimestamp(event.timestamp) ?? modifiedAt,
                 sourceURL: url,
                 modifiedAt: modifiedAt,
                 lineIndex: lineIndex
-            ))
+            )
+            if let existing = latestByIdentity[identity], !isNewer(candidate, than: existing) { return }
+            latestByIdentity[identity] = candidate
         }
-        return candidates
+        return Array(latestByIdentity.values)
     }
 
     private func makeRateLimitSnapshot(from candidates: [RateLimitCandidate]) -> LocalRateLimitSnapshot? {
@@ -417,15 +462,16 @@ actor CodexParser {
         }
     }
 
+    // Sendable value-type styles, built once. The previous code allocated an
+    // ISO8601DateFormatter per call and then mutated formatOptions, which forces
+    // ICU to reload its locale symbols on every single timestamp.
+    private static let isoWithFraction = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+    private static let isoPlain = Date.ISO8601FormatStyle()
+
     private func parseEventTimestamp(_ raw: String?) -> Date? {
         guard let raw, !raw.isEmpty else { return nil }
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = formatter.date(from: raw) {
-            return date
-        }
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter.date(from: raw)
+        if let date = try? Self.isoWithFraction.parse(raw) { return date }
+        return try? Self.isoPlain.parse(raw)
     }
 }
 

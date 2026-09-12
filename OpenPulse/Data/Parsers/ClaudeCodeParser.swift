@@ -530,11 +530,17 @@ actor ClaudeCodeParser {
 
     // MARK: - Private JSONL parsing
 
-    private func parseSessionFile(_ url: URL, since cutoff: Date?) -> ToolSession? {
-        guard let data = try? Data(contentsOf: url),
-              let content = String(data: data, encoding: .utf8) else { return nil }
+    // Sendable value-type styles, built once. ISO8601DateFormatter allocates and
+    // reloads ICU locale symbols on each use, which dominated session parsing.
+    private static let isoWithFraction = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+    private static let isoPlain = Date.ISO8601FormatStyle()
 
-        let lines = content.components(separatedBy: "\n").filter { !$0.isEmpty }
+    private static func parseISOTimestamp(_ raw: String) -> Date? {
+        if let date = try? isoWithFraction.parse(raw) { return date }
+        return try? isoPlain.parse(raw)
+    }
+
+    private func parseSessionFile(_ url: URL, since cutoff: Date?) -> ToolSession? {
         let decoder = JSONDecoder()
 
         var firstTimestamp: Date?
@@ -550,16 +556,20 @@ actor ClaudeCodeParser {
         // the final (most-complete) chunk rather than the first (which may be partial).
         struct MsgUsage { var input, output, cacheRead, cacheWrite: Int }
         var messageUsage: [String: MsgUsage] = [:]
-        let iso = ISO8601DateFormatter()
-        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        // Only the first and last timestamps are used, so keep the raw strings and
+        // parse twice after the loop instead of once per line.
+        var firstTimestampRaw: String?
+        var lastTimestampRaw: String?
 
-        for line in lines {
-            guard let lineData = line.data(using: .utf8),
-                  let record = try? decoder.decode(ClaudeRecord.self, from: lineData) else { continue }
+        // Streamed rather than read whole: these session logs run to ~90 MB each,
+        // and the old full-file read plus line array cost several copies of that.
+        JSONLReader.forEachLine(of: url) { lineData, _ in
+            guard !lineData.isEmpty,
+                  let record = try? decoder.decode(ClaudeRecord.self, from: lineData) else { return }
 
-            if let ts = record.timestamp.flatMap({ iso.date(from: $0) }) {
-                if firstTimestamp == nil { firstTimestamp = ts }
-                lastTimestamp = ts
+            if let raw = record.timestamp {
+                if firstTimestampRaw == nil { firstTimestampRaw = raw }
+                lastTimestampRaw = raw
             }
 
             switch record.type {
@@ -587,6 +597,9 @@ actor ClaudeCodeParser {
             default: break
             }
         }
+
+        firstTimestamp = firstTimestampRaw.flatMap(Self.parseISOTimestamp)
+        lastTimestamp = lastTimestampRaw.flatMap(Self.parseISOTimestamp)
 
         // Sum up the final usage across all messages
         for usage in messageUsage.values {
