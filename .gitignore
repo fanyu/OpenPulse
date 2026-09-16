@@ -12,6 +12,7 @@ build/
 *.dSYM.zip
 *.dSYM
 *.dmg
+*.zip
 
 # Swift Package Manager
 .swiftpm/

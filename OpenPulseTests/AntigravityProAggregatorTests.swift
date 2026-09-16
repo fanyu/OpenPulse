@@ -84,4 +84,68 @@ final class AntigravityProAggregatorTests: XCTestCase {
         XCTAssertEqual(geminiGroup?.fiveHour?.remainingFraction, 1.0)
         XCTAssertTrue(geminiGroup?.isFiveHourUnusable == true)
     }
+
+    func testAverageFiveHourGeminiAcrossAllAccounts() {
+        let account1 = AGAccountQuota(
+            email: "pro1@gmail.com",
+            tier: AGTier(id: "gai-pro", name: "Google AI Pro"),
+            groups: [
+                AGQuotaGroup(
+                    id: "gemini",
+                    displayName: "Gemini",
+                    fiveHour: AGWindow(kind: .fiveHour, remainingFraction: 0.8, resetTime: nil, description: nil),
+                    weekly: nil
+                )
+            ]
+        )
+        let account2 = AGAccountQuota(
+            email: "pro2@gmail.com",
+            tier: AGTier(id: "gai-pro", name: "Google AI Pro"),
+            groups: [
+                AGQuotaGroup(
+                    id: "gemini",
+                    displayName: "Gemini",
+                    fiveHour: AGWindow(kind: .fiveHour, remainingFraction: 0.6, resetTime: nil, description: nil),
+                    weekly: nil
+                )
+            ]
+        )
+        let freeAccount = AGAccountQuota(
+            email: "free@gmail.com",
+            tier: AGTier(id: "free-tier", name: "Free Tier"),
+            groups: [
+                AGQuotaGroup(
+                    id: "gemini",
+                    displayName: "Gemini",
+                    fiveHour: AGWindow(kind: .fiveHour, remainingFraction: 0.1, resetTime: nil, description: nil),
+                    weekly: nil
+                )
+            ]
+        )
+
+        // All accounts: (0.8 + 0.6 + 0.1) / 3 = 0.5 -> 50%
+        let avgFraction = AGAccountQuota.averageFiveHourGeminiFraction(across: [account1, account2, freeAccount])
+        XCTAssertEqual(avgFraction ?? 0, 0.5, accuracy: 0.001)
+
+        let avgPercent = AGAccountQuota.averageFiveHourGeminiPercent(across: [account1, account2, freeAccount])
+        XCTAssertEqual(avgPercent, 50)
+    }
+
+    func testAverageFiveHourGeminiWithEmptyOrMissingWindows() {
+        XCTAssertNil(AGAccountQuota.averageFiveHourGeminiPercent(across: []))
+
+        let nonGeminiAccount = AGAccountQuota(
+            email: "other@gmail.com",
+            tier: nil,
+            groups: [
+                AGQuotaGroup(
+                    id: "3p",
+                    displayName: "3P Models",
+                    fiveHour: AGWindow(kind: .fiveHour, remainingFraction: 0.9, resetTime: nil, description: nil),
+                    weekly: nil
+                )
+            ]
+        )
+        XCTAssertNil(AGAccountQuota.averageFiveHourGeminiPercent(across: [nonGeminiAccount]))
+    }
 }

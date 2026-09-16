@@ -51,7 +51,7 @@ enum Tool: String, Codable, CaseIterable, Sendable {
         case .claudeCode: "claude-menubar"
         case .codex: "codex-menubar"
         case .copilot: "CopilotLogo"
-        case .antigravity: "AntigravityLogo"
+        case .antigravity: "antigravity-menubar"
         }
     }
 
@@ -64,9 +64,9 @@ enum Tool: String, Codable, CaseIterable, Sendable {
     /// directly in the menu bar title.
     var supportsMenuBarFiveHourDisplay: Bool {
         switch self {
-        case .claudeCode, .codex:
+        case .claudeCode, .codex, .antigravity:
             true
-        case .copilot, .antigravity:
+        case .copilot:
             false
         }
     }

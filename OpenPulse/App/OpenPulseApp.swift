@@ -259,7 +259,10 @@ private final class StatusBarImageRenderer {
 
         var x = horizontalPadding
         for item in items {
-            if let icon = NSImage(named: item.logoImageName) {
+            let icon = NSImage(named: item.logoImageName)
+                ?? NSImage(named: "AntigravityLogo")
+                ?? NSImage(systemSymbolName: "atom", accessibilityDescription: nil)
+            if let icon {
                 let iconRect = NSRect(
                     origin: NSPoint(x: x, y: floor((height - iconSize.height) / 2)),
                     size: iconSize
@@ -382,7 +385,11 @@ private struct StatusBarCompactItem: Equatable {
         case .claudeCode:
             let fiveHour = appStore.syncService?.latestClaudeUsage?.fiveHour?.utilization.map { max(0, 100 - Int($0.rounded())) }
             return StatusBarCompactItem(logoImageName: tool.menuBarIconName, fiveHourPercent: format(fiveHour))
-        case .copilot, .antigravity:
+        case .antigravity:
+            let accounts = appStore.syncService?.latestAntigravityAccounts ?? []
+            let percent = AGAccountQuota.averageFiveHourGeminiPercent(across: accounts)
+            return StatusBarCompactItem(logoImageName: tool.menuBarIconName, fiveHourPercent: format(percent))
+        case .copilot:
             return StatusBarCompactItem(logoImageName: tool.menuBarIconName, fiveHourPercent: " --%")
         }
     }
@@ -411,7 +418,12 @@ private struct StatusBarClassicItem: Equatable {
             let fiveHour = appStore.syncService?.latestClaudeUsage?.fiveHour?.utilization.map { max(0, 100 - Int($0.rounded())) }
             let sevenDay = appStore.syncService?.latestClaudeUsage?.sevenDay?.utilization.map { max(0, 100 - Int($0.rounded())) }
             return StatusBarClassicItem(shortLabel: "CC", fiveHourText: format(fiveHour), sevenDayText: format(sevenDay))
-        case .copilot, .antigravity:
+        case .antigravity:
+            let accounts = appStore.syncService?.latestAntigravityAccounts ?? []
+            let fiveHour = AGAccountQuota.averageFiveHourGeminiPercent(across: accounts)
+            let sevenDay = AGAccountQuota.averageWeeklyGeminiPercent(across: accounts)
+            return StatusBarClassicItem(shortLabel: "AG", fiveHourText: format(fiveHour), sevenDayText: format(sevenDay))
+        case .copilot:
             return StatusBarClassicItem(shortLabel: tool.displayName.prefix(1).uppercased(), fiveHourText: "--", sevenDayText: "--")
         }
     }

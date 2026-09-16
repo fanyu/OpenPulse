@@ -376,8 +376,8 @@ actor AntigravityParser {
 
 // MARK: - Per-account quota (returned in ToolQuota.raw and exposed via DataSyncService)
 
-struct AGWindow: Sendable {
-    enum Kind: Sendable { case fiveHour, weekly }
+struct AGWindow: Codable, Sendable {
+    enum Kind: String, Codable, Sendable { case fiveHour, weekly }
     let kind: Kind
     let remainingFraction: Double?
     let resetTime: Date?
@@ -403,7 +403,7 @@ struct AGWindow: Sendable {
     }
 }
 
-struct AGQuotaGroup: Sendable, Identifiable {
+struct AGQuotaGroup: Codable, Sendable, Identifiable {
     let id: String            // bucket prefix, e.g. "gemini" / "3p"
     let displayName: String
     let fiveHour: AGWindow?
@@ -416,7 +416,7 @@ struct AGQuotaGroup: Sendable, Identifiable {
     }
 }
 
-struct AGTier: Sendable {
+struct AGTier: Codable, Sendable {
     let id: String
     let name: String
     var isPaid: Bool { id != "free-tier" }
@@ -424,7 +424,7 @@ struct AGTier: Sendable {
 }
 
 /// Quota data for one Antigravity account, grouped by provider (Gemini / third-party) and time window.
-struct AGAccountQuota: Sendable, Identifiable {
+struct AGAccountQuota: Codable, Sendable, Identifiable {
     /// Derived from the auth file name, e.g. "user@gmail.com"
     let email: String
     let tier: AGTier?
@@ -454,6 +454,36 @@ struct AGAccountQuota: Sendable, Identifiable {
     var geminiEarliestReset: Date? {
         guard let g = groups.first(where: { $0.id == "gemini" }) else { return nil }
         return [g.fiveHour?.validatedResetDate, g.weekly?.validatedResetDate].compactMap { $0 }.min()
+    }
+
+    /// Calculates the average 5-hour Gemini remaining fraction across all accounts.
+    static func averageFiveHourGeminiFraction(across accounts: [AGAccountQuota]) -> Double? {
+        let fractions = accounts.compactMap { account in
+            account.groups.first(where: { $0.id.caseInsensitiveCompare("gemini") == .orderedSame })?.fiveHour?.remainingFraction
+        }
+        guard !fractions.isEmpty else { return nil }
+        return fractions.reduce(0.0, +) / Double(fractions.count)
+    }
+
+    /// Calculates the average 5-hour Gemini remaining percent (0-100) across all accounts.
+    static func averageFiveHourGeminiPercent(across accounts: [AGAccountQuota]) -> Int? {
+        guard let avg = averageFiveHourGeminiFraction(across: accounts) else { return nil }
+        return max(0, min(100, Int((avg * 100.0).rounded())))
+    }
+
+    /// Calculates the average weekly Gemini remaining fraction across all accounts.
+    static func averageWeeklyGeminiFraction(across accounts: [AGAccountQuota]) -> Double? {
+        let fractions = accounts.compactMap { account in
+            account.groups.first(where: { $0.id.caseInsensitiveCompare("gemini") == .orderedSame })?.weekly?.remainingFraction
+        }
+        guard !fractions.isEmpty else { return nil }
+        return fractions.reduce(0.0, +) / Double(fractions.count)
+    }
+
+    /// Calculates the average weekly Gemini remaining percent (0-100) across all accounts.
+    static func averageWeeklyGeminiPercent(across accounts: [AGAccountQuota]) -> Int? {
+        guard let avg = averageWeeklyGeminiFraction(across: accounts) else { return nil }
+        return max(0, min(100, Int((avg * 100.0).rounded())))
     }
 }
 struct AGProAggregateSummary: Sendable {

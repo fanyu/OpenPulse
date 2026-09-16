@@ -63,6 +63,7 @@ final class DataSyncService {
                 orderedEmails: antigravityOrderedEmails(current: latestAntigravityAccounts ?? [], refreshed: [account])
             )
             latestAntigravityAccounts = merged
+            Self.persistAntigravityAccountsCache(merged)
 
             let context = makeWriteContext()
             upsertQuota(antigravityAggregateQuota(from: merged), context: context)
@@ -144,6 +145,7 @@ final class DataSyncService {
         self.modelContainer = modelContainer
         self.codexAccountService = codexAccountService
         self.deskSnapshotPublisher = deskSnapshotPublisher
+        self.latestAntigravityAccounts = Self.restoredAntigravityAccountsCache()
         let ctx = ModelContext(modelContainer)
         ctx.autosaveEnabled = false
         self.readContext = ctx
@@ -416,6 +418,7 @@ final class DataSyncService {
                 orderedEmails: result.orderedEmails
             )
             latestAntigravityAccounts = refreshedAccounts
+            Self.persistAntigravityAccountsCache(refreshedAccounts)
             upsertQuota(antigravityAggregateQuota(from: refreshedAccounts), context: context)
         } catch {
             AppLogger.shared.warning("[antigravity] quota failed: \(error.localizedDescription)")
@@ -794,6 +797,18 @@ final class DataSyncService {
         }
     }
 
+    // MARK: - Antigravity accounts cache helpers
+
+    private static func restoredAntigravityAccountsCache() -> [AGAccountQuota]? {
+        guard let data = UserDefaults.standard.data(forKey: "cached.antigravityAccountsData") else { return nil }
+        return try? JSONDecoder().decode([AGAccountQuota].self, from: data)
+    }
+
+    private static func persistAntigravityAccountsCache(_ accounts: [AGAccountQuota]) {
+        if let data = try? JSONEncoder().encode(accounts) {
+            UserDefaults.standard.set(data, forKey: "cached.antigravityAccountsData")
+        }
+    }
     private func restoredCodexLimitsCache() -> CodexRateLimits? {
         guard let data = UserDefaults.standard.data(forKey: "cached.codexLimitsData") else { return nil }
         return try? JSONDecoder().decode(CodexRateLimits.self, from: data)
