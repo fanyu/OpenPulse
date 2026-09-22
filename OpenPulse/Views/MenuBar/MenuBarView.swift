@@ -66,7 +66,7 @@ struct MenuBarView: View {
             Divider().opacity(0.3).padding(.horizontal)
             footerSection
         }
-        .frame(width: 410)
+        .frame(width: 420)
         .background(MenuBarWindowCapture())
         .task { rebuildTodayTokens() }
         .onChange(of: dailyStats.count) { _, _ in rebuildTodayTokens() }
@@ -356,18 +356,19 @@ private struct MenuBarQuotaPanel: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
 
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(primaryValue)
-                    .font(.system(size: 22, weight: .black, design: .monospaced))
+                    .font(.system(size: 21, weight: .black, design: .monospaced))
                     .foregroundStyle(isExhausted ? Color.secondary.opacity(0.6) : .primary)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                    .minimumScaleFactor(0.75)
                 Spacer(minLength: 2)
                 MenuBarResetLine(countdown: countdown, isExhausted: isExhausted)
+                    .layoutPriority(1)
             }
             QuotaProgressBar(
-                fraction: fraction,
-                color: menuBarQuotaBarColor(fraction: fraction),
+                fraction: isExhausted ? 0.0 : fraction,
+                color: isExhausted ? Color.primary.opacity(0.12) : menuBarQuotaBarColor(fraction: fraction),
                 height: 4,
                 showsGlow: false
             )
@@ -395,18 +396,18 @@ private struct MenuBarResetLine: View {
     var isExhausted: Bool = false
 
     var body: some View {
-        HStack(spacing: 5) {
+        HStack(spacing: 4) {
             Image(systemName: "clock.arrow.circlepath")
                 .font(.system(size: 8, weight: .bold))
                 .foregroundStyle(.secondary)
-            Text(LocalizedStringKey(countdown ?? "—"))
-                .font(.system(size: 10, weight: .bold, design: .monospaced))
+            Text(countdown ?? "—")
+                .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
                 .foregroundStyle(countdown == nil ? .tertiary : .secondary)
                 .lineLimit(1)
-                .minimumScaleFactor(0.76)
+                .minimumScaleFactor(0.7)
         }
-        .padding(.horizontal, 7)
-        .padding(.vertical, 4)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 3.5)
         .background(Color.primary.opacity(0.055), in: Capsule())
         .accessibilityElement(children: .combine)
     }
@@ -425,10 +426,15 @@ private func menuBarTimeOnlyResetString(for date: Date) -> String {
 }
 
 private func menuBarShortResetString(for date: Date) -> String {
-    if Calendar.current.isDateInToday(date) {
+    let calendar = Calendar.current
+    if calendar.isDateInToday(date) {
         return menuBarTimeOnlyResetString(for: date)
     }
-    return date.formatted(.dateTime.month(.twoDigits).day(.twoDigits).hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
+    let month = calendar.component(.month, from: date)
+    let day = calendar.component(.day, from: date)
+    let hour = calendar.component(.hour, from: date)
+    let minute = calendar.component(.minute, from: date)
+    return String(format: "%02d/%02d %02d:%02d", month, day, hour, minute)
 }
 
 private struct CodexMenuBarWindowDisplayState {
@@ -626,13 +632,15 @@ struct ClaudeQuotaCard: View {
             }
         } content: {
             if let usage {
+                let isWeeklyExhausted = usage.isWeeklyExhausted
                 HStack(spacing: 8) {
                     MenuBarQuotaPanel(
                         title: "5小时余量",
                         fraction: usage.fiveHour?.utilization.map { max(0, min(1, (100 - $0) / 100)) },
                         primaryValue: usage.fiveHour?.utilization.map { "\(max(0, Int((100 - $0).rounded())))%" } ?? "—",
                         countdown: usage.fiveHour?.resetDate.map { menuBarTimeOnlyResetString(for: $0) },
-                        footer: nil
+                        footer: nil,
+                        isExhaustedOverride: isWeeklyExhausted ? true : nil
                     )
                     MenuBarQuotaPanel(
                         title: "本周余量",
@@ -1298,7 +1306,7 @@ private struct AGMenuBarGroupCard: View {
                     title: "本周余量",
                     fraction: group.weekly?.remainingFraction,
                     primaryValue: group.weekly?.remainingPercentText ?? "—",
-                    countdown: group.weekly?.validatedResetDate.map { $0.formatted(.dateTime.month(.twoDigits).day(.twoDigits).hour(.twoDigits(amPM: .omitted)).minute(.twoDigits)) },
+                    countdown: group.weekly?.validatedResetDate.map { menuBarShortResetString(for: $0) },
                     footer: nil
                 )
             }

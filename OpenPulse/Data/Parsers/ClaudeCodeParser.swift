@@ -154,7 +154,8 @@ actor ClaudeCodeParser {
         guard usage.fiveHour != nil || usage.sevenDay != nil else {
             throw ClaudeError.bridgeRateLimitsMissing
         }
-        let remaining = usage.fiveHour?.utilization.map { Int((1.0 - $0 / 100.0) * 100) }
+        let remaining = usage.effectiveRemainingPercent
+        let resetAt = usage.isWeeklyExhausted ? (usage.sevenDay?.resetDate ?? usage.fiveHour?.resetDate) : usage.fiveHour?.resetDate
 
         return ToolQuota(
             id: Tool.claudeCode.rawValue,
@@ -164,7 +165,7 @@ actor ClaudeCodeParser {
             remaining: remaining,
             total: 100,
             unit: .messages,
-            resetAt: usage.fiveHour?.resetDate,
+            resetAt: resetAt,
             updatedAt: Date(),
             raw: usage
         )
@@ -214,7 +215,8 @@ actor ClaudeCodeParser {
         }
 
         let usage = try JSONDecoder().decode(ClaudeUsageResponse.self, from: data)
-        let remaining = usage.fiveHour?.utilization.map { Int((1.0 - $0 / 100.0) * 100) }
+        let remaining = usage.effectiveRemainingPercent
+        let resetAt = usage.isWeeklyExhausted ? (usage.sevenDay?.resetDate ?? usage.fiveHour?.resetDate) : usage.fiveHour?.resetDate
 
         return ToolQuota(
             id: Tool.claudeCode.rawValue,
@@ -224,7 +226,7 @@ actor ClaudeCodeParser {
             remaining: remaining,
             total: 100,
             unit: .messages,
-            resetAt: usage.fiveHour?.resetDate,
+            resetAt: resetAt,
             updatedAt: Date(),
             raw: usage
         )
@@ -263,7 +265,8 @@ actor ClaudeCodeParser {
         }
 
         let usage = try JSONDecoder().decode(ClaudeUsageResponse.self, from: data)
-        let remaining = usage.fiveHour?.utilization.map { Int((1.0 - $0 / 100.0) * 100) }
+        let remaining = usage.effectiveRemainingPercent
+        let resetAt = usage.isWeeklyExhausted ? (usage.sevenDay?.resetDate ?? usage.fiveHour?.resetDate) : usage.fiveHour?.resetDate
 
         return ToolQuota(
             id: Tool.claudeCode.rawValue,
@@ -273,7 +276,7 @@ actor ClaudeCodeParser {
             remaining: remaining,
             total: 100,
             unit: .messages,
-            resetAt: usage.fiveHour?.resetDate,
+            resetAt: resetAt,
             updatedAt: Date(),
             raw: usage
         )
@@ -737,6 +740,37 @@ struct ClaudeUsageResponse: Codable, Sendable {
         self.sevenDayOpus = sevenDayOpus
         self.extraUsage = extraUsage
         self.contextWindow = contextWindow
+    }
+
+    /// Remaining percentage (0–100) for the 5-hour window.
+    var fiveHourRemainingPercent: Int? {
+        fiveHour?.utilization.map { max(0, 100 - Int($0.rounded())) }
+    }
+
+    /// Remaining percentage (0–100) for the 7-day weekly window.
+    var sevenDayRemainingPercent: Int? {
+        sevenDay?.utilization.map { max(0, 100 - Int($0.rounded())) }
+    }
+
+    /// True if weekly quota is exhausted (0% remaining / utilization >= 100%).
+    var isWeeklyExhausted: Bool {
+        guard let rem = sevenDayRemainingPercent else { return false }
+        return rem <= 0
+    }
+
+    /// Effective remaining percent available for use.
+    /// If weekly quota is 0%, the available quota is 0%.
+    var effectiveRemainingPercent: Int? {
+        guard let s = sevenDayRemainingPercent else { return fiveHourRemainingPercent }
+        if s <= 0 { return 0 }
+        guard let f = fiveHourRemainingPercent else { return s }
+        return min(f, s)
+    }
+
+    /// Effective remaining fraction (0.0–1.0) available for use.
+    var effectiveFraction: Double? {
+        guard let pct = effectiveRemainingPercent else { return nil }
+        return Double(pct) / 100.0
     }
 }
 

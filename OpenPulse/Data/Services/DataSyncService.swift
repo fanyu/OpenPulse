@@ -146,6 +146,7 @@ final class DataSyncService {
         self.codexAccountService = codexAccountService
         self.deskSnapshotPublisher = deskSnapshotPublisher
         self.latestAntigravityAccounts = Self.restoredAntigravityAccountsCache()
+        self.latestClaudeUsage = Self.restoredClaudeUsageCache()
         let ctx = ModelContext(modelContainer)
         ctx.autosaveEnabled = false
         self.readContext = ctx
@@ -284,7 +285,7 @@ final class DataSyncService {
 
     private func refreshClaudeQuota(context: ModelContext) async {
         // Restore persisted quota on first run so UI isn't empty at launch
-        if latestClaudeUsage == nil, let cached = restoredClaudeUsageCache() {
+        if latestClaudeUsage == nil, let cached = Self.restoredClaudeUsageCache() {
             latestClaudeUsage = cached
             upsertQuota(toolQuotaFromClaudeUsage(cached), context: context)
         }
@@ -786,7 +787,7 @@ final class DataSyncService {
 
     // MARK: - Claude usage cache helpers
 
-    private func restoredClaudeUsageCache() -> ClaudeUsageResponse? {
+    static func restoredClaudeUsageCache() -> ClaudeUsageResponse? {
         guard let data = UserDefaults.standard.data(forKey: "cached.claudeUsageData") else { return nil }
         return try? JSONDecoder().decode(ClaudeUsageResponse.self, from: data)
     }
@@ -843,12 +844,13 @@ final class DataSyncService {
     }
 
     private func toolQuotaFromClaudeUsage(_ usage: ClaudeUsageResponse) -> ToolQuota {
-        let remaining = usage.fiveHour?.utilization.map { Int((1 - $0 / 100) * 100) }
+        let remaining = usage.effectiveRemainingPercent
+        let resetAt = usage.isWeeklyExhausted ? (usage.sevenDay?.resetDate ?? usage.fiveHour?.resetDate) : usage.fiveHour?.resetDate
         return ToolQuota(
             id: Tool.claudeCode.rawValue, tool: .claudeCode,
             accountKey: nil, accountLabel: nil,
             remaining: remaining, total: 100, unit: .messages,
-            resetAt: usage.fiveHour?.resetDate, updatedAt: Date(), raw: usage
+            resetAt: resetAt, updatedAt: Date(), raw: usage
         )
     }
 
@@ -932,7 +934,7 @@ final class DataSyncService {
         let desc = FetchDescriptor<QuotaRecord>(predicate: #Predicate { $0.toolRaw == codexRaw || $0.toolRaw == claudeRaw })
         let fallbackQuotas = (try? readContext.fetch(desc)) ?? []
         let snapshotCodexAccounts = deskSnapshotCodexAccounts()
-        let snapshotClaudeUsage = latestClaudeUsage ?? restoredClaudeUsageCache()
+        let snapshotClaudeUsage = latestClaudeUsage ?? Self.restoredClaudeUsageCache()
         guard let snapshot = DeskSnapshotBuilder.build(
             now: Date(),
             codexAccounts: snapshotCodexAccounts,
@@ -961,8 +963,9 @@ final class DataSyncService {
            let used = win.usedPercent {
             infos[Tool.codex.rawValue] = .init(fraction: max(0, (100 - used) / 100), resetAt: win.resetDate)
         }
-        if let usage = latestClaudeUsage, let win = usage.fiveHour, let util = win.utilization {
-            infos[Tool.claudeCode.rawValue] = .init(fraction: max(0, (100 - util) / 100), resetAt: win.resetDate)
+        if let usage = latestClaudeUsage, let frac = usage.effectiveFraction {
+            let resetAt = usage.isWeeklyExhausted ? (usage.sevenDay?.resetDate ?? usage.fiveHour?.resetDate) : usage.fiveHour?.resetDate
+            infos[Tool.claudeCode.rawValue] = .init(fraction: frac, resetAt: resetAt)
         }
         let ctx  = readContext
         let desc = FetchDescriptor<QuotaRecord>()

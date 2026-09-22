@@ -383,8 +383,8 @@ private struct StatusBarCompactItem: Equatable {
             let percent = window?.usedPercent.map { max(0, 100 - Int($0.rounded())) }
             return StatusBarCompactItem(logoImageName: tool.menuBarIconName, fiveHourPercent: format(percent))
         case .claudeCode:
-            let fiveHour = appStore.syncService?.latestClaudeUsage?.fiveHour?.utilization.map { max(0, 100 - Int($0.rounded())) }
-            return StatusBarCompactItem(logoImageName: tool.menuBarIconName, fiveHourPercent: format(fiveHour))
+            let percent = appStore.syncService?.latestClaudeUsage?.effectiveRemainingPercent
+            return StatusBarCompactItem(logoImageName: tool.menuBarIconName, fiveHourPercent: format(percent))
         case .antigravity:
             let accounts = appStore.syncService?.latestAntigravityAccounts ?? []
             let percent = AGAccountQuota.averageFiveHourGeminiPercent(across: accounts)
