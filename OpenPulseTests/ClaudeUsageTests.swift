@@ -18,7 +18,7 @@ struct ClaudeUsageTests {
     }
 
     @Test
-    func weeklyQuotaConstrainsEffectiveRemaining() {
+    func weeklyQuotaNotExhaustedPreservesFiveHourWindow() {
         let usage = ClaudeUsageResponse(
             fiveHour: UsageWindow(utilization: 20, resetsAt: "1000"),
             sevenDay: UsageWindow(utilization: 85, resetsAt: "5000")
@@ -27,8 +27,8 @@ struct ClaudeUsageTests {
         #expect(!usage.isWeeklyExhausted)
         #expect(usage.fiveHourRemainingPercent == 80)
         #expect(usage.sevenDayRemainingPercent == 15)
-        #expect(usage.effectiveRemainingPercent == 15)
-        #expect(usage.effectiveFraction == 0.15)
+        #expect(usage.effectiveRemainingPercent == 80)
+        #expect(usage.effectiveFraction == 0.80)
     }
 
     @Test

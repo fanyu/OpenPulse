@@ -759,12 +759,11 @@ struct ClaudeUsageResponse: Codable, Sendable {
     }
 
     /// Effective remaining percent available for use.
-    /// If weekly quota is 0%, the available quota is 0%.
+    /// If weekly quota is 0% (exhausted), the available quota is 0%.
+    /// Otherwise, reflects the active 5-hour rolling window (or weekly window if 5-hour is unavailable).
     var effectiveRemainingPercent: Int? {
-        guard let s = sevenDayRemainingPercent else { return fiveHourRemainingPercent }
-        if s <= 0 { return 0 }
-        guard let f = fiveHourRemainingPercent else { return s }
-        return min(f, s)
+        if isWeeklyExhausted { return 0 }
+        return fiveHourRemainingPercent ?? sevenDayRemainingPercent
     }
 
     /// Effective remaining fraction (0.0–1.0) available for use.

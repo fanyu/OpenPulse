@@ -106,8 +106,8 @@ targets:
         CFBundleName: OpenPulse
         CFBundleDisplayName: OpenPulse
         CFBundleIdentifier: com.fanyu.openpulse
-        CFBundleVersion: "25"
-        CFBundleShortVersionString: "1.0.25"
+        CFBundleVersion: "26"
+        CFBundleShortVersionString: "1.0.26"
         LSUIElement: true
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: false
