@@ -229,11 +229,17 @@ private final class StatusBarImageRenderer {
     private let textFont = NSFont.monospacedSystemFont(ofSize: 11, weight: .medium)
     private let topFont = NSFont.monospacedSystemFont(ofSize: 9, weight: .bold)
     private let bottomFont = NSFont.monospacedSystemFont(ofSize: 9, weight: .bold)
+    private let verticalIconSize = NSSize(width: 10, height: 10)
+    private let verticalItemSpacing: CGFloat = 7
+    private let verticalHorizontalPadding: CGFloat = 5
+    private let verticalTextFont = NSFont.monospacedSystemFont(ofSize: 8, weight: .bold)
 
     func render(snapshot: StatusBarSnapshot) -> StatusBarRenderedImage {
         switch snapshot {
         case .compact(items: let items):
             return renderCompact(items: items)
+        case .vertical(items: let items):
+            return renderVertical(items: items)
         case .classic(lines: let lines):
             return renderClassic(lines: lines)
         }
@@ -322,6 +328,61 @@ private final class StatusBarImageRenderer {
         image.isTemplate = true
         return StatusBarRenderedImage(image: image, size: NSSize(width: width, height: height))
     }
+    private func renderVertical(items: [StatusBarCompactItem]) -> StatusBarRenderedImage {
+        var totalWidth = verticalHorizontalPadding * 2
+        for (index, item) in items.enumerated() {
+            if index > 0 { totalWidth += verticalItemSpacing }
+            let text = item.fiveHourPercent.trimmingCharacters(in: .whitespaces) as NSString
+            let textWidth = ceil(text.size(withAttributes: verticalTextAttributes).width)
+            totalWidth += max(20.0, textWidth, verticalIconSize.width)
+        }
+
+        let height = NSStatusBar.system.thickness
+        let image = NSImage(size: NSSize(width: max(28, totalWidth), height: height))
+        image.lockFocus()
+        defer { image.unlockFocus() }
+
+        let rect = NSRect(origin: .zero, size: image.size)
+        NSColor.clear.set()
+        rect.fill()
+
+        let iconHeight: CGFloat = verticalIconSize.height
+        let bottomMargin: CGFloat = max(0, floor((height - 21.0) / 2) + 0.5)
+        let textY = bottomMargin
+        let iconY = height - iconHeight - bottomMargin
+
+        var x = verticalHorizontalPadding
+        for item in items {
+            let text = item.fiveHourPercent.trimmingCharacters(in: .whitespaces) as NSString
+            let textSize = text.size(withAttributes: verticalTextAttributes)
+            let textWidth = ceil(textSize.width)
+            let columnWidth = max(20.0, textWidth, verticalIconSize.width)
+
+            let icon = NSImage(named: item.logoImageName)
+                ?? NSImage(named: "AntigravityLogo")
+                ?? NSImage(systemSymbolName: "atom", accessibilityDescription: nil)
+            if let icon {
+                let iconX = x + floor((columnWidth - verticalIconSize.width) / 2)
+                let iconRect = NSRect(
+                    origin: NSPoint(x: iconX, y: iconY),
+                    size: verticalIconSize
+                )
+                icon.draw(in: iconRect, from: .zero, operation: .sourceOver, fraction: 1)
+            }
+
+            let textX = x + floor((columnWidth - textWidth) / 2)
+            text.draw(at: NSPoint(x: textX, y: textY), withAttributes: verticalTextAttributes)
+
+            x += columnWidth + verticalItemSpacing
+        }
+
+        image.isTemplate = true
+        return StatusBarRenderedImage(image: image, size: NSSize(width: totalWidth, height: height))
+    }
+
+    private var verticalTextAttributes: [NSAttributedString.Key: Any] {
+        [.font: verticalTextFont, .foregroundColor: NSColor.black]
+    }
 
     private var textAttributes: [NSAttributedString.Key: Any] {
         [.font: textFont, .foregroundColor: NSColor.black]
@@ -331,19 +392,20 @@ private final class StatusBarImageRenderer {
 @MainActor
 private enum StatusBarSnapshot: Equatable {
     case compact(items: [StatusBarCompactItem])
+    case vertical(items: [StatusBarCompactItem])
     case classic(lines: [String])
 
     static func build(appStore: AppStore) -> StatusBarSnapshot {
         let style = UserDefaults.standard.string(forKey: "menubar.displayStyle") ?? "compact"
 
-        if style == "compact" {
+        if style == "compact" || style == "vertical" {
             let orderRaw = UserDefaults.standard.string(forKey: "menubar.toolOrder") ?? Tool.defaultOrderRaw
             let orderedTools = orderRaw.components(separatedBy: ",").compactMap { Tool(rawValue: $0) }
             let tools = (orderedTools + Tool.allCases.filter { !orderedTools.contains($0) })
                 .filter(\.supportsMenuBarFiveHourDisplay)
 
             let items = tools.map { StatusBarCompactItem.build(tool: $0, appStore: appStore) }
-            return .compact(items: items)
+            return style == "vertical" ? .vertical(items: items) : .compact(items: items)
         }
 
         // classic

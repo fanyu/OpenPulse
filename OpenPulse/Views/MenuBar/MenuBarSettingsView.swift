@@ -139,11 +139,12 @@ struct MenuBarSettingsView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("状态栏样式")
                                 .font(.subheadline.weight(.medium))
-                            Text("精简模式直接显示工具图标和 5h 余量；经典模式显示应用图标和 5H/7D 额度摘要。")
+                            Text("横向紧凑展示图标与 5h 余量；竖向紧凑上下堆叠以节省状态栏空间；经典模式显示应用图标与 5H/7D 摘要。")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                             Picker("状态栏样式", selection: $displayStyle) {
-                                Text("精简模式").tag("compact")
+                                Text("精简横向").tag("compact")
+                                Text("精简竖向").tag("vertical")
                                 Text("经典模式").tag("classic")
                             }
                             .pickerStyle(.segmented)
