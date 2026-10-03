@@ -8,12 +8,14 @@ import SQLite
 /// Quota: prefer OpenPulse Claude Code bridge cache, then Claude Desktop Web usage, then Anthropic OAuth usage API.
 actor ClaudeCodeParser {
     private let claudeDir: URL
+    private let configProjectsDir: URL
     private let claudeDesktopDir: URL
     private let statusCacheURL: URL
     private var cachedKeychainCredentials: ClaudeCredentialSource?
 
     init(
         claudeDir: URL = .homeDirectory.appending(path: ".claude"),
+        configProjectsDir: URL = .homeDirectory.appending(path: ".config/claude/projects"),
         claudeDesktopDir: URL = .homeDirectory
             .appending(path: "Library")
             .appending(path: "Application Support")
@@ -21,6 +23,7 @@ actor ClaudeCodeParser {
         statusCacheURL: URL = ClaudeCodeBridgeInstaller.cacheURL
     ) {
         self.claudeDir = claudeDir
+        self.configProjectsDir = configProjectsDir
         self.claudeDesktopDir = claudeDesktopDir
         self.statusCacheURL = statusCacheURL
     }
@@ -93,13 +96,9 @@ actor ClaudeCodeParser {
 
     func parseSessions(since cutoff: Date? = nil) async throws -> [ToolSession] {
         let projectsDir = claudeDir.appending(path: "projects")
-        guard FileManager.default.fileExists(atPath: projectsDir.path) else { return [] }
-
-        // Also check ~/.config/claude/projects
-        var searchDirs = [projectsDir]
-        let configDir = URL.homeDirectory.appending(path: ".config/claude/projects")
-        if FileManager.default.fileExists(atPath: configDir.path) {
-            searchDirs.append(configDir)
+        // Either supported location can exist independently.
+        let searchDirs = [projectsDir, configProjectsDir].filter {
+            FileManager.default.fileExists(atPath: $0.path)
         }
 
         var sessions: [ToolSession] = []
@@ -555,8 +554,8 @@ actor ClaudeCodeParser {
         var gitBranch: String?
         var sessionId: String?
         var summaries: [String] = []
-        // Accumulate per-messageId usage — keep updating so we always end up with
-        // the final (most-complete) chunk rather than the first (which may be partial).
+        // Chunks can update individual usage fields or omit usage entirely.
+        // Keep the latest known value for each field of a message.
         struct MsgUsage { var input, output, cacheRead, cacheWrite: Int }
         var messageUsage: [String: MsgUsage] = [:]
         // Only the first and last timestamps are used, so keep the raw strings and
@@ -582,13 +581,13 @@ actor ClaudeCodeParser {
                 if let b = record.gitBranch, gitBranch == nil { gitBranch = b }
                 if let m = record.message {
                     if model.isEmpty, let mdl = m.model { model = mdl }
-                    // Always overwrite — last chunk has the complete usage values.
                     let msgId = m.id ?? UUID().uuidString
+                    let previous = messageUsage[msgId]
                     messageUsage[msgId] = MsgUsage(
-                        input: m.usage?.inputTokens ?? 0,
-                        output: m.usage?.outputTokens ?? 0,
-                        cacheRead: m.usage?.cacheReadInputTokens ?? 0,
-                        cacheWrite: m.usage?.cacheCreationInputTokens ?? 0
+                        input: m.usage?.inputTokens ?? previous?.input ?? 0,
+                        output: m.usage?.outputTokens ?? previous?.output ?? 0,
+                        cacheRead: m.usage?.cacheReadInputTokens ?? previous?.cacheRead ?? 0,
+                        cacheWrite: m.usage?.cacheCreationInputTokens ?? previous?.cacheWrite ?? 0
                     )
                 }
             case "user":

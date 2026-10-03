@@ -1,9 +1,11 @@
 import Foundation
+import Observation
 
 /// Per-tool synchronization state. Replaces the single global `isSyncing` flag so
 /// individual tools can refresh concurrently without blocking each other.
 @MainActor
-final class ToolSyncState: ObservableObject {
+@Observable
+final class ToolSyncState {
     private(set) var isRefreshing: Bool = false
     private(set) var lastSyncDate: Date?
     private(set) var lastError: String?          // surfaced error message (nil = OK)
@@ -20,7 +22,9 @@ final class ToolSyncState: ObservableObject {
 
     /// Attempt to begin a refresh. Returns `false` when one is already running and not stale.
     func beginRefresh() -> Bool {
-        if isRefreshing, !isStale { return false }
+        // A slow parser still owns its refresh. Starting another after 60 seconds
+        // lets the older task clear the newer task's flag and overwrite its data.
+        guard !isRefreshing else { return false }
         isRefreshing = true
         refreshStartedAt = Date()
         return true
@@ -29,10 +33,10 @@ final class ToolSyncState: ObservableObject {
     func endRefresh() {
         isRefreshing = false
         refreshStartedAt = nil
-        lastSyncDate = Date()
     }
 
     func recordSuccess() {
+        lastSyncDate = Date()
         lastError = nil
         lastErrorDate = nil
     }
@@ -43,6 +47,12 @@ final class ToolSyncState: ObservableObject {
     }
 
     func clearError() {
+        lastError = nil
+        lastErrorDate = nil
+    }
+
+    func reset() {
+        lastSyncDate = nil
         lastError = nil
         lastErrorDate = nil
     }

@@ -8,6 +8,7 @@ struct OpenPulseApp: App {
     private let appStore = AppStore.shared
 
     init() {
+        guard !AppStore.isRunningTests else { return }
         let defaults = UserDefaults.standard
         if let currentOrder = defaults.string(forKey: "menubar.toolOrder") {
             var parts = currentOrder.components(separatedBy: ",")
@@ -33,7 +34,7 @@ struct OpenPulseApp: App {
                 .modelContainer(appStore.modelContainer)
         }
         .windowStyle(.hiddenTitleBar)
-        .defaultSize(width: 960, height: 640)
+        .defaultSize(width: 1120, height: 780)
         .defaultLaunchBehavior(.presented)
         .commands {
             CommandGroup(replacing: .newItem) {}
@@ -55,6 +56,7 @@ final class StatusBarAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
     private var userDefaultsDebounceTask: Task<Void, Never>?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        guard !AppStore.isRunningTests else { return }
         let controller = NSHostingController(
             rootView: MenuBarView()
                 .environment(appStore)
@@ -94,16 +96,19 @@ final class StatusBarAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
             queue: .main
         ) { [weak self] _ in
             // Debounce: UserDefaults fires on every @AppStorage write; batch into one refresh.
-            self?.userDefaultsDebounceTask?.cancel()
-            self?.userDefaultsDebounceTask = Task { @MainActor [weak self] in
-                try? await Task.sleep(for: .milliseconds(300))
-                guard !Task.isCancelled else { return }
-                self?.refreshStatusItem()
+            Task { @MainActor [weak self] in
+                self?.userDefaultsDebounceTask?.cancel()
+                self?.userDefaultsDebounceTask = Task { @MainActor [weak self] in
+                    try? await Task.sleep(for: .milliseconds(300))
+                    guard !Task.isCancelled else { return }
+                    self?.refreshStatusItem()
+                }
             }
         }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        appStore.syncService?.stop()
         refreshTimer?.invalidate()
         refreshTimer = nil
         userDefaultsDebounceTask?.cancel()
@@ -501,4 +506,3 @@ private extension Collection {
         indices.contains(index) ? self[index] : nil
     }
 }
-

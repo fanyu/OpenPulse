@@ -157,7 +157,8 @@ actor CodexProviderConfigService {
 
     func saveProvider(
         _ provider: CodexProviderConfig,
-        apiKey: String?
+        apiKey: String?,
+        isNew: Bool = false
     ) throws -> CodexProviderConfigurationState {
         if provider.isBuiltIn {
             guard !provider.defaultModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -173,6 +174,7 @@ actor CodexProviderConfigService {
         let normalized = try normalizedProvider(provider)
         var parsed = try parseConfig()
         let existing = parsed.providerSections.first(where: { $0.id == normalized.id })
+        if isNew && existing != nil { throw ServiceError.duplicateProviderID }
 
         if let existing {
             let replacement = renderSection(
@@ -184,9 +186,6 @@ actor CodexProviderConfigService {
             )
             parsed.lines.replaceSubrange(existing.startLine...existing.endLine, with: replacement)
         } else {
-            if parsed.providerSections.contains(where: { $0.id == normalized.id }) {
-                throw ServiceError.duplicateProviderID
-            }
             let insertionIndex = providerInsertionIndex(in: parsed.lines)
             let block = renderSection(
                 id: normalized.id,

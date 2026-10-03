@@ -716,7 +716,8 @@ actor CodexAccountService {
         let verifier = OAuthPKCE.randomBase64URL(byteCount: 32)
         let challenge = OAuthPKCE.sha256Base64URL(verifier)
         let state = OAuthPKCE.randomBase64URL(byteCount: 32)
-        let (server, port) = try makeCallbackServer(callback: callback, verifier: verifier, state: state)
+        let (server, port) = try await makeCallbackServer(callback: callback, verifier: verifier, state: state)
+        defer { server.stop() }
         let redirectURI = "http://localhost:\(port)\(OAuthConfiguration.callbackPath)"
         let forcedWorkspaceID = resolveForcedWorkspaceID()
         let authorizeURL = try makeAuthorizeURL(
@@ -725,9 +726,6 @@ actor CodexAccountService {
             state: state,
             forcedWorkspaceID: forcedWorkspaceID
         )
-
-        try await server.start()
-        defer { server.stop() }
 
         guard NSWorkspace.shared.open(authorizeURL) else {
             throw ServiceError.callbackOpenFailed
@@ -747,24 +745,23 @@ actor CodexAccountService {
         callback: OAuthCallbackBox<TokenExchangeResponse>,
         verifier: String,
         state: String
-    ) throws -> (SimpleHTTPServer, UInt16) {
+    ) async throws -> (SimpleHTTPServer, UInt16) {
         var candidatePort = OAuthConfiguration.callbackPort
         let maxPort = OAuthConfiguration.callbackPort + OAuthConfiguration.maxPortOffset
         var lastError: Error?
 
         while candidatePort <= maxPort {
+            try Task.checkCancellation()
             do {
                 let redirectURI = "http://localhost:\(candidatePort)\(OAuthConfiguration.callbackPath)"
                 let server = try SimpleHTTPServer(port: candidatePort) { [session] request in
-                    let params = Dictionary(uniqueKeysWithValues: request.queryItems.compactMap { item in
-                        item.value.map { (item.name, $0) }
-                    })
-
                     guard request.path == OAuthConfiguration.callbackPath else {
                         return .text(statusCode: 404, text: "Not Found")
                     }
+                    guard let params = oauthCallbackParameters(request.queryItems) else {
+                        return .text(statusCode: 400, text: "Duplicate callback parameters")
+                    }
                     guard params["state"] == state else {
-                        callback.fail(ServiceError.callbackFailed("OpenAI 登录状态校验失败。"))
                         return .text(statusCode: 400, text: "State mismatch")
                     }
                     guard let code = params["code"], !code.isEmpty else {
@@ -787,8 +784,15 @@ actor CodexAccountService {
                         return .text(statusCode: 500, text: error.localizedDescription)
                     }
                 }
+                do {
+                    try await server.start()
+                } catch {
+                    server.stop()
+                    throw error
+                }
                 return (server, candidatePort)
             } catch {
+                try Task.checkCancellation()
                 lastError = error
                 candidatePort += 1
             }

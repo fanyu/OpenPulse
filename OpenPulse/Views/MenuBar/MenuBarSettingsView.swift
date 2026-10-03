@@ -1,5 +1,4 @@
 import SwiftUI
-import SwiftData
 
 struct MenuBarSettingsView: View {
     @AppStorage("menubar.toolOrder")        private var toolOrderRaw = Tool.defaultOrderRaw
@@ -7,17 +6,6 @@ struct MenuBarSettingsView: View {
     @AppStorage("menubar.titleQuotaTools")  private var titleQuotaToolsRaw = ""
     @AppStorage("menubar.antigravityDisplayMode") private var antigravityDisplayMode = "accounts"
     @AppStorage("menubar.displayStyle") private var displayStyle = "compact"
-
-    // MARK: - Hotkey
-    @AppStorage("menubar.hotkey.keyCode")    private var hotkeyKeyCode    = 0
-    @AppStorage("menubar.hotkey.modifiers")  private var hotkeyModifiers  = 0
-
-    private var hotkeyLabel: String {
-        GlobalHotkeyService.displayString(
-            keyCode: UInt32(hotkeyKeyCode),
-            carbonModifiers: UInt32(hotkeyModifiers)
-        )
-    }
 
     private var orderedTools: [Tool] {
         let order = toolOrderRaw.components(separatedBy: ",").compactMap { Tool(rawValue: $0) }
@@ -64,83 +52,21 @@ struct MenuBarSettingsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                // 快捷键
-                SettingsCard(title: "快捷键", icon: "keyboard") {
-                    VStack(alignment: .leading, spacing: 16) {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("激活菜单栏")
-                                    .font(.body)
-                                Text(hotkeyKeyCode == 0
-                                     ? "点击右侧按钮录制，可在任何界面通过快捷键激活菜单栏"
-                                     : "在任何界面按下快捷键即可激活菜单栏")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-
-                            let isRecording = GlobalHotkeyService.shared.isRecording
-                            HStack(spacing: 8) {
-                                if isRecording {
-                                    Text("请按下快捷键…")
-                                        .font(.subheadline)
-                                        .foregroundStyle(.secondary)
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 6)
-                                        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
-
-                                    Button("取消") { GlobalHotkeyService.shared.stopRecording() }
-                                        .buttonStyle(.plain)
-                                        .foregroundStyle(.secondary)
-                                } else {
-                                    Button(action: { GlobalHotkeyService.shared.startRecording() }) {
-                                        Text(hotkeyKeyCode == 0 ? "点击录制" : hotkeyLabel)
-                                            .font(.subheadline.monospaced())
-                                            .padding(.horizontal, 12)
-                                            .padding(.vertical, 6)
-                                            .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
-                                    }
-                                    .buttonStyle(.plain)
-
-                                    if hotkeyKeyCode != 0 {
-                                        Button(action: {
-                                            hotkeyKeyCode = 0
-                                            hotkeyModifiers = 0
-                                            GlobalHotkeyService.shared.apply(keyCode: 0, carbonModifiers: 0)
-                                        }) {
-                                            Image(systemName: "xmark.circle.fill")
-                                                .foregroundStyle(.secondary)
-                                        }
-                                        .buttonStyle(.plain)
-                                    }
-                                }
-                            }
-                        }
-
-                        Divider()
-
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("菜单栏操作快捷键")
-                                .font(.subheadline.weight(.medium))
-
-                            VStack(spacing: 6) {
-                                ShortcutRow(label: "刷新同步", shortcut: "⌘R")
-                                ShortcutRow(label: "打开主窗口", shortcut: "⌘O")
-                                ShortcutRow(label: "设置", shortcut: "⌘,")
-                                ShortcutRow(label: "退出", shortcut: "⌘Q")
-                            }
-                        }
-                    }
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("菜单栏设置")
+                        .font(.system(size: 28, weight: .semibold))
+                    Text("安排工具顺序、额度摘要与快捷键。")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
                 }
 
-                // 菜单栏显示
-                SettingsCard(title: "菜单栏控制", icon: "menubar.rectangle") {
-                    VStack(alignment: .leading, spacing: 16) {
+                SettingsCard(title: "菜单栏控制") {
+                    VStack(alignment: .leading, spacing: 20) {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("状态栏样式")
-                                .font(.subheadline.weight(.medium))
+                                .font(.system(size: 13, weight: .medium))
                             Text("横向紧凑展示图标与 5h 余量；竖向紧凑上下堆叠以节省状态栏空间；经典模式显示应用图标与 5H/7D 摘要。")
-                                .font(.caption)
+                                .font(.system(size: 12))
                                 .foregroundStyle(.secondary)
                             Picker("状态栏样式", selection: $displayStyle) {
                                 Text("精简横向").tag("compact")
@@ -155,18 +81,18 @@ struct MenuBarSettingsView: View {
 
                         VStack(alignment: .leading, spacing: 8) {
                             Text("菜单栏标题额度")
-                                .font(.subheadline.weight(.medium))
+                                .font(.system(size: 13, weight: .medium))
                             Text("选择后会在菜单栏直接显示该 Agent 的余量摘要；单个工具显示 5H/7D，两项工具时每行显示一个工具。")
-                                .font(.caption)
+                                .font(.system(size: 12))
                                 .foregroundStyle(.secondary)
 
                             ForEach(menuBarTitleQuotaTools, id: \.self) { tool in
                                 HStack(spacing: 12) {
                                     ToolLogoImage(tool: tool, size: 20)
                                     Text(tool.displayName)
-                                        .font(.body)
+                                        .font(.system(size: 13))
                                     Spacer()
-                                    Toggle("", isOn: Binding(
+                                    Toggle(tool.displayName, isOn: Binding(
                                         get: { selectedTitleQuotaTools.contains(tool.rawValue) },
                                         set: { setTitleQuotaToolEnabled(tool, $0) }
                                     ))
@@ -181,9 +107,9 @@ struct MenuBarSettingsView: View {
 
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Antigravity Pro 账号额度聚合")
-                                .font(.subheadline.weight(.medium))
+                                .font(.system(size: 13, weight: .medium))
                             Text("开启后在 Menu Bar 中合并所有 Pro 账号额度，按模型（Gemini/3P）计算平均剩余量与最早重置时间。")
-                                .font(.caption)
+                                .font(.system(size: 12))
                                 .foregroundStyle(.secondary)
 
                             Picker("Antigravity 展示方式", selection: $antigravityDisplayMode) {
@@ -194,45 +120,116 @@ struct MenuBarSettingsView: View {
                             .labelsHidden()
                         }
 
-                        Divider()
+                    }
+                }
 
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("工具排序与显示")
-                                .font(.subheadline.weight(.medium))
-                            Text("拖拽列表调整菜单栏中的显示顺序，并控制是否在菜单栏中显示。")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-
-                            List {
-                                ForEach(orderedTools, id: \.self) { tool in
-                                    HStack(spacing: 12) {
-                                        ToolLogoImage(tool: tool, size: 24)
-                                        Text(tool.displayName)
-                                            .font(.body)
-                                        Spacer()
-                                        Toggle("", isOn: Binding(
-                                            get: { !hiddenTools.contains(tool.rawValue) },
-                                            set: { setToolHidden(tool, !$0) }
-                                        ))
-                                        .toggleStyle(.switch)
-                                        .labelsHidden()
-                                    }
-                                    .padding(.vertical, 4)
-                                }
-                                .onMove(perform: moveTools)
+                SettingsCard(title: "工具排序与显示", subtitle: "拖拽列表调整菜单栏中的显示顺序，并控制是否在菜单栏中显示。") {
+                    List {
+                        ForEach(orderedTools, id: \.self) { tool in
+                            HStack(spacing: 12) {
+                                Image(systemName: "line.3.horizontal")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.tertiary)
+                                ToolLogoImage(tool: tool, size: 24)
+                                Text(tool.displayName)
+                                    .font(.system(size: 13))
+                                Spacer()
+                                Toggle(tool.displayName, isOn: Binding(
+                                    get: { !hiddenTools.contains(tool.rawValue) },
+                                    set: { setToolHidden(tool, !$0) }
+                                ))
+                                .toggleStyle(.switch)
+                                .labelsHidden()
                             }
-                            .listStyle(.plain)
-                            .frame(height: CGFloat(orderedTools.count) * 44)
-                            .scrollDisabled(true)
-                            .background(Color.primary.opacity(0.03))
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                            .frame(minHeight: 44)
+                            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                            .listRowBackground(Color.clear)
+                        }
+                        .onMove(perform: moveTools)
+                    }
+                    .listStyle(.plain)
+                    .scrollContentBackground(.hidden)
+                    .frame(height: CGFloat(orderedTools.count) * 48 + 8)
+                    .scrollDisabled(true)
+                }
+
+                SettingsCard(title: "快捷键") {
+                    MenuBarHotkeySettings()
+                }
+            }
+            .frame(maxWidth: 980, alignment: .leading)
+            .padding(28)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .background(Color(NSColor.windowBackgroundColor))
+        .navigationTitle("菜单栏设置")
+    }
+}
+
+/// Shared by general settings and the menu-bar preferences tab.
+struct MenuBarHotkeySettings: View {
+    @AppStorage("menubar.hotkey.keyCode") private var hotkeyKeyCode = 0
+    @AppStorage("menubar.hotkey.modifiers") private var hotkeyModifiers = 0
+
+    private var hotkeyLabel: String {
+        GlobalHotkeyService.displayString(
+            keyCode: UInt32(hotkeyKeyCode),
+            carbonModifiers: UInt32(hotkeyModifiers)
+        )
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("激活菜单栏")
+                    .font(.system(size: 13, weight: .medium))
+                Text(hotkeyModifiers == 0
+                     ? String(localized: "录制快捷键后，可在任何界面激活菜单栏。")
+                     : String(localized: "在任何界面按下快捷键即可激活菜单栏"))
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+
+                HStack(spacing: 8) {
+                    if GlobalHotkeyService.shared.isRecording {
+                        Text("请按下快捷键…")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                        Button("取消") { GlobalHotkeyService.shared.stopRecording() }
+                            .buttonStyle(.bordered)
+                    } else {
+                        Button(action: { GlobalHotkeyService.shared.startRecording() }) {
+                            Text(hotkeyModifiers == 0 ? String(localized: "点击录制") : hotkeyLabel)
+                                .font(.system(size: 12, design: .monospaced))
+                        }
+                        .buttonStyle(.bordered)
+
+                        if hotkeyModifiers != 0 {
+                            Button("清除快捷键", systemImage: "xmark") {
+                                hotkeyKeyCode = 0
+                                hotkeyModifiers = 0
+                                GlobalHotkeyService.shared.apply(keyCode: 0, carbonModifiers: 0)
+                            }
+                            .buttonStyle(.borderless)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
                         }
                     }
                 }
             }
-            .padding(24)
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 12) {
+                Text("菜单栏操作快捷键")
+                    .font(.system(size: 13, weight: .medium))
+                ShortcutRow(label: "刷新同步", shortcut: "⌘R")
+                ShortcutRow(label: "打开主窗口", shortcut: "⌘M")
+                ShortcutRow(label: "设置", shortcut: "⌘,")
+                ShortcutRow(label: "退出", shortcut: "⌘Q")
+            }
         }
-        .background(Color(NSColor.windowBackgroundColor))
-        .navigationTitle("菜单栏设置")
+        .onDisappear {
+            GlobalHotkeyService.shared.stopRecording()
+        }
     }
 }

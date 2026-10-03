@@ -8,89 +8,41 @@ struct SettingsView: View {
         static let apiKeyRevision = "dot.textAPI.apiKeyRevision"
     }
 
-    @Query(sort: \QuotaRecord.updatedAt, order: .reverse) private var quotaRecords: [QuotaRecord]
-    @Query(sort: \SessionRecord.startedAt, order: .reverse) private var sessionRecords: [SessionRecord]
+    @Environment(AppStore.self) private var appStore
     @Environment(\.modelContext) private var modelContext
 
     @State private var showingClearConfirm = false
+    @State private var cachedRecordCounts: (sessions: Int, quotas: Int)?
+    @State private var cacheStatus: String?
+    @State private var cacheStatusIsError = false
     @AppStorage("app.launchAtLogin") private var launchAtLogin = false
+    @State private var launchAtLoginError: String?
+    @State private var launchAtLoginNeedsApproval = false
     @AppStorage("app.language") private var appLanguage = "system"
     @State private var showsLanguageRestartNotice = false
+    @State private var languageRestartError: String?
 
-    // MARK: - Menubar display
-    @AppStorage("menubar.toolOrder")        private var toolOrderRaw = Tool.defaultOrderRaw
-    @AppStorage("menubar.hiddenTools")      private var hiddenToolsRaw = ""
-    @AppStorage("menubar.titleQuotaTools")  private var titleQuotaToolsRaw = ""
-    @AppStorage("menubar.antigravityDisplayMode") private var antigravityDisplayMode = "accounts"
-    @AppStorage("menubar.displayStyle") private var displayStyle = "compact"
-
-    // MARK: - Hotkey
-    @AppStorage("menubar.hotkey.keyCode")    private var hotkeyKeyCode    = 0
-    @AppStorage("menubar.hotkey.modifiers")  private var hotkeyModifiers  = 0
-
-    private var hotkeyLabel: String {
-        GlobalHotkeyService.displayString(
-            keyCode: UInt32(hotkeyKeyCode),
-            carbonModifiers: UInt32(hotkeyModifiers)
-        )
-    }
-
-    // MARK: - Notifications
-    @AppStorage("notifications.enabled")   private var notificationsEnabled = false
+    @AppStorage("notifications.enabled") private var notificationsEnabled = false
     @AppStorage("notifications.threshold") private var notificationThreshold = 10
-
-    // MARK: - Codex
     @AppStorage("codex.smartSwitch.enabled") private var codexSmartSwitchEnabled = false
 
-    // MARK: - Dot Text API
     @AppStorage("dot.textAPI.enabled") private var dotTextAPIEnabled = false
     @AppStorage("dot.textAPI.deviceID") private var dotTextAPIDeviceID = ""
     @AppStorage("dot.textAPI.taskKey") private var dotTextAPITaskKey = ""
     @State private var dotTextAPIKey = ""
     @State private var dotTextAPIStatus: String?
 
-    // MARK: - Computed helpers
-
-    private var orderedTools: [Tool] {
-        let order = toolOrderRaw.components(separatedBy: ",").compactMap { Tool(rawValue: $0) }
-        return order + Tool.allCases.filter { !order.contains($0) }
+    private var cacheIsBusy: Bool {
+        guard let service = appStore.syncService else { return false }
+        return service.isSyncingActive || !service.refreshingAntigravityAccountEmails.isEmpty
     }
 
-    private var hiddenTools: Set<String> {
-        Set(hiddenToolsRaw.components(separatedBy: ",").filter { !$0.isEmpty })
+    private var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
     }
 
-    private var selectedTitleQuotaTools: Set<String> {
-        Set(titleQuotaToolsRaw.components(separatedBy: ",").filter { !$0.isEmpty })
-    }
-
-    private var menuBarTitleQuotaTools: [Tool] {
-        orderedTools.filter(\.supportsMenuBarFiveHourDisplay)
-    }
-
-    private func moveTools(from offsets: IndexSet, to destination: Int) {
-        var tools = orderedTools
-        tools.move(fromOffsets: offsets, toOffset: destination)
-        toolOrderRaw = tools.map(\.rawValue).joined(separator: ",")
-    }
-
-    private func setToolHidden(_ tool: Tool, _ hidden: Bool) {
-        var set = hiddenTools
-        if hidden { set.insert(tool.rawValue) } else { set.remove(tool.rawValue) }
-        hiddenToolsRaw = set.joined(separator: ",")
-    }
-
-    private func setTitleQuotaToolEnabled(_ tool: Tool, _ enabled: Bool) {
-        var selected = selectedTitleQuotaTools
-        if enabled {
-            selected.insert(tool.rawValue)
-        } else {
-            selected.remove(tool.rawValue)
-        }
-        titleQuotaToolsRaw = orderedTools
-            .map(\.rawValue)
-            .filter { selected.contains($0) }
-            .joined(separator: ",")
+    private var appBuild: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—"
     }
 
     private func bumpDotAPIKeyRevision() {
@@ -101,302 +53,267 @@ struct SettingsView: View {
         )
     }
 
-    // MARK: - View Layout
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                // 通用设置
-                SettingsCard(title: "通用", icon: "gearshape") {
-                    VStack(alignment: .leading, spacing: 16) {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("开机自动启动")
-                                    .font(.body)
-                                Text("在登录 Mac 时自动运行 OpenPulse")
-                                    .font(.caption)
+            VStack(alignment: .leading, spacing: 26) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("设置")
+                        .font(.system(size: 28, weight: .semibold))
+                    Text("管理应用偏好、通知与数据。")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                }
+
+                SettingsCard(title: "通用") {
+                    VStack(alignment: .leading, spacing: 20) {
+                        SettingsToggleRow(
+                            title: "开机自动启动",
+                            detail: "在登录 Mac 时自动运行 OpenPulse",
+                            isOn: Binding(get: { launchAtLogin }, set: { setLaunchAtLogin($0) })
+                        )
+                        if let launchAtLoginError {
+                            Text(launchAtLoginError)
+                                .font(.system(size: 12))
+                                .foregroundStyle(.red)
+                        }
+                        if launchAtLoginNeedsApproval {
+                            HStack(spacing: 12) {
+                                Text("请在系统设置中允许 OpenPulse 登录时启动。")
+                                    .font(.system(size: 12))
                                     .foregroundStyle(.secondary)
+                                Spacer(minLength: 12)
+                                Button("打开系统设置") {
+                                    SMAppService.openSystemSettingsLoginItems()
+                                }
+                                .buttonStyle(.bordered)
                             }
-                            Spacer()
-                            Toggle("", isOn: $launchAtLogin)
-                                .toggleStyle(.switch)
-                                .labelsHidden()
                         }
 
                         Divider()
 
                         VStack(alignment: .leading, spacing: 10) {
-                            HStack(alignment: .top, spacing: 16) {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("语言")
-                                        .font(.body)
-                                    Text("选择 OpenPulse 的显示语言。更改后需要重启应用。")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                Picker("语言", selection: $appLanguage) {
-                                    Text("跟随系统").tag("system")
-                                    Text("English").tag("en")
-                                    Text("简体中文").tag("zh-Hans")
-                                }
-                                .pickerStyle(.segmented)
-                                .labelsHidden()
-                                .frame(width: 260)
-                                .onChange(of: appLanguage) { _, newValue in
-                                    applyLanguagePreference(newValue)
-                                }
+                            Text("语言")
+                                .font(.system(size: 13, weight: .medium))
+                            Text("选择 OpenPulse 的显示语言。更改后需要重启应用。")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                            Picker("语言", selection: $appLanguage) {
+                                Text("跟随系统").tag("system")
+                                Text("English").tag("en")
+                                Text("简体中文").tag("zh-Hans")
+                            }
+                            .pickerStyle(.segmented)
+                            .labelsHidden()
+                            .frame(maxWidth: 320)
+                            .onChange(of: appLanguage) { _, newValue in
+                                applyLanguagePreference(newValue)
                             }
 
                             if showsLanguageRestartNotice {
                                 HStack(spacing: 12) {
                                     Text("语言将在重启 OpenPulse 后生效。")
-                                        .font(.caption)
+                                        .font(.system(size: 12))
                                         .foregroundStyle(.secondary)
-                                    Spacer()
-                                    Button("立即重启") {
-                                        relaunchApp()
-                                    }
-                                    .buttonStyle(.bordered)
-                                }
-                                .padding(.top, 2)
-                            }
-                        }
-                    }
-                }
-                
-                
-                // 快捷键
-                SettingsCard(title: "快捷键", icon: "keyboard") {
-                    VStack(alignment: .leading, spacing: 16) {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("激活菜单栏")
-                                    .font(.body)
-                                Text(hotkeyKeyCode == 0
-                                     ? "点击右侧按钮录制，可在任何界面通过快捷键激活菜单栏"
-                                     : "在任何界面按下快捷键即可激活菜单栏")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-
-                            let isRecording = GlobalHotkeyService.shared.isRecording
-                            HStack(spacing: 8) {
-                                if isRecording {
-                                    Text("请按下快捷键…")
-                                        .font(.subheadline)
-                                        .foregroundStyle(.secondary)
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 6)
-                                        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
-
-                                    Button("取消") { GlobalHotkeyService.shared.stopRecording() }
-                                        .buttonStyle(.plain)
-                                        .foregroundStyle(.secondary)
-                                } else {
-                                    Button(action: { GlobalHotkeyService.shared.startRecording() }) {
-                                        Text(hotkeyKeyCode == 0 ? "点击录制" : hotkeyLabel)
-                                            .font(.subheadline.monospaced())
-                                            .padding(.horizontal, 12)
-                                            .padding(.vertical, 6)
-                                            .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
-                                    }
-                                    .buttonStyle(.plain)
-
-                                    if hotkeyKeyCode != 0 {
-                                        Button(action: {
-                                            hotkeyKeyCode = 0
-                                            hotkeyModifiers = 0
-                                            GlobalHotkeyService.shared.apply(keyCode: 0, carbonModifiers: 0)
-                                        }) {
-                                            Image(systemName: "xmark.circle.fill")
-                                                .foregroundStyle(.secondary)
-                                        }
-                                        .buttonStyle(.plain)
-                                    }
+                                    Spacer(minLength: 12)
+                                    Button("立即重启") { relaunchApp() }
+                                        .buttonStyle(.bordered)
                                 }
                             }
-                        }
-
-                        Divider()
-
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("菜单栏操作快捷键")
-                                .font(.subheadline.weight(.medium))
-
-                            VStack(spacing: 6) {
-                                ShortcutRow(label: "刷新同步", shortcut: "⌘R")
-                                ShortcutRow(label: "打开主窗口", shortcut: "⌘O")
-                                ShortcutRow(label: "设置", shortcut: "⌘,")
-                                ShortcutRow(label: "退出", shortcut: "⌘Q")
+                            if let languageRestartError {
+                                Text(languageRestartError)
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.red)
                             }
                         }
                     }
                 }
 
-                SettingsCard(title: "Codex", icon: "arrow.triangle.2.circlepath") {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("启用智能切换")
-                                .font(.body)
-                            Text("开启后，菜单栏会显示「智能切换」入口；后台监测到当前 Codex 账号 5h/7d 配额耗尽时，会自动切换到更优账号并重启 Codex。")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Toggle("", isOn: $codexSmartSwitchEnabled)
-                            .toggleStyle(.switch)
-                            .labelsHidden()
-                    }
+                SettingsCard(title: "快捷键") {
+                    MenuBarHotkeySettings()
                 }
 
-                SettingsCard(title: "Dot Text API", icon: "display") {
-                    VStack(alignment: .leading, spacing: 16) {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Auto push quota")
-                                    .font(.body)
-                                Text("Push only Codex and Claude quota from the menu bar snapshot after sync finishes.")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Toggle("", isOn: $dotTextAPIEnabled)
-                                .toggleStyle(.switch)
-                                .labelsHidden()
-                        }
+                SettingsCard(title: "Codex") {
+                    SettingsToggleRow(
+                        title: "启用智能切换",
+                        detail: "开启后，菜单栏会显示「智能切换」入口；后台监测到当前 Codex 账号 5h/7d 配额耗尽时，会自动切换到更优账号并重启 Codex。",
+                        isOn: $codexSmartSwitchEnabled
+                    )
+                }
+
+                SettingsCard(title: "Dot Text API") {
+                    VStack(alignment: .leading, spacing: 18) {
+                        SettingsToggleRow(
+                            title: "Auto push quota",
+                            detail: "Push only Codex and Claude quota from the menu bar snapshot after sync finishes.",
+                            isOn: $dotTextAPIEnabled
+                        )
 
                         if dotTextAPIEnabled {
                             Divider()
-
-                            VStack(alignment: .leading, spacing: 10) {
-                                TextField("Device serial number", text: $dotTextAPIDeviceID)
-                                    .textFieldStyle(.roundedBorder)
-
-                                TextField("Task key (optional)", text: $dotTextAPITaskKey)
-                                    .textFieldStyle(.roundedBorder)
-
-                                SecureField("API key", text: $dotTextAPIKey)
-                                    .textFieldStyle(.roundedBorder)
-
-                                HStack {
+                            VStack(alignment: .leading, spacing: 14) {
+                                SettingsTextField(title: "Device serial number", text: $dotTextAPIDeviceID)
+                                SettingsTextField(title: "Task key (optional)", text: $dotTextAPITaskKey)
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text("API key")
+                                        .font(.system(size: 12, weight: .medium))
+                                    SecureField("API key", text: $dotTextAPIKey)
+                                        .textFieldStyle(.roundedBorder)
+                                }
+                                HStack(spacing: 12) {
+                                    Button("Save API Key") { saveDotTextAPIKey() }
+                                        .buttonStyle(.bordered)
                                     if let dotTextAPIStatus {
                                         Text(dotTextAPIStatus)
-                                            .font(.caption)
+                                            .font(.system(size: 12))
                                             .foregroundStyle(.secondary)
                                     }
-                                    Spacer()
-                                    Button("Save API Key") {
-                                        saveDotTextAPIKey()
-                                    }
-                                    .buttonStyle(.borderedProminent)
                                 }
                             }
+                            .frame(maxWidth: 460, alignment: .leading)
                         }
                     }
                 }
-                
-                // 通知
-                SettingsCard(title: "通知", icon: "bell.badge") {
-                    VStack(alignment: .leading, spacing: 16) {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("配额不足提醒")
-                                    .font(.body)
-                                Text("当任意工具的配额低于设定阈值时，发送系统通知提醒")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Toggle("", isOn: $notificationsEnabled)
-                                .toggleStyle(.switch)
-                                .labelsHidden()
-                        }
-                        
+
+                SettingsCard(title: "通知") {
+                    VStack(alignment: .leading, spacing: 18) {
+                        SettingsToggleRow(
+                            title: "配额不足提醒",
+                            detail: "当任意工具的配额低于设定阈值时，发送系统通知提醒",
+                            isOn: $notificationsEnabled
+                        )
                         if notificationsEnabled {
                             Divider()
-                            HStack {
-                                Text("提醒阈值")
-                                    .font(.body)
-                                Spacer()
-                                Stepper(
-                                    value: $notificationThreshold,
-                                    in: 5...50,
-                                    step: 5
-                                ) {
+                            Stepper(value: $notificationThreshold, in: 5...50, step: 5) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("提醒阈值")
+                                        .font(.system(size: 13, weight: .medium))
                                     Text("低于 \(notificationThreshold)% 时提醒")
+                                        .font(.system(size: 12))
                                         .monospacedDigit()
                                         .foregroundStyle(.secondary)
                                 }
                             }
+                            .frame(maxWidth: 360)
                         }
                     }
                 }
-                
-                // 数据与存储
-                SettingsCard(title: "数据与存储", icon: "externaldrive") {
-                    VStack(alignment: .leading, spacing: 16) {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
+
+                SettingsCard(title: "数据与存储") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(spacing: 20) {
+                            VStack(alignment: .leading, spacing: 5) {
                                 Text("已缓存数据")
-                                    .font(.body)
-                                Text("共 \(sessionRecords.count) 条会话记录，\(quotaRecords.count) 条配额快照")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                    .font(.system(size: 13, weight: .medium))
+                                if let counts = cachedRecordCounts {
+                                    Text("共 \(counts.sessions) 条会话记录，\(counts.quotas) 条配额快照")
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(.secondary)
+                                } else {
+                                    ProgressView().controlSize(.small)
+                                }
                             }
-                            Spacer()
+                            Spacer(minLength: 12)
                             Button("清除所有缓存", role: .destructive) {
                                 showingClearConfirm = true
                             }
                             .buttonStyle(.bordered)
-                            .tint(.red)
+                            .disabled(cacheIsBusy)
+                        }
+                        if cacheIsBusy {
+                            Text("同步完成后可清除缓存。")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                        }
+                        if let cacheStatus {
+                            Text(cacheStatus)
+                                .font(.system(size: 12))
+                                .foregroundStyle(cacheStatusIsError ? Color.red : .secondary)
                         }
                     }
                 }
-                
-                // 关于
-                SettingsCard(title: "关于", icon: "info.circle") {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
+
+                SettingsCard(title: "关于") {
+                    VStack(alignment: .leading, spacing: 14) {
+                        HStack(alignment: .firstTextBaseline) {
                             Text("OpenPulse")
-                                .font(.body.weight(.semibold))
-                            Text("版本 1.0.1 (Build 2)")
-                                .font(.caption)
+                                .font(.system(size: 15, weight: .semibold))
+                            Spacer()
+                            Text("版本 \(appVersion) (Build \(appBuild))")
+                                .font(.system(size: 12))
                                 .foregroundStyle(.secondary)
                         }
-                        Spacer()
-                        VStack(alignment: .trailing, spacing: 4) {
-                            Text("数据隐私安全")
-                                .font(.caption.weight(.medium))
-                            Text("所有数据均保存在本地 Mac 上\n无遥测，无云同步")
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
-                                .multilineTextAlignment(.trailing)
-                        }
+                        Divider()
+                        Text("会话与历史用量保存在本地 Mac。额度摘要可通过 iCloud 同步至 iPhone，并可按设置推送至 Dot Text API。")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
             }
-            .padding(24)
+            .frame(maxWidth: 980, alignment: .leading)
+            .padding(28)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .background(Color(NSColor.windowBackgroundColor))
         .navigationTitle("设置")
         .onAppear {
-            launchAtLogin = SMAppService.mainApp.status == .enabled
+            readLaunchAtLoginStatus()
+            refreshCacheCounts()
             dotTextAPIKey = (try? KeychainService.retrieve(key: KeychainService.Keys.dotAPIKey)) ?? ""
         }
-        .confirmationDialog("清除所有已缓存的会话和配额数据？此操作不可撤销。",
-                            isPresented: $showingClearConfirm) {
+        .onChange(of: appStore.syncService?.dataRevision) { _, _ in refreshCacheCounts() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            readLaunchAtLoginStatus()
+        }
+        .confirmationDialog("清除所有已缓存的会话、用量与配额数据？此操作不可撤销。", isPresented: $showingClearConfirm) {
             Button("清除", role: .destructive) { clearData() }
             Button("取消", role: .cancel) {}
         }
     }
 
-    // MARK: - Private
+    private func refreshCacheCounts() {
+        do {
+            cachedRecordCounts = (
+                sessions: try modelContext.fetchCount(FetchDescriptor<SessionRecord>()),
+                quotas: try modelContext.fetchCount(FetchDescriptor<QuotaRecord>())
+            )
+        } catch {
+            cachedRecordCounts = nil
+            cacheStatus = error.localizedDescription
+            cacheStatusIsError = true
+        }
+    }
 
     private func clearData() {
-        quotaRecords.forEach { modelContext.delete($0) }
-        sessionRecords.forEach { modelContext.delete($0) }
-        try? modelContext.save()
+        do {
+            try appStore.clearUsageCache()
+            cacheStatus = String(localized: "已清除会话、用量与配额缓存")
+            cacheStatusIsError = false
+            refreshCacheCounts()
+        } catch {
+            cacheStatus = error.localizedDescription
+            cacheStatusIsError = true
+        }
+    }
+
+    private func readLaunchAtLoginStatus() {
+        let status = SMAppService.mainApp.status
+        launchAtLogin = status == .enabled
+        launchAtLoginNeedsApproval = status == .requiresApproval
+    }
+
+    private func setLaunchAtLogin(_ enabled: Bool) {
+        launchAtLoginError = nil
+        do {
+            if enabled {
+                try SMAppService.mainApp.register()
+            } else {
+                try SMAppService.mainApp.unregister()
+            }
+        } catch {
+            launchAtLoginError = error.localizedDescription
+        }
+        readLaunchAtLoginStatus()
     }
 
     private func applyLanguagePreference(_ language: String) {
@@ -410,11 +327,22 @@ struct SettingsView: View {
     }
 
     private func relaunchApp() {
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        task.arguments = [Bundle.main.bundleURL.path]
-        try? task.run()
-        NSApp.terminate(nil)
+        languageRestartError = nil
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.createsNewApplicationInstance = true
+        NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: configuration) { application, error in
+            let didLaunch = application != nil
+            let errorMessage = error?.localizedDescription
+            Task { @MainActor in
+                if let errorMessage {
+                    languageRestartError = errorMessage
+                } else if didLaunch {
+                    NSApp.terminate(nil)
+                } else {
+                    languageRestartError = String(localized: "无法重新启动 OpenPulse。请手动重新打开应用。")
+                }
+            }
+        }
     }
 
     private func saveDotTextAPIKey() {
@@ -424,12 +352,12 @@ struct SettingsView: View {
                 KeychainService.delete(key: KeychainService.Keys.dotAPIKey)
                 bumpDotAPIKeyRevision()
                 dotTextAPIKey = ""
-                dotTextAPIStatus = "API key removed"
+                dotTextAPIStatus = String(localized: "API key removed")
             } else {
                 try KeychainService.store(key: KeychainService.Keys.dotAPIKey, value: trimmedKey)
                 bumpDotAPIKeyRevision()
                 dotTextAPIKey = trimmedKey
-                dotTextAPIStatus = "API key saved"
+                dotTextAPIStatus = String(localized: "API key saved")
             }
         } catch {
             dotTextAPIStatus = error.localizedDescription
@@ -446,11 +374,11 @@ struct ShortcutRow: View {
     var body: some View {
         HStack {
             Text(label)
-                .font(.caption)
+                .font(.system(size: 12))
                 .foregroundStyle(.secondary)
             Spacer()
             Text(shortcut)
-                .font(.caption.monospaced())
+                .font(.system(size: 12, weight: .medium, design: .monospaced))
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
                 .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
@@ -458,31 +386,57 @@ struct ShortcutRow: View {
     }
 }
 
-// MARK: - Settings Card
+// MARK: - Shared settings presentation
+
 struct SettingsCard<Content: View>: View {
-    let title: LocalizedStringKey
-    let icon: String
+    let title: String
+    var subtitle: String? = nil
     @ViewBuilder let content: () -> Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 8) {
-                Image(systemName: icon)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Color.accentColor)
-                Text(title)
-                    .font(.headline)
-            }
-            
+        VStack(alignment: .leading, spacing: 14) {
+            DashboardSectionTitle(title: title, subtitle: subtitle)
             content()
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .dashboardSurface()
         }
-        .padding(20)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(NSColor.controlBackgroundColor), in: RoundedRectangle(cornerRadius: 16))
-        .shadow(color: Color.black.opacity(0.03), radius: 8, y: 4)
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(Color.primary.opacity(0.05), lineWidth: 1)
-        )
+    }
+}
+
+private struct SettingsToggleRow: View {
+    let title: LocalizedStringKey
+    let detail: LocalizedStringKey
+    @Binding var isOn: Bool
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 20) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text(title)
+                    .font(.system(size: 13, weight: .medium))
+                Text(detail)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 12)
+            Toggle(title, isOn: $isOn)
+                .toggleStyle(.switch)
+                .labelsHidden()
+        }
+    }
+}
+
+private struct SettingsTextField: View {
+    let title: LocalizedStringKey
+    @Binding var text: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.system(size: 12, weight: .medium))
+            TextField(title, text: $text)
+                .textFieldStyle(.roundedBorder)
+        }
     }
 }

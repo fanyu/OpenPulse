@@ -7,27 +7,53 @@ actor AntigravityAccountService {
     private let session: URLSession
     private let supportDir: URL
     private let storeURL: URL
+    private let credentialOperations: CredentialOperations
+    private let writeStoreData: @Sendable (Data, URL) throws -> Void
 
-    init(fileManager: FileManager = .default, session: URLSession = .shared) {
+    struct CredentialOperations: Sendable {
+        let retrieve: @Sendable (String) throws -> String?
+        let store: @Sendable (String, String) throws -> Void
+        let delete: @Sendable (String) throws -> Void
+
+        static var keychain: Self {
+            Self(
+                retrieve: { try KeychainService.retrieve(key: $0) },
+                store: { try KeychainService.store(key: $0, value: $1) },
+                delete: { try KeychainService.deleteChecked(key: $0) }
+            )
+        }
+    }
+
+    init(
+        fileManager: FileManager = .default,
+        session: URLSession = .shared,
+        storeURL: URL? = nil,
+        credentialOperations: CredentialOperations = .keychain,
+        writeStoreData: @escaping @Sendable (Data, URL) throws -> Void = { try $0.write(to: $1, options: .atomic) }
+    ) {
         self.fileManager = fileManager
         self.session = session
-        supportDir = URL.homeDirectory.appending(path: ".openpulse")
-        storeURL = supportDir.appending(path: "antigravity-accounts.json")
+        let resolvedStoreURL = storeURL ?? URL.homeDirectory.appending(path: ".openpulse/antigravity-accounts.json")
+        self.storeURL = resolvedStoreURL
+        supportDir = resolvedStoreURL.deletingLastPathComponent()
+        self.credentialOperations = credentialOperations
+        self.writeStoreData = writeStoreData
     }
 
     static func keychainKey(email: String) -> String { "antigravity_refresh_\(email)" }
 
-    func listAccounts() async -> [AGStoredAccount] { loadStore() }
+    func listAccounts() async throws -> [AGStoredAccount] { try loadStore() }
 
-    func deleteAccount(email: String) async {
-        var store = loadStore()
+    func deleteAccount(email: String) async throws {
+        var store = try loadStore()
         store.removeAll { $0.email == email }
-        saveStore(store)
-        KeychainService.delete(key: Self.keychainKey(email: email))
+        // Keep the credential usable if the durable account-list update fails.
+        try saveStore(store)
+        try credentialOperations.delete(Self.keychainKey(email: email))
     }
 
     func refreshToken(for email: String) async -> String? {
-        try? KeychainService.retrieve(key: Self.keychainKey(email: email))
+        try? credentialOperations.retrieve(Self.keychainKey(email: email))
     }
 
     func addAccountViaOAuth(timeoutSeconds: TimeInterval = 600) async throws -> AGStoredAccount {
@@ -35,41 +61,75 @@ actor AntigravityAccountService {
         let challenge = OAuthPKCE.sha256Base64URL(verifier)
         let state = OAuthPKCE.randomBase64URL(byteCount: 32)
         let callback = OAuthCallbackBox<GoogleTokens>()
-        let (server, port) = try makeCallbackServer(callback: callback, verifier: verifier, state: state)
+        let (server, port) = try await makeCallbackServer(callback: callback, verifier: verifier, state: state)
+        defer { server.stop() }
         let redirectURI = "http://127.0.0.1:\(port)/callback"
         let authorizeURL = makeAuthorizeURL(redirectURI: redirectURI, challenge: challenge, state: state)
 
-        try await server.start()
-        defer { server.stop() }
         guard NSWorkspace.shared.open(authorizeURL) else { throw ServiceError.openFailed }
 
         let tokens = try await callback.wait(timeoutSeconds: timeoutSeconds)
         let email = try Self.email(fromIDToken: tokens.idToken)
         guard let refresh = tokens.refreshToken, !refresh.isEmpty else { throw ServiceError.noRefreshToken }
-        try KeychainService.store(key: Self.keychainKey(email: email), value: refresh)
 
-        var store = loadStore()
+        return try persistAccount(email: email, refreshToken: refresh)
+    }
+
+    /// Complete the account save without suspension between metadata validation and durable commit.
+    func persistAccount(email: String, refreshToken: String) throws -> AGStoredAccount {
+        var store = try loadStore()
+        let key = Self.keychainKey(email: email)
+        let previousCredential = try credentialOperations.retrieve(key)
+        var credentialCleanupError: KeychainError?
+        do {
+            try credentialOperations.store(key, refreshToken)
+        } catch KeychainError.legacyCleanupFailed(let status) {
+            // The new Data Protection credential is durable despite this cleanup warning.
+            credentialCleanupError = .legacyCleanupFailed(status)
+        }
+
         store.removeAll { $0.email == email }
         let account = AGStoredAccount(email: email, label: email, tierId: nil, tierName: nil,
                                       addedAt: Date(), updatedAt: Date())
         store.append(account)
-        saveStore(store)
+        do {
+            try saveStore(store)
+        } catch {
+            do {
+                if let previousCredential {
+                    try credentialOperations.store(key, previousCredential)
+                } else {
+                    try credentialOperations.delete(key)
+                }
+            } catch KeychainError.legacyCleanupFailed(let status) {
+                throw ServiceError.metadataSaveFailedWithLegacyCleanupFailure(status)
+            } catch {
+                throw ServiceError.credentialRestoreFailed
+            }
+            throw error
+        }
+        if let credentialCleanupError { throw credentialCleanupError }
         return account
     }
 
     // MARK: callback server (mirrors CodexAccountService.makeCallbackServer)
     private func makeCallbackServer(callback: OAuthCallbackBox<GoogleTokens>, verifier: String, state: String)
-        throws -> (SimpleHTTPServer, UInt16) {
+        async throws -> (SimpleHTTPServer, UInt16) {
         var port: UInt16 = 8123
         let maxPort: UInt16 = 8135
         var lastError: Error?
         while port <= maxPort {
+            try Task.checkCancellation()
             do {
                 let redirectURI = "http://127.0.0.1:\(port)/callback"
                 let server = try SimpleHTTPServer(port: port) { [session] request in
-                    let params = Dictionary(uniqueKeysWithValues: request.queryItems.compactMap { i in i.value.map { (i.name, $0) } })
                     guard request.path == "/callback" else { return .text(statusCode: 404, text: "Not Found") }
-                    guard params["state"] == state else { callback.fail(ServiceError.stateMismatch); return .text(statusCode: 400, text: "State mismatch") }
+                    guard let params = oauthCallbackParameters(request.queryItems) else {
+                        return .text(statusCode: 400, text: "Duplicate callback parameters")
+                    }
+                    guard params["state"] == state else {
+                        return .text(statusCode: 400, text: "State mismatch")
+                    }
                     guard let code = params["code"], !code.isEmpty else {
                         let msg = params["error_description"] ?? params["error"] ?? "Missing code"
                         callback.fail(ServiceError.callbackFailed(msg)); return .text(statusCode: 400, text: msg)
@@ -77,11 +137,22 @@ actor AntigravityAccountService {
                     do {
                         let tokens = try await Self.exchangeCode(session: session, code: code, verifier: verifier, redirectURI: redirectURI)
                         callback.succeed(tokens)
-                        return .html(statusCode: 200, body: "<html><body><h3>OpenPulse 登录成功，可以回到应用。</h3></body></html>")
+                        let message = String(localized: "授权完成，请返回 OpenPulse 查看账号保存结果。")
+                        return .html(statusCode: 200, body: "<html><body><h3>\(message)</h3></body></html>")
                     } catch { callback.fail(error); return .text(statusCode: 500, text: error.localizedDescription) }
                 }
+                do {
+                    try await server.start()
+                } catch {
+                    server.stop()
+                    throw error
+                }
                 return (server, port)
-            } catch { lastError = error; port += 1 }
+            } catch {
+                try Task.checkCancellation()
+                lastError = error
+                port += 1
+            }
         }
         throw lastError ?? ServiceError.callbackFailed("无法启动本地回调服务。")
     }
@@ -139,13 +210,30 @@ actor AntigravityAccountService {
         return email
     }
 
-    private func loadStore() -> [AGStoredAccount] {
-        guard let data = try? Data(contentsOf: storeURL) else { return [] }
-        return (try? JSONDecoder().decode([AGStoredAccount].self, from: data)) ?? []
+    private func loadStore() throws -> [AGStoredAccount] {
+        let data: Data
+        do {
+            data = try Data(contentsOf: storeURL)
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+            return []
+        } catch {
+            throw ServiceError.metadataReadFailed
+        }
+        do {
+            return try JSONDecoder().decode([AGStoredAccount].self, from: data)
+        } catch {
+            throw ServiceError.metadataReadFailed
+        }
     }
-    private func saveStore(_ store: [AGStoredAccount]) {
-        try? fileManager.createDirectory(at: supportDir, withIntermediateDirectories: true)
-        if let data = try? JSONEncoder().encode(store) { try? data.write(to: storeURL) }
+
+    private func saveStore(_ store: [AGStoredAccount]) throws {
+        do {
+            let data = try JSONEncoder().encode(store)
+            try fileManager.createDirectory(at: supportDir, withIntermediateDirectories: true)
+            try writeStoreData(data, storeURL)
+        } catch {
+            throw ServiceError.metadataSaveFailed
+        }
     }
 
     struct GoogleTokens: Decodable, Sendable {
@@ -156,12 +244,19 @@ actor AntigravityAccountService {
     }
     enum ServiceError: LocalizedError {
         case openFailed, noRefreshToken, stateMismatch, callbackFailed(String)
+        case metadataReadFailed, metadataSaveFailed, credentialRestoreFailed
+        case metadataSaveFailedWithLegacyCleanupFailure(Int32)
         var errorDescription: String? {
             switch self {
             case .openFailed: "无法打开浏览器完成 Google 登录。"
             case .noRefreshToken: "Google 未返回 refresh_token（请确认已授予离线访问）。"
             case .stateMismatch: "登录状态校验失败。"
             case .callbackFailed(let m): m
+            case .metadataReadFailed: String(localized: "无法读取 Antigravity 账号信息。请检查本地账号文件后重试。")
+            case .metadataSaveFailed: String(localized: "无法保存 Antigravity 账号信息。请检查文件访问权限后重试。")
+            case .credentialRestoreFailed: String(localized: "账号信息保存失败，且原授权恢复失败。请重新登录该账号。")
+            case .metadataSaveFailedWithLegacyCleanupFailure(let status):
+                String(localized: "账号信息保存失败，原授权已恢复，但旧授权清理失败（\(status)）。")
             }
         }
     }

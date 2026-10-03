@@ -28,15 +28,15 @@ enum CodexRouterDiagnostics {
     }
 
     static func userRollbackNoticeMessage(snapshot: String, reason: String) -> String {
-        "切换失败，已回退到: \(snapshot)。原因：\(reason)"
+        String(localized: "切换失败，已回退到: \(snapshot)。原因：\(reason)")
     }
 
     static func userRollbackFailureMessage(originalReason: String) -> String {
-        "切换失败，回退失败。原因：\(originalReason)"
+        String(localized: "切换失败，回退失败。原因：\(originalReason)")
     }
 
     static func userRollbackFailureMessage(rollbackError: String, originalReason: String) -> String {
-        "切换失败，回退失败：\(rollbackError)。原因：\(originalReason)"
+        String(localized: "切换失败，回退失败：\(rollbackError)。原因：\(originalReason)")
     }
 
     static func rollbackSnapshot(
@@ -47,7 +47,7 @@ enum CodexRouterDiagnostics {
         let provider = state.providers.first(where: { $0.id == providerID })
         let name = provider?.name ?? providerID
         let model = provider?.defaultModel ?? "-"
-        let modelText = model.isEmpty ? "model=未设置" : "model=\(model)"
+        let modelText = model.isEmpty ? String(localized: "model=未设置") : "model=\(model)"
         return "\(name) (\(providerID)) | \(modelText) | \(rollbackTimeFormatter.string(from: timestamp))"
     }
 }

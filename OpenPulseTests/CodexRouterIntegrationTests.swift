@@ -60,7 +60,7 @@ struct CodexRouterIntegrationTests {
         #expect(status.canUseRouter)
         #expect(status.currentModelProvider == "codex-router")
         #expect(status.healthService == "codex-router")
-        #expect(status.statusText == "Router 已就绪")
+        #expect(status.statusText == String(localized: "Router 已就绪"))
     }
 
     @Test
@@ -86,7 +86,7 @@ struct CodexRouterIntegrationTests {
         #expect(!status.canUseRouter)
         #expect(status.healthService == "not-codex-router")
         #expect(status.healthError == "服务类型不匹配：not-codex-router")
-        #expect(status.statusText == "Router 健康检查失败：服务类型不匹配：not-codex-router")
+        #expect(status.statusText == String(localized: "Router 健康检查失败：\("服务类型不匹配：not-codex-router")"))
     }
 
     @Test
@@ -184,7 +184,7 @@ struct CodexRouterIntegrationTests {
         #expect(!status.isUserEnabled)
         #expect(!status.isRouterHealthy)
         #expect(!status.canUseRouter)
-        #expect(status.statusText == "Router 已关闭（可在 Provider 中开启）")
+        #expect(status.statusText == String(localized: "Router 已关闭（可在 Provider 中开启）"))
     }
 
     @Test

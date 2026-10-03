@@ -18,6 +18,7 @@ final class CodexProviderManagerViewModel {
     var draftAPIKey: String = ""
     var isCreatingNew = false
     var isLoading = false
+    var isLoadingAPIKey = false
     var isWorking = false
     var errorMessage: String?
     var statusMessage: String?
@@ -25,6 +26,18 @@ final class CodexProviderManagerViewModel {
     var isRouterEnabled: Bool = false
     var isApplyingRouterState: Bool = false
     var isRefreshingRouterState: Bool = false
+    @ObservationIgnored private var selectionRequestID = UUID()
+    @ObservationIgnored private var originalAPIKey = ""
+    @ObservationIgnored private var hasLoaded = false
+
+    var isBusy: Bool {
+        isLoading || isLoadingAPIKey || isWorking || isApplyingRouterState || isRefreshingRouterState
+    }
+
+    var hasUnsavedChanges: Bool {
+        guard let saved = providers.first(where: { $0.id == draft.id }) else { return true }
+        return draft != saved || draftAPIKey != originalAPIKey
+    }
 
     func environmentVariableName() -> String {
         if draft.isBuiltIn {
@@ -37,17 +50,16 @@ final class CodexProviderManagerViewModel {
     }
 
     func load(using service: CodexProviderConfigService, coordinator: CodexRouterCoordinator) async {
+        guard !isBusy else { return }
         isLoading = true
+        defer { isLoading = false }
         errorMessage = nil
         do {
             let state = try await service.loadState()
             apply(state: state)
             routerStatus = await coordinator.loadStatus()
-            if let explicitEnabled = UserDefaults.standard.object(forKey: CodexRouterConstants.userEnabledDefaultsKey) as? Bool {
-                isRouterEnabled = explicitEnabled
-            } else {
-                isRouterEnabled = false
-            }
+            isRouterEnabled = routerStatus?.isUserEnabled ?? false
+            if !hasLoaded { selectedProviderID = currentProviderID }
             if let selected = providers.first(where: { $0.id == selectedProviderID }) {
                 draft = selected
             } else if let current = providers.first(where: { $0.id == currentProviderID }) {
@@ -58,23 +70,37 @@ final class CodexProviderManagerViewModel {
                 draft = first
             }
             draftAPIKey = await service.loadAPIKey(for: draft.id) ?? ""
+            originalAPIKey = draftAPIKey
+            hasLoaded = true
         } catch {
             errorMessage = error.localizedDescription
         }
-        isLoading = false
     }
 
     func selectProvider(id: String, using service: CodexProviderConfigService) async {
+        guard !isLoading, !isWorking, !isApplyingRouterState, !isRefreshingRouterState else { return }
         guard let provider = providers.first(where: { $0.id == id }) else { return }
+        let requestID = UUID()
+        selectionRequestID = requestID
+        isLoadingAPIKey = true
+        defer {
+            if selectionRequestID == requestID { isLoadingAPIKey = false }
+        }
         selectedProviderID = id
         draft = provider
-        draftAPIKey = await service.loadAPIKey(for: id) ?? ""
+        draftAPIKey = ""
         isCreatingNew = false
         errorMessage = nil
         statusMessage = nil
+        let apiKey = await service.loadAPIKey(for: id) ?? ""
+        guard selectionRequestID == requestID, selectedProviderID == id, !isCreatingNew else { return }
+        draftAPIKey = apiKey
+        originalAPIKey = apiKey
     }
 
     func beginCreate() {
+        guard !isBusy else { return }
+        selectionRequestID = UUID()
         draft = CodexProviderConfig(
             id: "",
             name: "",
@@ -86,43 +112,58 @@ final class CodexProviderManagerViewModel {
         selectedProviderID = ""
         isCreatingNew = true
         draftAPIKey = ""
+        originalAPIKey = ""
         errorMessage = nil
         statusMessage = nil
     }
 
     func save(using service: CodexProviderConfigService) async {
+        guard !isBusy else { return }
+        let providerID = draft.id.trimmingCharacters(in: .whitespacesAndNewlines)
+        if isCreatingNew, providers.contains(where: { $0.id == providerID }) {
+            errorMessage = String(localized: "Provider ID 已存在，请使用其他标识。")
+            return
+        }
+        let submittedDraft = draft
+        let submittedAPIKey = draftAPIKey
+        let isNewProvider = isCreatingNew
         isWorking = true
+        defer { isWorking = false }
         errorMessage = nil
         statusMessage = nil
         do {
-            let state = try await service.saveProvider(draft, apiKey: draftAPIKey)
+            let state = try await service.saveProvider(submittedDraft, apiKey: submittedAPIKey, isNew: isNewProvider)
             apply(state: state)
-            selectedProviderID = draft.id
-            if let saved = providers.first(where: { $0.id == draft.id }) {
+            selectedProviderID = providerID
+            if let saved = providers.first(where: { $0.id == providerID }) {
                 draft = saved
             }
+            draftAPIKey = submittedAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            originalAPIKey = draftAPIKey
             isCreatingNew = false
-            statusMessage = "Provider 已保存"
+            statusMessage = String(localized: "Provider 已保存")
         } catch {
             errorMessage = error.localizedDescription
         }
-        isWorking = false
     }
 
     func refreshRouterStatus(using coordinator: CodexRouterCoordinator) async {
+        guard !isBusy else { return }
         isRefreshingRouterState = true
         defer { isRefreshingRouterState = false }
 
         routerStatus = await coordinator.loadStatus()
-        statusMessage = "Router 状态已刷新"
-        if let explicitEnabled = UserDefaults.standard.object(forKey: CodexRouterConstants.userEnabledDefaultsKey) as? Bool {
-            isRouterEnabled = explicitEnabled
-        } else {
-            isRouterEnabled = false
-        }
+        statusMessage = String(localized: "Router 状态已刷新")
+        isRouterEnabled = routerStatus?.isUserEnabled ?? false
     }
 
     func setCurrent(using service: CodexProviderConfigService, coordinator: CodexRouterCoordinator) async {
+        guard !isBusy else { return }
+        guard !isCreatingNew, !hasUnsavedChanges else {
+            errorMessage = String(localized: "请先保存 Provider 修改，再应用路由。")
+            return
+        }
+        guard canSelectCurrentProvider() else { return }
         isWorking = true
         errorMessage = nil
         statusMessage = nil
@@ -133,14 +174,14 @@ final class CodexProviderManagerViewModel {
         do {
             let state = try await service.switchProvider(
                 id: targetProviderID,
-                allowThirdParty: canSelectCurrentProvider()
+                allowThirdParty: true
             )
             apply(state: state)
             routerStatus = await coordinator.loadStatus()
             if let saved = providers.first(where: { $0.id == draft.id }) {
                 draft = saved
             }
-            statusMessage = "已应用到当前路由：\(draft.name)"
+            statusMessage = String(localized: "已应用到当前路由：\(draft.name)")
         } catch {
             let originalError = error.localizedDescription
             AppLogger.shared.recordDiagnostic(
@@ -159,6 +200,9 @@ final class CodexProviderManagerViewModel {
                     )
                     apply(state: rollbackState)
                     draft = rollbackState.providers.first(where: { $0.id == fallbackProviderID }) ?? draft
+                    selectedProviderID = draft.id
+                    draftAPIKey = await service.loadAPIKey(for: draft.id) ?? ""
+                    originalAPIKey = draftAPIKey
                     let rollbackSnapshot = describeRollbackTarget(
                         providerID: fallbackProviderID,
                         in: rollbackState,
@@ -196,30 +240,35 @@ final class CodexProviderManagerViewModel {
     }
 
     func setRouterEnabled(_ enabled: Bool, using service: CodexProviderConfigService, coordinator: CodexRouterCoordinator) async {
+        guard !isBusy else { return }
         isApplyingRouterState = true
+        defer { isApplyingRouterState = false }
         errorMessage = nil
         statusMessage = nil
-        isRouterEnabled = enabled
-        await coordinator.setUserEnabled(enabled)
+        // Keep Router enabled until the replacement route was written successfully.
         if !enabled && currentProviderID != CodexRouterConstants.openAIProviderID {
             do {
                 let state = try await service.switchProvider(id: CodexRouterConstants.openAIProviderID, allowThirdParty: true)
                 apply(state: state)
             } catch {
                 errorMessage = error.localizedDescription
-                isApplyingRouterState = false
                 routerStatus = await coordinator.loadStatus()
+                isRouterEnabled = routerStatus?.isUserEnabled ?? false
                 return
             }
         }
+        await coordinator.setUserEnabled(enabled)
         routerStatus = await coordinator.loadStatus()
-        statusMessage = enabled ? "Router 已开启" : "Router 已关闭，已切回 OpenAI 模型路由"
-        isApplyingRouterState = false
+        isRouterEnabled = routerStatus?.isUserEnabled ?? enabled
+        statusMessage = enabled
+            ? String(localized: "Router 已开启")
+            : String(localized: "Router 已关闭，已切回 OpenAI 模型路由")
     }
 
     func delete(using service: CodexProviderConfigService) async {
-        guard !draft.isBuiltIn else { return }
+        guard !isBusy, !draft.isBuiltIn, draft.id != currentProviderID else { return }
         isWorking = true
+        defer { isWorking = false }
         errorMessage = nil
         statusMessage = nil
         let deletingID = draft.id
@@ -230,40 +279,40 @@ final class CodexProviderManagerViewModel {
                 selectedProviderID = current.id
                 draft = current
                 draftAPIKey = await service.loadAPIKey(for: current.id) ?? ""
+                originalAPIKey = draftAPIKey
             }
             isCreatingNew = false
-            statusMessage = "Provider 已删除"
+            statusMessage = String(localized: "Provider 已删除")
         } catch {
             errorMessage = error.localizedDescription
         }
-        isWorking = false
     }
 
     func canSelect(_ provider: CodexProviderConfig) -> Bool {
-        if provider.id == CodexRouterConstants.openAIProviderID {
-            return true
+        unavailableReason(for: provider) == nil
+    }
+
+    func unavailableReason(for provider: CodexProviderConfig) -> String? {
+        if provider.defaultModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return String(localized: "请填写默认模型名")
         }
-        guard let routerStatus, routerStatus.canSelectThirdParty else {
-            return false
-        }
-        return !provider.defaultModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if provider.id == CodexRouterConstants.openAIProviderID { return nil }
+        if !isRouterEnabled { return String(localized: "请先开启 Router") }
+        guard let routerStatus else { return String(localized: "Router 状态尚未就绪") }
+        guard routerStatus.canSelectThirdParty else { return routerStatus.healthError ?? String(localized: "Router 未就绪") }
+        return nil
     }
 
     func canSelectCurrentProvider() -> Bool {
-        guard let provider = providers.first(where: { $0.id == draft.id }) else { return false }
-        if provider.id == CodexRouterConstants.openAIProviderID { return true }
-        if canSelect(provider) { return true }
-        if provider.defaultModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            errorMessage = "该模型未填写默认模型名"
+        guard let provider = providers.first(where: { $0.id == draft.id }) else {
+            errorMessage = String(localized: "请先保存 Provider。")
+            return false
         }
-        if !isRouterEnabled {
-            errorMessage = "请先开启 Router"
-        } else if routerStatus == nil {
-            errorMessage = "Router 状态尚未就绪"
-        } else if let status = routerStatus, !status.isRouterHealthy {
-            errorMessage = status.healthError ?? "Router 未就绪"
+        if let reason = unavailableReason(for: provider) {
+            errorMessage = reason
+            return false
         }
-        return false
+        return true
     }
 
     private func apply(state: CodexProviderConfigurationState) {

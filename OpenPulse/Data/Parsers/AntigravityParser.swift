@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 /// OAuth credentials belonging to the Antigravity CLI application itself — not personal credentials.
 /// Extracted from the open-source Antigravity/Quotio CLI tool source code.
@@ -29,8 +30,12 @@ actor AntigravityParser {
     ]
     private let userAgent = "antigravity/cli/1.0.13 (aidev_client; os_type=darwin; arch=arm64)"
 
-    init(session: URLSession = .shared, accountService: AntigravityAccountService? = AntigravityAccountService()) {
-        brainDir = URL.homeDirectory.appending(path: ".gemini/antigravity/brain")
+    init(
+        brainDir: URL = .homeDirectory.appending(path: ".gemini/antigravity/brain"),
+        session: URLSession = .shared,
+        accountService: AntigravityAccountService? = AntigravityAccountService()
+    ) {
+        self.brainDir = brainDir
         proxyDir = URL.homeDirectory.appending(path: ".cli-proxy-api")
         self.session = session
         self.accountService = accountService
@@ -101,6 +106,7 @@ actor AntigravityParser {
                 .map { String($0.dropFirst(2)) } ?? meta.summary ?? ""
 
             sessions.append(ToolSession(
+                id: Self.sessionID(for: dir),
                 tool: .antigravity,
                 startedAt: updatedAt,
                 endedAt: updatedAt,
@@ -112,10 +118,27 @@ actor AntigravityParser {
         return sessions.sorted { $0.startedAt < $1.startedAt }
     }
 
+    /// Brain directories identify conversations; refreshes must update the same row.
+    static func sessionID(for directory: URL) -> UUID {
+        if let sourceID = UUID(uuidString: directory.lastPathComponent) { return sourceID }
+        let namespace = "com.fanyu.OpenPulse.AntigravitySession\0"
+        let source = Data((namespace + directory.standardizedFileURL.path).utf8)
+        var bytes = Array(SHA256.hash(data: source).prefix(16))
+        // UUID version 8 and RFC variant bits for the deterministic custom hash.
+        bytes[6] = (bytes[6] & 0x0F) | 0x80
+        bytes[8] = (bytes[8] & 0x3F) | 0x80
+        return UUID(uuid: (
+            bytes[0], bytes[1], bytes[2], bytes[3],
+            bytes[4], bytes[5], bytes[6], bytes[7],
+            bytes[8], bytes[9], bytes[10], bytes[11],
+            bytes[12], bytes[13], bytes[14], bytes[15]
+        ))
+    }
+
     // MARK: - Quota via Google Cloud Code Assist API
 
     func fetchAllAccountQuotas() async throws -> AGQuotaFetchResult {
-        let creds = await credentials()
+        let creds = try await credentials()
         guard !creds.isEmpty else { throw AntigravityError.noAuthFile }
 
         var accounts: [AGAccountQuota] = []
@@ -144,7 +167,7 @@ actor AntigravityParser {
     }
 
     func fetchQuota(forAccountEmail email: String) async throws -> AGAccountQuota {
-        guard let cred = await credentials().first(where: { $0.email == email }) else {
+        guard let cred = try await credentials().first(where: { $0.email == email }) else {
             throw AntigravityError.noAuthFile
         }
         return try await fetchAccountQuota(for: cred)
@@ -164,7 +187,7 @@ actor AntigravityParser {
             if auth.isExpired, let refreshToken = auth.refreshToken, !refreshToken.isEmpty {
                 let (newToken, expiresIn) = try await refreshAccessToken(refreshToken: refreshToken)
                 auth.accessToken = newToken
-                persistRefreshedToken(at: file, originalData: rawData, newToken: newToken, expiresIn: expiresIn)
+                Self.persistRefreshedToken(at: file, originalData: rawData, newToken: newToken, expiresIn: expiresIn)
             }
 
             token = auth.accessToken
@@ -189,13 +212,7 @@ actor AntigravityParser {
         var request = URLRequest(url: URL(string: AntigravityOAuth.tokenEndpoint)!)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        let params = [
-            "client_id": AntigravityOAuth.clientId,
-            "client_secret": AntigravityOAuth.clientSecret,
-            "refresh_token": refreshToken,
-            "grant_type": "refresh_token"
-        ]
-        request.httpBody = params.map { "\($0.key)=\($0.value)" }.joined(separator: "&").data(using: .utf8)
+        request.httpBody = Self.refreshRequestBody(refreshToken: refreshToken)
         request.timeoutInterval = 15
 
         let (data, response) = try await session.data(for: request)
@@ -206,17 +223,46 @@ actor AntigravityParser {
         return (tokenResp.accessToken, tokenResp.expiresIn)
     }
 
-    private func persistRefreshedToken(at url: URL, originalData: Data, newToken: String, expiresIn: Int) {
-        guard var json = try? JSONSerialization.jsonObject(with: originalData) as? [String: Any] else { return }
+    static func refreshRequestBody(refreshToken: String) -> Data {
+        let params = [
+            "client_id": AntigravityOAuth.clientId,
+            "client_secret": AntigravityOAuth.clientSecret,
+            "refresh_token": refreshToken,
+            "grant_type": "refresh_token"
+        ]
+        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
+        let body = params.sorted { $0.key < $1.key }.map { key, value in
+            "\(key.addingPercentEncoding(withAllowedCharacters: allowed) ?? key)=\(value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value)"
+        }.joined(separator: "&")
+        return Data(body.utf8)
+    }
+
+    /// Re-read after the network request so unrelated CLI edits are preserved.
+    /// A replaced credential belongs to another refresh and must be left alone.
+    @discardableResult
+    static func persistRefreshedToken(at url: URL, originalData: Data, newToken: String, expiresIn: Int, now: Date = Date()) -> Bool {
+        let decoder = JSONDecoder()
+        guard let originalAuth = try? decoder.decode(AntigravityAuthFile.self, from: originalData),
+              let currentData = try? Data(contentsOf: url),
+              let currentAuth = try? decoder.decode(AntigravityAuthFile.self, from: currentData),
+              currentAuth.accessToken == originalAuth.accessToken,
+              currentAuth.refreshToken == originalAuth.refreshToken,
+              currentAuth.email == originalAuth.email,
+              currentAuth.type == originalAuth.type,
+              var json = try? JSONSerialization.jsonObject(with: currentData) as? [String: Any] else { return false }
         json["access_token"] = newToken
-        let expiry = Date().addingTimeInterval(TimeInterval(expiresIn))
+        let expiry = now.addingTimeInterval(TimeInterval(expiresIn))
         let fmt = ISO8601DateFormatter()
         fmt.formatOptions = [.withInternetDateTime]
         json["expired"] = fmt.string(from: expiry)
         json["expires_in"] = expiresIn
-        json["timestamp"] = Int64(Date().timeIntervalSince1970 * 1000)
-        if let updated = try? JSONSerialization.data(withJSONObject: json, options: [.sortedKeys]) {
-            try? updated.write(to: url)
+        json["timestamp"] = Int64(now.timeIntervalSince1970 * 1000)
+        do {
+            let updated = try JSONSerialization.data(withJSONObject: json, options: [.sortedKeys])
+            try updated.write(to: url, options: .atomic)
+            return true
+        } catch {
+            return false
         }
     }
 
@@ -316,7 +362,13 @@ actor AntigravityParser {
     /// Merged view of Antigravity credentials from both sources: cli-proxy auth files on disk
     /// (`~/.cli-proxy-api/antigravity-*.json`) and OpenPulse-owned OAuth accounts (Keychain-backed,
     /// via `AntigravityAccountService`). OpenPulse wins on email collisions (see `mergeCredentials`).
-    private func credentials() async -> [AGCredential] {
+    private func credentials() async throws -> [AGCredential] {
+        let ownedAccounts: [AGStoredAccount]
+        if let accountService {
+            ownedAccounts = try await accountService.listAccounts()
+        } else {
+            ownedAccounts = []
+        }
         let cli = ((try? FileManager.default.contentsOfDirectory(at: proxyDir, includingPropertiesForKeys: nil)) ?? [])
             .filter { $0.lastPathComponent.hasPrefix("antigravity-") && $0.pathExtension == "json" }
             .map { file -> AGCredential in
@@ -327,7 +379,7 @@ actor AntigravityParser {
                     ?? emailFromFilename(file.deletingPathExtension().lastPathComponent)
                 return AGCredential(email: email, source: .cliProxy(file))
             }
-        let op = await (accountService?.listAccounts() ?? []).map { AGCredential(email: $0.email, source: .openPulse) }
+        let op = ownedAccounts.map { AGCredential(email: $0.email, source: .openPulse) }
         return Self.mergeCredentials(cliProxy: cli, openPulse: op)
     }
 

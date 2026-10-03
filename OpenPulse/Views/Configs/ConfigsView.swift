@@ -11,7 +11,16 @@ struct ConfigFile: Identifiable, Hashable {
     let url: URL
     let kind: ConfigFileKind
 
-    enum ConfigFileKind { case config, prompt }
+    enum ConfigFileKind {
+        case config, prompt
+
+        var localizedTitle: LocalizedStringResource {
+            switch self {
+            case .config: "工具配置"
+            case .prompt: "全局规则"
+            }
+        }
+    }
 
     var isJSON: Bool     { url.pathExtension.lowercased() == "json" }
     var isTOML: Bool     { url.pathExtension.lowercased() == "toml" }
@@ -112,19 +121,26 @@ enum MarkdownMode: String { case edit, split, preview }
 
 // MARK: - View Model
 
+@MainActor
 @Observable
 final class ConfigsViewModel {
     var selectedFile: ConfigFile? {
         didSet {
+            guard selectedFile?.id != oldValue?.id else { return }
             showDiff = false
             loadFile(selectedFile)
         }
     }
-    var editorContent: String = ""
-    var savedContent: String = ""
+    var editorContent: String = "" {
+        didSet { isDirty = editorContent != savedContent }
+    }
+    var savedContent: String = "" {
+        didSet { isDirty = editorContent != savedContent }
+    }
     var isDirty: Bool = false
     var showDiff: Bool = false
     var loadError: String?
+    var fileIsMissing = false
     var saveError: String?
     var lastSavedTime: Date?
     var cursorPosition = CursorPosition()
@@ -132,33 +148,49 @@ final class ConfigsViewModel {
     var markdownModeRaw: String = MarkdownMode.split.rawValue
 
     func loadFile(_ file: ConfigFile?) {
-        isDirty = false; saveError = nil; lastSavedTime = nil; loadError = nil
+        saveError = nil; lastSavedTime = nil; loadError = nil; fileIsMissing = false
         editorContent = ""; savedContent = ""
         cursorPosition = CursorPosition()
         guard let file else { return }
-        guard FileManager.default.fileExists(atPath: file.url.path) else {
-            loadError = "文件不存在"; return
-        }
         do {
             let text = try String(contentsOf: file.url, encoding: .utf8)
             editorContent = text; savedContent = text
         } catch {
+            let code = (error as NSError).code
+            fileIsMissing = (error as NSError).domain == NSCocoaErrorDomain
+                && (code == NSFileReadNoSuchFileError || code == NSFileNoSuchFileError)
             loadError = error.localizedDescription
         }
     }
 
-    func saveFile(_ file: ConfigFile) {
+    @discardableResult
+    func saveFile(_ file: ConfigFile) -> Bool {
+        guard loadError == nil, selectedFile?.id == file.id else { return false }
         saveError = nil
+        let fileManager = FileManager.default
         let backupURL = file.url.appendingPathExtension("bak")
-        if FileManager.default.fileExists(atPath: file.url.path) {
-            try? FileManager.default.copyItem(at: file.url, to: backupURL)
-        }
+        let temporaryBackupURL = file.url.appendingPathExtension("bak.\(UUID().uuidString).tmp")
         do {
+            guard try String(contentsOf: file.url, encoding: .utf8) == savedContent else {
+                saveError = String(localized: "文件已在其他位置修改。重新载入后再保存。")
+                return false
+            }
+            // Refresh the backup on every save. Copying preserves the original
+            // file's permissions, including restrictive credential-file modes.
+            try fileManager.copyItem(at: file.url, to: temporaryBackupURL)
+            defer { try? fileManager.removeItem(at: temporaryBackupURL) }
+            if fileManager.fileExists(atPath: backupURL.path) {
+                _ = try fileManager.replaceItemAt(backupURL, withItemAt: temporaryBackupURL, options: .usingNewMetadataOnly)
+            } else {
+                try fileManager.moveItem(at: temporaryBackupURL, to: backupURL)
+            }
             try editorContent.write(to: file.url, atomically: true, encoding: .utf8)
-            savedContent = editorContent; isDirty = false; showDiff = false; lastSavedTime = Date()
+            savedContent = editorContent; showDiff = false; lastSavedTime = Date()
             NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
+            return true
         } catch {
-            saveError = "保存失败：\(error.localizedDescription)"
+            saveError = String(localized: "保存失败：\(error.localizedDescription)")
+            return false
         }
     }
 
@@ -166,30 +198,34 @@ final class ConfigsViewModel {
         do {
             try FileManager.default.createDirectory(
                 at: file.url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try "".write(to: file.url, atomically: true, encoding: .utf8)
+            // A file may have appeared since the failed read. Never replace it.
+            try Data().write(to: file.url, options: .withoutOverwriting)
             loadFile(file)
         } catch {
-            loadError = "创建失败：\(error.localizedDescription)"
+            loadError = String(localized: "创建失败：\(error.localizedDescription)")
+            fileIsMissing = !FileManager.default.fileExists(atPath: file.url.path)
         }
     }
 
     func revert() {
-        editorContent = savedContent; isDirty = false; showDiff = false; saveError = nil
+        editorContent = savedContent; showDiff = false; saveError = nil
     }
 
     func formatJSON() {
         guard let formatted = prettyPrintJSON(editorContent) else { return }
         editorContent = formatted
+        saveError = nil
     }
 
     var filteredGroupedFiles: [(tool: String, files: [ConfigFile])] {
         var seen: [String] = []
         var map: [String: [ConfigFile]] = [:]
-        for f in allConfigFiles {
-            if searchText.isEmpty || f.displayName.localizedCaseInsensitiveContains(searchText) || f.toolName.localizedCaseInsensitiveContains(searchText) {
-                if map[f.toolName] == nil { seen.append(f.toolName) }
-                map[f.toolName, default: []].append(f)
-            }
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        for file in allConfigFiles where query.isEmpty
+            || file.displayName.localizedCaseInsensitiveContains(query)
+            || file.toolName.localizedCaseInsensitiveContains(query) {
+            if map[file.toolName] == nil { seen.append(file.toolName) }
+            map[file.toolName, default: []].append(file)
         }
         return seen.map { (tool: $0, files: map[$0]!) }
     }
@@ -198,122 +234,209 @@ final class ConfigsViewModel {
 // MARK: - Main view
 
 struct ConfigsView: View {
-    @State private var viewModel = ConfigsViewModel()
-    @Namespace private var tabNamespace
+    @Environment(AppStore.self) private var appStore
+    @AppStorage("configs.wordWrap") private var wordWrap = true
+    @AppStorage("configs.fontSize") private var fontSize = 13.0
+    @State private var pendingFile: ConfigFile?
+    @State private var showSwitchConfirmation = false
 
-    @AppStorage("configs.wordWrap")     private var wordWrap: Bool   = true
-    @AppStorage("configs.fontSize")     private var fontSize: Double = 13.0
+    private var viewModel: ConfigsViewModel { appStore.configsViewModel }
 
     var body: some View {
-        VStack(spacing: 0) {
-            headerSection
-            Divider()
-            editorSection
+        GeometryReader { viewport in
+            VStack(spacing: 0) {
+                ConfigsPageHeader(viewModel: viewModel, onSelect: selectFile)
+                Divider()
+                ConfigsEditorWorkspace(viewModel: viewModel, wordWrap: $wordWrap, fontSize: $fontSize)
+            }
+            .frame(width: viewport.size.width, height: viewport.size.height)
+            .clipped()
         }
         .navigationTitle("配置文件")
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
-            if viewModel.selectedFile == nil {
-                viewModel.selectedFile = allConfigFiles.first
-            }
+            if viewModel.selectedFile == nil { viewModel.selectedFile = allConfigFiles.first }
         }
-        .background { keyboardShortcuts }
-    }
-
-    private var headerSection: some View {
-        VStack(spacing: 12) {
-            HStack(spacing: 16) {
-                supplierSelector
-                Spacer()
-                searchAndFontControls
-            }
-            fileTabs
-        }
-        .padding(.horizontal, 16)
-        .padding(.top, 16)
-        .background(Color(nsColor: .windowBackgroundColor))
-    }
-
-    private var supplierSelector: some View {
-        HStack(spacing: 10) {
-            ForEach(["Codex", "Claude Code", "Antigravity"], id: \.self) { tool in
-                let isSelected = viewModel.selectedFile?.toolName == tool
-                FilterChip(label: tool, isSelected: isSelected) {
-                    withAnimation(.spring(duration: 0.3)) {
-                        if let first = allConfigFiles.first(where: { $0.toolName == tool }) {
-                            viewModel.selectedFile = first
-                        }
-                    }
+        .alert("保存修改？", isPresented: $showSwitchConfirmation) {
+            Button("保存并切换") {
+                if let current = viewModel.selectedFile, viewModel.saveFile(current) {
+                    viewModel.selectedFile = pendingFile
                 }
+                pendingFile = nil
+            }
+            Button("放弃修改", role: .destructive) {
+                viewModel.selectedFile = pendingFile
+                pendingFile = nil
+            }
+            Button("取消", role: .cancel) { pendingFile = nil }
+        } message: {
+            if let file = viewModel.selectedFile {
+                Text("切换文件前，保存对 \(file.displayName) 的修改。")
             }
         }
     }
 
-    private var searchAndFontControls: some View {
-        HStack(spacing: 12) {
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(.tertiary)
-                TextField("搜索...", text: $viewModel.searchText)
-                    .textFieldStyle(.plain)
+    private func selectFile(_ file: ConfigFile) {
+        guard file.id != viewModel.selectedFile?.id else { return }
+        if viewModel.isDirty {
+            pendingFile = file
+            showSwitchConfirmation = true
+        } else {
+            viewModel.selectedFile = file
+        }
+    }
+}
+
+private struct ConfigsPageHeader: View {
+    @Bindable var viewModel: ConfigsViewModel
+    var onSelect: (ConfigFile) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .firstTextBaseline, spacing: 16) {
+                Text("配置文件")
+                    .font(.system(size: 28, weight: .semibold))
+                Spacer(minLength: 0)
+                ConfigsSearchField(text: $viewModel.searchText)
+                    .frame(minWidth: 150, maxWidth: 240)
+            }
+            Text("编辑工具配置与全局规则。修改会保留在这里，保存后写入原文件。")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            ConfigsFileSelection(
+                groups: viewModel.filteredGroupedFiles,
+                selectedFile: viewModel.selectedFile,
+                isSearching: !viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                isDirty: viewModel.isDirty,
+                onSelect: onSelect
+            )
+        }
+        .padding(20)
+    }
+}
+
+private struct ConfigsSearchField: View {
+    @Binding var text: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            TextField("搜索工具或文件", text: $text)
+                .textFieldStyle(.plain)
+            if !text.isEmpty {
+                Button { text = "" } label: { Image(systemName: "xmark.circle.fill") }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .help("清除搜索")
+                    .accessibilityLabel("清除搜索")
+            }
+        }
+        .font(.system(size: 12))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+        .overlay { RoundedRectangle(cornerRadius: 8).strokeBorder(Color.primary.opacity(0.07)) }
+    }
+}
+
+private struct ConfigsFileSelection: View {
+    let groups: [(tool: String, files: [ConfigFile])]
+    let selectedFile: ConfigFile?
+    let isSearching: Bool
+    let isDirty: Bool
+    var onSelect: (ConfigFile) -> Void
+
+    private var visibleFiles: [ConfigFile] {
+        if isSearching { return groups.flatMap(\.files) }
+        return groups.first(where: { $0.tool == selectedFile?.toolName })?.files ?? groups.first?.files ?? []
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if groups.isEmpty {
+                Label("没有匹配的配置文件", systemImage: "doc.text.magnifyingglass")
                     .font(.system(size: 12))
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(Color(nsColor: .controlBackgroundColor).opacity(0.8), in: RoundedRectangle(cornerRadius: 6))
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.1), lineWidth: 0.5))
-            .frame(width: 160)
-
-            HStack(spacing: 8) {
-                Button { withAnimation { fontSize = min(fontSize + 1, 28) } } label: { Image(systemName: "plus.magnifyingglass") }
-                    .buttonStyle(.plain).help("增大字号")
-                Button { withAnimation { fontSize = max(fontSize - 1, 9) } } label: { Image(systemName: "minus.magnifyingglass") }
-                    .buttonStyle(.plain).help("减小字号")
-            }
-        }
-        .foregroundStyle(.secondary)
-    }
-
-    private var fileTabs: some View {
-        Group {
-            if let currentTool = viewModel.selectedFile?.toolName {
-                HStack(spacing: 4) {
-                    ForEach(allConfigFiles.filter({ $0.toolName == currentTool })) { file in
-                        let isSelected = viewModel.selectedFile?.id == file.id
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                viewModel.selectedFile = file
-                            }
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: file.kindIcon)
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(isSelected ? file.kindColor : .secondary)
-                                Text(file.displayName)
-                                    .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(isSelected ? Color(nsColor: .textBackgroundColor) : Color.clear, in: UnevenRoundedRectangle(topLeadingRadius: 6, topTrailingRadius: 6))
-                            .overlay(alignment: .bottom) {
-                                if isSelected {
-                                    Color.accentColor.frame(height: 2).offset(y: 1)
-                                        .matchedGeometryEffect(id: "tab_underline", in: tabNamespace)
+                    .foregroundStyle(.secondary)
+                    .padding(.vertical, 8)
+            } else {
+                ScrollView(.horizontal) {
+                    HStack(spacing: 8) {
+                        ForEach(groups, id: \.tool) { group in
+                            if let first = group.files.first {
+                                Button {
+                                    if selectedFile?.toolName != group.tool { onSelect(first) }
+                                } label: {
+                                    HStack(spacing: 7) {
+                                        if let tool = first.tool { ToolLogoImage(tool: tool, size: 15) }
+                                        Text(group.tool)
+                                            .font(.system(size: 12, weight: selectedFile?.toolName == group.tool ? .medium : .regular))
+                                    }
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 7)
+                                    .background(selectedFile?.toolName == group.tool ? Color.primary.opacity(0.07) : Color.clear, in: RoundedRectangle(cornerRadius: 7))
+                                    .contentShape(Rectangle())
                                 }
+                                .buttonStyle(.plain)
+                                .accessibilityAddTraits(selectedFile?.toolName == group.tool ? .isSelected : [])
                             }
-                            .foregroundStyle(isSelected ? .primary : .secondary)
                         }
-                        .buttonStyle(.plain)
                     }
-                    Spacer()
                 }
-                .padding(.horizontal, 2)
+                .scrollIndicators(.hidden)
+                ScrollView(.horizontal) {
+                    HStack(spacing: 8) {
+                        ForEach(visibleFiles) { file in
+                            ConfigFileTab(file: file, isSelected: selectedFile?.id == file.id, isDirty: isDirty && selectedFile?.id == file.id, showTool: isSearching) { onSelect(file) }
+                        }
+                    }
+                }
+                .scrollIndicators(.hidden)
             }
         }
     }
+}
 
-    private var editorSection: some View {
+private struct ConfigFileTab: View {
+    let file: ConfigFile
+    let isSelected: Bool
+    let isDirty: Bool
+    let showTool: Bool
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: file.kindIcon).foregroundStyle(.secondary)
+                Text(file.displayName)
+                if showTool {
+                    Text(file.toolName).foregroundStyle(.secondary)
+                }
+                if isDirty {
+                    Circle().fill(.orange).frame(width: 5, height: 5)
+                        .accessibilityLabel("已修改")
+                }
+            }
+            .font(.system(size: 12, weight: isSelected ? .medium : .regular))
+            .padding(.horizontal, 11)
+            .padding(.vertical, 8)
+            .background(isSelected ? Color(nsColor: .controlBackgroundColor) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+            .overlay { RoundedRectangle(cornerRadius: 8).strokeBorder(Color.primary.opacity(isSelected ? 0.12 : 0.06)) }
+            .foregroundStyle(isSelected ? .primary : .secondary)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .help(Text(file.kind.localizedTitle))
+    }
+}
+
+private struct ConfigsEditorWorkspace: View {
+    @Bindable var viewModel: ConfigsViewModel
+    @Binding var wordWrap: Bool
+    @Binding var fontSize: Double
+
+    var body: some View {
         EditorPanel(
             file: viewModel.selectedFile,
             editorContent: $viewModel.editorContent,
@@ -327,69 +450,35 @@ struct ConfigsView: View {
             markdownModeRaw: $viewModel.markdownModeRaw,
             wordWrap: $wordWrap,
             fontSize: $fontSize,
+            fileIsMissing: viewModel.fileIsMissing,
             onSave: { viewModel.saveFile($0) },
             onRevert: { viewModel.revert() },
             onFormat: { viewModel.formatJSON() },
-            onCreate: { viewModel.createFile($0) }
+            onCreate: { viewModel.createFile($0) },
+            onReload: { viewModel.loadFile($0) }
         )
-        .transition(.opacity.combined(with: .move(edge: .bottom)))
-    }
-
-    private var keyboardShortcuts: some View {
-        Group {
-            Button("") { withAnimation { fontSize = min(fontSize + 1, 28) } }.keyboardShortcut("+", modifiers: .command)
-            Button("") { withAnimation { fontSize = min(fontSize + 1, 28) } }.keyboardShortcut("=", modifiers: .command)
-            Button("") { withAnimation { fontSize = max(fontSize - 1, 9) } }.keyboardShortcut("-", modifiers: .command)
+        .background {
+            ConfigsFontShortcuts(fontSize: $fontSize)
         }
-        .opacity(0).allowsHitTesting(false)
     }
 }
 
-// MARK: - Subviews
-
-struct ConfigFileRow: View {
-    let file: ConfigFile
-    let isSelected: Bool
-    let isDirty: Bool
+private struct ConfigsFontShortcuts: View {
+    @Binding var fontSize: Double
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: file.kindIcon)
-                .foregroundStyle(isSelected ? .white : file.kindColor)
-                .font(.system(size: 13, weight: .semibold))
-                .frame(width: 24, height: 24)
-                .background(file.kindColor.opacity(isSelected ? 0 : 0.15), in: RoundedRectangle(cornerRadius: 6))
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(file.displayName)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(isSelected ? .white : .primary)
-                
-                let ext = file.url.pathExtension.uppercased()
-                Text(ext.isEmpty ? "OTHER" : ext)
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .foregroundStyle(isSelected ? .white.opacity(0.8) : .secondary.opacity(0.8))
-            }
-
-            Spacer()
-
-            if isDirty {
-                Circle()
-                    .fill(isSelected ? .white : .orange)
-                    .frame(width: 7, height: 7)
-                    .shadow(color: .black.opacity(0.1), radius: 1)
-            }
-
-            if !FileManager.default.fileExists(atPath: file.url.path) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(isSelected ? .white : .orange)
-                    .font(.system(size: 11))
-            }
+        Group {
+            Button("") { fontSize = min(fontSize + 1, 28) }.keyboardShortcut("+", modifiers: .command)
+            Button("") { fontSize = min(fontSize + 1, 28) }.keyboardShortcut("=", modifiers: .command)
+            Button("") { fontSize = max(fontSize - 1, 9) }.keyboardShortcut("-", modifiers: .command)
         }
-        .padding(.vertical, 4)
-        .contentShape(Rectangle())
+        .opacity(0)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
+
+// MARK: - Editor workspace
 
 struct EditorPanel: View {
     let file: ConfigFile?
@@ -404,13 +493,16 @@ struct EditorPanel: View {
     @Binding var markdownModeRaw: String
     @Binding var wordWrap: Bool
     @Binding var fontSize: Double
+    var fileIsMissing = false
 
     var onSave: (ConfigFile) -> Void
     var onRevert: () -> Void
     var onFormat: () -> Void
     var onCreate: (ConfigFile) -> Void
+    var onReload: (ConfigFile) -> Void = { _ in }
 
     @State private var triggerFind = false
+    @State private var showReloadConfirmation = false
 
     private var markdownMode: MarkdownMode { MarkdownMode(rawValue: markdownModeRaw) ?? .split }
 
@@ -424,38 +516,48 @@ struct EditorPanel: View {
                         showDiff: $showDiff,
                         markdownModeRaw: $markdownModeRaw,
                         wordWrap: $wordWrap,
+                        fontSize: $fontSize,
                         loadError: loadError,
                         onSave: { onSave(file) },
                         onRevert: onRevert,
                         onFormat: onFormat,
-                        onFind: { triggerFind = true }
+                        onFind: { triggerFind = true },
+                        onReload: {
+                            if isDirty { showReloadConfirmation = true } else { onReload(file) }
+                        }
                     )
 
                     Divider()
 
-                    ZStack {
-                        Color(nsColor: .textBackgroundColor)
-                        
-                        Group {
-                            if let err = loadError {
-                                FileNotFoundPanel(file: file, error: err, onCreate: { onCreate(file) })
-                            } else if showDiff {
-                                DiffPanel(savedContent: savedContent, editorContent: editorContent)
-                            } else {
-                                EditorArea(
-                                    file: file,
-                                    content: $editorContent,
-                                    savedContent: savedContent,
-                                    cursorPosition: $cursorPosition,
-                                    triggerFind: $triggerFind,
-                                    markdownMode: markdownMode,
-                                    fontSize: fontSize,
-                                    wordWrap: wordWrap,
-                                    isDirty: $isDirty,
-                                    saveError: $saveError
-                                )
+                    // Native document views scroll inside this viewport. Their
+                    // fitting sizes must not move the toolbar or status bar.
+                    GeometryReader { viewport in
+                        ZStack {
+                            Color(nsColor: .textBackgroundColor)
+
+                            Group {
+                                if let err = loadError {
+                                    FileNotFoundPanel(file: file, error: err, isMissing: fileIsMissing, onCreate: { onCreate(file) }, onReload: { onReload(file) })
+                                } else if showDiff {
+                                    DiffPanel(savedContent: savedContent, editorContent: editorContent)
+                                } else {
+                                    EditorArea(
+                                        file: file,
+                                        content: $editorContent,
+                                        savedContent: savedContent,
+                                        cursorPosition: $cursorPosition,
+                                        triggerFind: $triggerFind,
+                                        markdownMode: markdownMode,
+                                        fontSize: fontSize,
+                                        wordWrap: wordWrap,
+                                        isDirty: $isDirty,
+                                        saveError: $saveError
+                                    )
+                                }
                             }
                         }
+                        .frame(width: viewport.size.width, height: viewport.size.height)
+                        .clipped()
                     }
                     .background(Color(nsColor: .textBackgroundColor))
 
@@ -486,6 +588,14 @@ struct EditorPanel: View {
                 .background(Color(nsColor: .windowBackgroundColor).opacity(0.3))
             }
         }
+        .alert("重新载入文件？", isPresented: $showReloadConfirmation) {
+            Button("放弃修改并重新载入", role: .destructive) {
+                if let file { onReload(file) }
+            }
+            Button("取消", role: .cancel) { }
+        } message: {
+            Text("未保存的修改将被替换为文件中的内容。")
+        }
     }
 }
 
@@ -495,111 +605,153 @@ struct EditorToolbar: View {
     @Binding var showDiff: Bool
     @Binding var markdownModeRaw: String
     @Binding var wordWrap: Bool
+    @Binding var fontSize: Double
     let loadError: String?
     var onSave: () -> Void
     var onRevert: () -> Void
     var onFormat: () -> Void
     var onFind: () -> Void
+    var onReload: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(file.displayName).font(.headline)
-                    if isDirty {
-                        Text("已修改")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(Color.orange, in: Capsule())
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack(spacing: 8) {
+                        Text(file.displayName).font(.system(size: 14, weight: .semibold))
+                        if isDirty {
+                            Text("已修改")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.orange)
+                        }
                     }
+                    Text(file.url.path.replacingOccurrences(of: home.path, with: "~"))
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
                 }
-                Text(file.url.path.replacingOccurrences(of: home.path, with: "~"))
-                    .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Button("保存", action: onSave)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .disabled(!isDirty || loadError != nil)
+                    .keyboardShortcut("s", modifiers: .command)
             }
-
-            Spacer()
-
-            if file.isMarkdown && loadError == nil {
-                Picker("", selection: $markdownModeRaw) {
-                    Label("编辑", systemImage: "pencil").tag(MarkdownMode.edit.rawValue)
-                    Label("分栏", systemImage: "rectangle.split.2x1").tag(MarkdownMode.split.rawValue)
-                    Label("预览", systemImage: "eye").tag(MarkdownMode.preview.rawValue)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) {
+                    if file.isMarkdown { ConfigsMarkdownModePicker(mode: $markdownModeRaw, isEnabled: loadError == nil) }
+                    ConfigsEditorActions(file: file, isDirty: isDirty, showDiff: $showDiff, wordWrap: $wordWrap, fontSize: $fontSize, loadError: loadError, canFind: loadError == nil && !showDiff && (!file.isMarkdown || markdownModeRaw != MarkdownMode.preview.rawValue), onRevert: onRevert, onFormat: onFormat, onFind: onFind, onReload: onReload)
                 }
-                .pickerStyle(.segmented)
-                .frame(width: 140)
-                .controlSize(.small)
-
-                Divider().frame(height: 16)
+                VStack(alignment: .leading, spacing: 10) {
+                    if file.isMarkdown { ConfigsMarkdownModePicker(mode: $markdownModeRaw, isEnabled: loadError == nil) }
+                    ConfigsEditorActions(file: file, isDirty: isDirty, showDiff: $showDiff, wordWrap: $wordWrap, fontSize: $fontSize, loadError: loadError, canFind: loadError == nil && !showDiff && (!file.isMarkdown || markdownModeRaw != MarkdownMode.preview.rawValue), onRevert: onRevert, onFormat: onFormat, onFind: onFind, onReload: onReload)
+                }
             }
-
-            HStack(spacing: 8) {
-                if loadError == nil {
-                    Button(action: onFind) {
-                        Image(systemName: "magnifyingglass")
-                    }
-                    .buttonStyle(.plain)
-                    .help("搜索 (⌘F)")
-                }
-
-                if file.isJSON && loadError == nil {
-                    Button(action: onFormat) {
-                        Image(systemName: "text.alignleft")
-                    }
-                    .buttonStyle(.plain)
-                    .help("格式化 JSON (⌥⌘F)")
-                    .keyboardShortcut("f", modifiers: [.option, .command])
-                }
-
-                Toggle(isOn: $wordWrap) {
-                    Image(systemName: "text.word.spacing")
-                }
-                .toggleStyle(.button)
-                .buttonStyle(.plain)
-                .help("自动换行")
-
-                if isDirty && loadError == nil {
-                    Toggle(isOn: $showDiff) {
-                        Image(systemName: "arrow.left.arrow.right")
-                    }
-                    .toggleStyle(.button)
-                    .buttonStyle(.plain)
-                    .help("查看差异 (⇧⌘D)")
-                    .keyboardShortcut("d", modifiers: [.shift, .command])
-
-                    Button(action: onRevert) {
-                        Image(systemName: "arrow.uturn.backward")
-                    }
-                    .buttonStyle(.plain)
-                    .help("还原修改")
-                }
-
-                Button(action: { NSWorkspace.shared.activateFileViewerSelecting([file.url]) }) {
-                    Image(systemName: "folder")
-                }
-                .buttonStyle(.plain)
-                .help("在 Finder 中显示")
-
-                Button(action: { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(file.url.path, forType: .string) }) {
-                    Image(systemName: "doc.on.doc")
-                }
-                .buttonStyle(.plain)
-                .help("复制路径")
-            }
-            .foregroundStyle(.secondary)
-
-            Divider().frame(height: 16)
-
-            Button(action: onSave) {
-                Text("保存")
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-            .disabled(!isDirty || loadError != nil)
-            .keyboardShortcut("s", modifiers: .command)
         }
-        .padding(.horizontal, 16).padding(.vertical, 8)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
         .background(.bar)
+    }
+}
+
+private struct ConfigsMarkdownModePicker: View {
+    @Binding var mode: String
+    let isEnabled: Bool
+
+    var body: some View {
+        Picker("Markdown 显示方式", selection: $mode) {
+            Label("编辑", systemImage: "pencil").tag(MarkdownMode.edit.rawValue)
+            Label("分栏", systemImage: "rectangle.split.2x1").tag(MarkdownMode.split.rawValue)
+            Label("预览", systemImage: "eye").tag(MarkdownMode.preview.rawValue)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .frame(width: 156)
+        .controlSize(.small)
+        .disabled(!isEnabled)
+    }
+}
+
+private struct ConfigsEditorActions: View {
+    let file: ConfigFile
+    let isDirty: Bool
+    @Binding var showDiff: Bool
+    @Binding var wordWrap: Bool
+    @Binding var fontSize: Double
+    let loadError: String?
+    let canFind: Bool
+    var onRevert: () -> Void
+    var onFormat: () -> Void
+    var onFind: () -> Void
+    var onReload: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button(action: onFind) { Image(systemName: "magnifyingglass") }
+                .help("搜索 (⌘F)")
+                .accessibilityLabel("搜索文件内容")
+                .disabled(!canFind)
+            if file.isJSON {
+                Button(action: onFormat) { Image(systemName: "text.alignleft") }
+                    .help("格式化 JSON (⌥⌘F)")
+                    .accessibilityLabel("格式化 JSON")
+                    .keyboardShortcut("f", modifiers: [.option, .command])
+                    .disabled(loadError != nil)
+            }
+            Toggle(isOn: $wordWrap) { Image(systemName: "text.word.spacing") }
+                .toggleStyle(.button)
+                .help("自动换行")
+                .accessibilityLabel("自动换行")
+                .disabled(loadError != nil)
+            Divider().frame(height: 16)
+            ConfigsFontControls(fontSize: $fontSize)
+            Spacer(minLength: 8)
+            Menu {
+                Toggle("查看差异", isOn: $showDiff)
+                    .disabled(!isDirty || loadError != nil)
+                    .keyboardShortcut("d", modifiers: [.shift, .command])
+                Button("还原修改", systemImage: "arrow.uturn.backward", action: onRevert)
+                    .disabled(!isDirty || loadError != nil)
+                Button("重新载入", systemImage: "arrow.clockwise", action: onReload)
+                Divider()
+                Button("在 Finder 中显示", systemImage: "folder") {
+                    NSWorkspace.shared.activateFileViewerSelecting([file.url])
+                }
+                Button("复制路径", systemImage: "doc.on.doc") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(file.url.path, forType: .string)
+                }
+            } label: { Image(systemName: "ellipsis") }
+            .menuIndicator(.hidden)
+            .help("更多操作")
+            .accessibilityLabel("更多操作")
+        }
+        .buttonStyle(.borderless)
+        .controlSize(.small)
+        .font(.system(size: 12))
+        .foregroundStyle(.secondary)
+    }
+}
+
+private struct ConfigsFontControls: View {
+    @Binding var fontSize: Double
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button { fontSize = max(fontSize - 1, 9) } label: { Image(systemName: "textformat.size.smaller") }
+                .help("减小字号")
+                .accessibilityLabel("减小字号")
+                .disabled(fontSize <= 9)
+            Text("\(Int(fontSize))")
+                .font(.system(size: 11).monospacedDigit())
+                .frame(minWidth: 18)
+                .accessibilityLabel("编辑器字号 \(Int(fontSize))")
+            Button { fontSize = min(fontSize + 1, 28) } label: { Image(systemName: "textformat.size.larger") }
+                .help("增大字号")
+                .accessibilityLabel("增大字号")
+                .disabled(fontSize >= 28)
+        }
     }
 }
 
@@ -621,10 +773,7 @@ struct EditorArea: View {
             case .edit:
                 editor
             case .split:
-                HSplitView {
-                    editor.frame(minWidth: 200)
-                    MarkdownPreviewView(source: content).frame(minWidth: 200)
-                }
+                ConfigsSplitView(leading: editor, trailing: MarkdownPreviewView(source: content))
             case .preview:
                 MarkdownPreviewView(source: content)
             }
@@ -647,6 +796,64 @@ struct EditorArea: View {
                 saveError = nil
             }
         )
+        .id(file.id)
+    }
+}
+
+// A nested HSplitView inherits NavigationSplitView's navigation-pane safe area
+// and can lay out across the sidebar. Keep this local divider in the viewport.
+private struct ConfigsSplitView<Leading: View, Trailing: View>: View {
+    let leading: Leading
+    let trailing: Trailing
+    @State private var leadingFraction: CGFloat = 0.5
+    @State private var dragStartWidth: CGFloat?
+    private let dividerWidth: CGFloat = 7
+
+    var body: some View {
+        GeometryReader { viewport in
+            let availableWidth = max(0, viewport.size.width - dividerWidth)
+            let minimumWidth = min(200, availableWidth / 2)
+            let leadingWidth = min(max(availableWidth * leadingFraction, minimumWidth), availableWidth - minimumWidth)
+
+            HStack(spacing: 0) {
+                leading
+                    .frame(width: leadingWidth, height: viewport.size.height)
+                    .clipped()
+                Rectangle()
+                    .fill(Color(nsColor: .separatorColor))
+                    .frame(width: 1)
+                    .frame(width: dividerWidth, height: viewport.size.height)
+                    .contentShape(Rectangle())
+                    .onHover { hovering in
+                        if hovering { NSCursor.resizeLeftRight.set() } else { NSCursor.arrow.set() }
+                    }
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                if dragStartWidth == nil { dragStartWidth = leadingWidth }
+                                let width = min(max((dragStartWidth ?? leadingWidth) + value.translation.width, minimumWidth), availableWidth - minimumWidth)
+                                leadingFraction = width / max(1, availableWidth)
+                            }
+                            .onEnded { _ in dragStartWidth = nil }
+                    )
+                    .accessibilityLabel("分栏")
+                    .accessibilityValue(Text(Double(leadingWidth / max(1, availableWidth)), format: .percent.precision(.fractionLength(0))))
+                    .accessibilityAdjustableAction { direction in
+                        let delta: CGFloat
+                        switch direction {
+                        case .increment: delta = 24
+                        case .decrement: delta = -24
+                        @unknown default: return
+                        }
+                        let width = min(max(leadingWidth + delta, minimumWidth), availableWidth - minimumWidth)
+                        leadingFraction = width / max(1, availableWidth)
+                    }
+                trailing
+                    .frame(width: max(0, availableWidth - leadingWidth), height: viewport.size.height)
+                    .clipped()
+            }
+            .frame(width: viewport.size.width, height: viewport.size.height)
+        }
     }
 }
 
@@ -661,60 +868,66 @@ struct EditorStatusBar: View {
     let lastSavedTime: Date?
 
     var body: some View {
-        HStack(spacing: 12) {
-            if file.isJSON && loadError == nil {
-                if let err = jsonError(content) {
-                    Label("JSON 无效: \(err)", systemImage: "xmark.circle.fill")
-                        .foregroundStyle(.red)
-                } else if !content.isEmpty {
-                    Label("JSON 有效", systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                }
-            }
-
-            if let err = saveError {
-                Label(err, systemImage: "exclamationmark.circle.fill")
+        VStack(alignment: .leading, spacing: 8) {
+            if let error = saveError {
+                Label(error, systemImage: "exclamationmark.circle")
+                    .font(.system(size: 11))
                     .foregroundStyle(.red)
+                    .textSelection(.enabled)
             }
-
-            Spacer()
-
-            if isDirty {
-                let (left, right) = lineDiff(original: savedContent, modified: content)
-                let removed = left.filter  { $0.kind == .deleted  }.count
-                let added   = right.filter { $0.kind == .inserted }.count
-                if removed > 0 || added > 0 {
-                    HStack(spacing: 4) {
-                        if removed > 0 { Text("−\(removed)").foregroundStyle(.red) }
-                        if added   > 0 { Text("+\(added)").foregroundStyle(.green) }
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 16) {
+                    ConfigsDocumentStatus(content: content, isJSON: file.isJSON && loadError == nil)
+                    Spacer(minLength: 12)
+                    ConfigsCursorStatus(position: cursorPosition)
+                    if let lastSavedTime, !isDirty {
+                        Text("已保存 \(lastSavedTime, format: .dateTime.hour().minute().second())")
+                            .foregroundStyle(.secondary)
                     }
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    statusDivider
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    ConfigsDocumentStatus(content: content, isJSON: file.isJSON && loadError == nil)
+                    ConfigsCursorStatus(position: cursorPosition)
                 }
             }
-
-            if let t = lastSavedTime {
-                Text("已保存 \(t.formatted(.dateTime.hour().minute().second()))")
-                    .foregroundStyle(.secondary)
-                statusDivider
-            }
-
-            Text("Ln \(cursorPosition.line), Col \(cursorPosition.column)")
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(.secondary)
-
-            statusDivider
-
-            Text("\(content.components(separatedBy: .newlines).count) 行")
-                .foregroundStyle(.tertiary)
         }
-        .font(.caption)
-        .padding(.horizontal, 16).padding(.vertical, 4)
+        .font(.system(size: 11))
+        .padding(.horizontal, 20)
+        .padding(.vertical, 10)
         .background(.bar)
     }
+}
 
-    private var statusDivider: some View {
-        Divider().frame(height: 12).padding(.horizontal, 4)
+private struct ConfigsDocumentStatus: View {
+    let content: String
+    let isJSON: Bool
+
+    var body: some View {
+        HStack(spacing: 12) {
+            if isJSON {
+                if let error = jsonError(content) {
+                    Label("JSON 无效", systemImage: "exclamationmark.circle")
+                        .foregroundStyle(.red)
+                        .help(error)
+                        .accessibilityValue(error)
+                } else if !content.isEmpty {
+                    Label("JSON 有效", systemImage: "checkmark.circle")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Text("\(content.components(separatedBy: .newlines).count) 行")
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+private struct ConfigsCursorStatus: View {
+    let position: CursorPosition
+
+    var body: some View {
+        Text("行 \(position.line) · 列 \(position.column)")
+            .monospacedDigit()
+            .foregroundStyle(.secondary)
     }
 }
 
@@ -724,15 +937,15 @@ struct DiffPanel: View {
 
     var body: some View {
         let (leftDiffs, rightDiffs) = lineDiff(original: savedContent, modified: editorContent)
-        HSplitView {
-            DiffColumn(title: "原始版本", diffs: leftDiffs).frame(minWidth: 200)
-            DiffColumn(title: "当前修改", diffs: rightDiffs).frame(minWidth: 200)
-        }
+        ConfigsSplitView(
+            leading: DiffColumn(title: "原始版本", diffs: leftDiffs),
+            trailing: DiffColumn(title: "当前修改", diffs: rightDiffs)
+        )
     }
 }
 
 struct DiffColumn: View {
-    let title: String
+    let title: LocalizedStringResource
     let diffs: [LineDiff]
 
     var body: some View {
@@ -794,26 +1007,43 @@ struct DiffRow: View {
 struct FileNotFoundPanel: View {
     let file: ConfigFile
     let error: String
+    let isMissing: Bool
     var onCreate: () -> Void
+    var onReload: () -> Void
 
     var body: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "doc.badge.plus")
-                .font(.system(size: 48))
+        VStack(spacing: 18) {
+            Image(systemName: isMissing ? "doc.badge.plus" : "doc.text.magnifyingglass")
+                .font(.system(size: 30, weight: .light))
                 .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
             VStack(spacing: 8) {
-                Text("配置文件缺失").font(.headline)
+                if isMissing {
+                    Text("配置文件缺失").font(.system(size: 16, weight: .semibold))
+                } else {
+                    Text("无法读取配置文件").font(.system(size: 16, weight: .semibold))
+                }
                 Text(file.url.path.replacingOccurrences(of: home.path, with: "~"))
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
-                    .padding(.horizontal, 40)
+                    .textSelection(.enabled)
+                Text(error)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .textSelection(.enabled)
             }
-            Button(action: onCreate) {
-                Label("立即创建", systemImage: "plus")
+            if isMissing {
+                Button("立即创建", systemImage: "plus", action: onCreate)
+                    .buttonStyle(.borderedProminent)
+            } else {
+                Button("重新载入", systemImage: "arrow.clockwise", action: onReload)
+                    .buttonStyle(.bordered)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
         }
+        .padding(28)
+        .frame(maxWidth: 460)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.background)
     }
@@ -824,8 +1054,13 @@ struct FileNotFoundPanel: View {
 struct MarkdownPreviewView: NSViewRepresentable {
     let source: String
 
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: WKWebView, context: Context) -> CGSize? {
+        proposal.replacingUnspecifiedDimensions(by: .zero)
+    }
+
     func makeNSView(context: Context) -> WKWebView {
         let wv = WKWebView()
+        wv.navigationDelegate = context.coordinator
         wv.setValue(false, forKey: "drawsBackground")
         return wv
     }
@@ -833,20 +1068,54 @@ struct MarkdownPreviewView: NSViewRepresentable {
     func updateNSView(_ webView: WKWebView, context: Context) {
         guard source != context.coordinator.lastSource else { return }
         context.coordinator.lastSource = source
-        let encoded = (try? JSONEncoder().encode(source)).flatMap { String(data: $0, encoding: .utf8) } ?? "\"\""
-        webView.loadHTMLString(markdownHTML(encoded), baseURL: nil)
+        let html = configMarkdownHTML(source: source)
+        let coordinator = context.coordinator
+        coordinator.pendingRender?.cancel()
+        let work = DispatchWorkItem { [weak webView, weak coordinator] in
+            guard coordinator?.lastSource == source else { return }
+            webView?.loadHTMLString(html, baseURL: nil)
+        }
+        coordinator.pendingRender = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18, execute: work)
+    }
+
+    static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
+        coordinator.pendingRender?.cancel()
+        coordinator.lastSource = nil
+        webView.stopLoading()
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
-    final class Coordinator: NSObject { var lastSource: String = "" }
+    @MainActor
+    final class Coordinator: NSObject, WKNavigationDelegate {
+        var lastSource: String?
+        var pendingRender: DispatchWorkItem?
+
+        func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
+            guard navigationAction.navigationType == .linkActivated else { return .allow }
+            guard let url = navigationAction.request.url,
+                  ["https", "http", "mailto"].contains(url.scheme?.lowercased() ?? "") else { return .cancel }
+            NSWorkspace.shared.open(url)
+            return .cancel
+        }
+    }
+}
+
+func configMarkdownHTML(source: String) -> String {
+    let encoded = ((try? JSONEncoder().encode(source)).flatMap { String(data: $0, encoding: .utf8) } ?? "\"\"")
+        .replacingOccurrences(of: "<", with: "\\u003C")
+        .replacingOccurrences(of: ">", with: "\\u003E")
+    return markdownHTML(encoded)
 }
 
 private func markdownHTML(_ encodedJSON: String) -> String {
     #"""
-    <!DOCTYPE html><html><head><meta charset="utf-8"><style>
+    <!DOCTYPE html><html><head><meta charset="utf-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+    <style>
     :root{color-scheme:light dark}
     body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:14px;line-height:1.6;
-         padding:30px 40px;max-width:800px;margin:0 auto;
+         padding:24px;max-width:800px;margin:0 auto;
          color:light-dark(#1d1d1f,#f5f5f7);background:transparent;word-break:break-word}
     h1,h2,h3,h4,h5,h6{margin:1.5em 0 0.5em;font-weight:600;line-height:1.25}
     h1{font-size:2em;border-bottom:1px solid light-dark(#d1d1d6,#3a3a3c);padding-bottom:.3em}
@@ -870,7 +1139,7 @@ private func markdownHTML(_ encodedJSON: String) -> String {
     </style></head><body><div id="c"></div><script>
     (function(){
     var src=\#(encodedJSON);
-    function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+    function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
     function inline(s){
       s=esc(s);
       s=s.replace(/`([^`\n]+)`/g,'<code>$1</code>');
@@ -878,7 +1147,10 @@ private func markdownHTML(_ encodedJSON: String) -> String {
       s=s.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
       s=s.replace(/\*(.+?)\*/g,'<em>$1</em>');
       s=s.replace(/~~(.+?)~~/g,'<del>$1</del>');
-      s=s.replace(/\[([^\]]+)\]\(([^)]+)\)/g,'<a href="$2">$1</a>');
+      s=s.replace(/\[([^\]]+)\]\(([^)]+)\)/g,function(_,label,url){
+        if(!/^(https?:\/\/|mailto:|#)/i.test(url))return label;
+        return '<a href="'+url+'" rel="noopener noreferrer">'+label+'</a>';
+      });
       return s;
     }
     var lines=src.split('\n'),html='',inFence=false,fenceLines=[],inUL=false,inOL=false;
@@ -921,6 +1193,10 @@ struct ConfigEditor: NSViewRepresentable {
     var wordWrap: Bool
     var onContentChange: () -> Void
 
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSScrollView, context: Context) -> CGSize? {
+        proposal.replacingUnspecifiedDimensions(by: .zero)
+    }
+
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSTextView.scrollableTextView()
         // Prevent ruler from bleeding into header by clipping to bounds
@@ -957,6 +1233,8 @@ struct ConfigEditor: NSViewRepresentable {
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? NSTextView else { return }
+        let syntaxChanged = context.coordinator.parent.isJSON != isJSON || context.coordinator.parent.isTOML != isTOML
+        context.coordinator.parent = self
 
         let newFont = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
         if textView.font?.pointSize != newFont.pointSize {
@@ -970,10 +1248,13 @@ struct ConfigEditor: NSViewRepresentable {
         }
 
         if textView.string != text {
-            let sel = textView.selectedRange()
+            let selection = textView.selectedRange()
             textView.string = text
-            let clamped = NSRange(location: min(sel.location, textView.string.count), length: 0)
-            textView.setSelectedRange(clamped)
+            context.coordinator.updateLineStarts(for: text)
+            let utf16Length = (textView.string as NSString).length
+            textView.setSelectedRange(NSRange(location: min(selection.location, utf16Length), length: 0))
+        } else if syntaxChanged, let storage = textView.textStorage {
+            Highlighter.apply(to: storage, font: newFont, isJSON: isJSON, isTOML: isTOML)
         }
 
         if wordWrap {
@@ -1000,9 +1281,13 @@ struct ConfigEditor: NSViewRepresentable {
         Coordinator(parent: self, font: NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular))
     }
 
-    final class Coordinator: NSObject, NSTextViewDelegate, NSTextStorageDelegate {
+    // This storage belongs exclusively to the main-actor NSTextView. Its
+    // synchronous editing callbacks never originate from background mutations.
+    @MainActor
+    final class Coordinator: NSObject, NSTextViewDelegate, @preconcurrency NSTextStorageDelegate {
         var parent: ConfigEditor
         var currentFont: NSFont
+        private var lineStarts: [Int] = [0]
 
         init(parent: ConfigEditor, font: NSFont) {
             self.parent = parent
@@ -1022,21 +1307,33 @@ struct ConfigEditor: NSViewRepresentable {
         }
 
         func textDidChange(_ notification: Notification) {
-            guard let tv = notification.object as? NSTextView else { return }
-            parent.text = tv.string
+            guard let textView = notification.object as? NSTextView else { return }
+            updateLineStarts(for: textView.string)
+            parent.text = textView.string
             parent.onContentChange()
+        }
+
+        func updateLineStarts(for text: String) {
+            lineStarts = [0]
+            for (offset, unit) in text.utf16.enumerated() where unit == 10 {
+                lineStarts.append(offset + 1)
+            }
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let tv = notification.object as? NSTextView else { return }
-            let loc = tv.selectedRange().location
-            let str = tv.string as NSString
-            var line = 1, col = 1, i = 0
-            while i < loc && i < str.length {
-                if str.character(at: i) == 10 { line += 1; col = 1 } else { col += 1 }
-                i += 1
+            let text = tv.string as NSString
+            let location = min(tv.selectedRange().location, text.length)
+            var lower = 0
+            var upper = lineStarts.count
+            while lower < upper {
+                let middle = (lower + upper) / 2
+                if lineStarts[middle] <= location { lower = middle + 1 } else { upper = middle }
             }
-            parent.cursorPosition = CursorPosition(line: line, column: col)
+            let lineIndex = max(0, lower - 1)
+            let lineStart = min(lineStarts[lineIndex], location)
+            let column = text.substring(with: NSRange(location: lineStart, length: location - lineStart)).count + 1
+            parent.cursorPosition = CursorPosition(line: lineIndex + 1, column: column)
 
             // Redraw gutter to update current line highlight
             tv.enclosingScrollView?.verticalRulerView?.needsDisplay = true
@@ -1069,12 +1366,15 @@ class LineNumberGutter: NSRulerView {
         let visibleRect = textView.visibleRect
         let nsString = textView.string as NSString
         let range = layoutManager.glyphRange(forBoundingRect: visibleRect, in: container)
+        guard range.length > 0, range.location < layoutManager.numberOfGlyphs else { return }
         let firstIndex = layoutManager.characterIndexForGlyph(at: range.location)
 
         var lineNum = 1
         var idx = 0
         while idx < firstIndex {
-            idx = nsString.lineRange(for: NSRange(location: idx, length: 0)).upperBound
+            let next = nsString.lineRange(for: NSRange(location: idx, length: 0)).upperBound
+            guard next <= firstIndex else { break }
+            idx = next
             lineNum += 1
         }
 
@@ -1084,7 +1384,6 @@ class LineNumberGutter: NSRulerView {
         ]
 
         let selectedRange = textView.selectedRange()
-        let currentLineRange = nsString.lineRange(for: NSRange(location: selectedRange.location, length: 0))
 
         idx = firstIndex
         while idx < NSMaxRange(range) {
@@ -1094,7 +1393,7 @@ class LineNumberGutter: NSRulerView {
 
             // Highlight current line number
             var currentAttrs = attributes
-            if lineRange.contains(selectedRange.location) || (lineRange.upperBound == selectedRange.location && selectedRange.length == 0) {
+            if lineRange.contains(selectedRange.location) || (lineRange.upperBound == nsString.length && selectedRange.location == nsString.length && !nsString.hasSuffix("\n")) {
                 currentAttrs[.foregroundColor] = NSColor.labelColor
                 currentAttrs[.font] = NSFont.monospacedSystemFont(ofSize: 10, weight: .bold)
 
@@ -1116,7 +1415,27 @@ class LineNumberGutter: NSRulerView {
 
 // MARK: - Highlighter
 
+@MainActor
 private enum Highlighter {
+    private static let expressions: [String: NSRegularExpression] = {
+        let patterns = [
+            #"-?\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b"#,
+            #"\b(?:true|false|null)\b"#,
+            #""([^"\\]|\\.)*""#,
+            #""([^"\\]|\\.)*"(?=\s*:)"#,
+            #"#.*$"#,
+            #"^\[{1,2}.*\]{1,2}"#,
+            #"^[a-zA-Z0-9_-]+(?=\s*=)"#,
+            #"'[^']*'"#,
+            #"-?\b\d+[\d\-:T.Z]*\b"#,
+            #"\b(?:true|false)\b"#
+        ]
+        return Dictionary(uniqueKeysWithValues: patterns.compactMap { pattern in
+            guard let expression = try? NSRegularExpression(pattern: pattern, options: [.anchorsMatchLines]) else { return nil }
+            return (pattern, expression)
+        })
+    }()
+
     static func apply(to ts: NSTextStorage, font: NSFont, isJSON: Bool, isTOML: Bool) {
         let str = ts.string
         guard !str.isEmpty else { return }
@@ -1151,7 +1470,7 @@ private enum Highlighter {
     }
 
     private static func color(_ ts: NSTextStorage, _ str: String, _ pattern: String, _ c: NSColor) {
-        guard let re = try? NSRegularExpression(pattern: pattern, options: [.anchorsMatchLines]) else { return }
+        guard let re = expressions[pattern] else { return }
         re.enumerateMatches(in: str, range: NSRange(location: 0, length: str.utf16.count)) { m, _, _ in
             guard let r = m?.range else { return }
             ts.addAttribute(.foregroundColor, value: c, range: r)

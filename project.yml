@@ -14,7 +14,7 @@ settings:
     SWIFT_STRICT_CONCURRENCY: complete
     ENABLE_HARDENED_RUNTIME: YES
     CODE_SIGN_STYLE: Automatic
-    DEVELOPMENT_TEAM: "33M7V22L6Y"  # Replace with your own Apple Developer Team ID to build
+    DEVELOPMENT_TEAM: "K52WP93HZU"
     PRODUCT_NAME: "$(TARGET_NAME)"
   configs:
     Debug:

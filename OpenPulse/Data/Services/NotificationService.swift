@@ -16,13 +16,33 @@ final class NotificationService {
 
     /// Reads the user-configured threshold (notifications.threshold key, integer percent, default 10).
     private var threshold: Double {
-        let pct = UserDefaults.standard.integer(forKey: "notifications.threshold")
-        return Double(pct > 0 ? pct : 10) / 100.0
+        let pct = defaults.integer(forKey: "notifications.threshold")
+        return Double(pct > 0 ? min(pct, 100) : 10) / 100.0
     }
 
     private var lastAlertDate: [String: Date] = [:]
+    private var pendingAlerts: Set<String> = []
+    private let defaults: UserDefaults
+    private let now: () -> Date
+    private let deliver: (String, String, String) async throws -> Void
 
-    private init() {}
+    init(
+        defaults: UserDefaults = .standard,
+        now: @escaping () -> Date = Date.init,
+        deliver: @escaping (String, String, String) async throws -> Void = { id, title, body in
+            let content = UNMutableNotificationContent()
+            content.title = title
+            content.body = body
+            content.sound = .default
+            try await UNUserNotificationCenter.current().add(
+                UNNotificationRequest(identifier: id, content: content, trigger: nil)
+            )
+        }
+    ) {
+        self.defaults = defaults
+        self.now = now
+        self.deliver = deliver
+    }
 
     // MARK: - Permission
 
@@ -34,41 +54,38 @@ final class NotificationService {
 
     /// Call after every sync with the latest quota info per tool.
     func checkAndNotify(quotas: [String: QuotaInfo]) {
-        guard UserDefaults.standard.bool(forKey: "notifications.enabled") else { return }
+        Task { await deliverQuotaNotifications(quotas: quotas) }
+    }
+
+    func deliverQuotaNotifications(quotas: [String: QuotaInfo]) async {
+        guard defaults.bool(forKey: "notifications.enabled") else { return }
 
         for (toolRaw, info) in quotas {
-            guard info.fraction < threshold else { continue }
+            let date = now()
+            guard info.fraction.isFinite, (0...1).contains(info.fraction),
+                  info.fraction < threshold,
+                  info.resetAt.map({ $0 > date }) != false,
+                  !pendingAlerts.contains(toolRaw) else { continue }
 
-            let now = Date()
-            if let last = lastAlertDate[toolRaw], now.timeIntervalSince(last) < Self.throttleInterval { continue }
-            lastAlertDate[toolRaw] = now
+            if let last = lastAlertDate[toolRaw], date.timeIntervalSince(last) < Self.throttleInterval { continue }
+            pendingAlerts.insert(toolRaw)
 
             let toolName = Tool(rawValue: toolRaw)?.displayName ?? toolRaw
             let pct = Int((info.fraction * 100).rounded())
             let body: String
-            if let resetAt = info.resetAt, resetAt > now {
-                body = "剩余 \(pct)%，约 \(countdownString(to: resetAt)) 后重置。"
+            if let resetAt = info.resetAt {
+                body = String(localized: "剩余 \(pct)%，约 \(countdownString(to: resetAt)) 后重置。")
             } else {
-                body = "剩余 \(pct)%，请注意使用量。"
+                body = String(localized: "剩余 \(pct)%，请注意使用量。")
             }
-            sendNotification(
-                id: "quota-low-\(toolRaw)",
-                title: "\(toolName) 配额不足",
-                body: body
-            )
-        }
-    }
-
-    // MARK: - Private
-
-    private func sendNotification(id: String, title: String, body: String) {
-        let content = UNMutableNotificationContent()
-        content.title = title
-        content.body = body
-        content.sound = .default
-        let request = UNNotificationRequest(identifier: id, content: content, trigger: nil)
-        UNUserNotificationCenter.current().add(request) { error in
-            if let error { print("[OpenPulse] Notification error: \(error)") }
+            do {
+                try await deliver("quota-low-\(toolRaw)", String(localized: "\(toolName) 配额不足"), body)
+                lastAlertDate[toolRaw] = now()
+            } catch {
+                // A failed delivery can be retried on the next sync.
+                print("[OpenPulse] Notification error: \(error)")
+            }
+            pendingAlerts.remove(toolRaw)
         }
     }
 }

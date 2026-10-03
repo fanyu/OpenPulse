@@ -460,3 +460,200 @@ struct DeskSnapshotBuilderTests {
         #expect(await attempts.count == 1)
     }
 }
+
+@Suite("OpenPulse 2.0 dashboard regressions")
+@MainActor
+struct DashboardSourceRegressionTests {
+    private var calendar: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        calendar.locale = Locale(identifier: "en_US_POSIX")
+        calendar.firstWeekday = 2
+        calendar.minimumDaysInFirstWeek = 4
+        return calendar
+    }
+
+    private func date(_ year: Int, _ month: Int, _ day: Int, hour: Int = 0, minute: Int = 0) -> Date {
+        calendar.date(from: DateComponents(year: year, month: month, day: day, hour: hour, minute: minute))!
+    }
+
+    @Test("A seven-day overview includes the first day's midnight usage")
+    func overviewIncludesFirstCalendarDay() {
+        let period = OverviewCalendarRange.current(days: 7, at: date(2026, 10, 3, hour: 15, minute: 42), calendar: calendar)
+        #expect(period.start == date(2026, 9, 27))
+        #expect(period.end == date(2026, 10, 4))
+        #expect(period.start <= date(2026, 9, 27))
+        #expect(period.end > date(2026, 10, 3, hour: 23, minute: 59))
+    }
+
+    @Test("Adjacent ninety-day periods have one shared boundary")
+    func overviewPreviousPeriodDoesNotOverlap() {
+        let now = date(2026, 10, 3, hour: 12)
+        let current = OverviewCalendarRange.current(days: 90, at: now, calendar: calendar)
+        let previous = OverviewCalendarRange.previous(days: 90, at: now, calendar: calendar)
+        #expect(current.start == date(2026, 7, 6))
+        #expect(current.end == date(2026, 10, 4))
+        #expect(previous.start == date(2026, 4, 7))
+        #expect(previous.end == current.start)
+        #expect(date(2026, 7, 5, hour: 23, minute: 59) < current.start)
+        #expect(current.duration == 90 * 86_400)
+        #expect(previous.duration == 90 * 86_400)
+    }
+
+    @Test("This week follows the calendar's Monday boundary")
+    func quotaWeekExcludesPriorWeekendAndFutureDay() {
+        let records = [
+            DailyStatsRecord(date: date(2026, 9, 26), tool: .claudeCode, totalInputTokens: 100),
+            DailyStatsRecord(date: date(2026, 9, 27), tool: .claudeCode, totalInputTokens: 25),
+            DailyStatsRecord(date: date(2026, 9, 28), tool: .claudeCode, totalInputTokens: 20),
+            DailyStatsRecord(date: date(2026, 9, 29), tool: .codex, totalInputTokens: 30),
+            DailyStatsRecord(date: date(2026, 10, 3), tool: .codex, totalInputTokens: 40, totalOutputTokens: 10),
+            DailyStatsRecord(date: date(2026, 10, 4), tool: .codex, totalInputTokens: 999)
+        ]
+        let result = QuotaUsageTotals.summarize(records, at: date(2026, 10, 3, hour: 12), calendar: calendar)
+        #expect(result.week == 100)
+        #expect(result.total == 225)
+        #expect(result.today == 50)
+        #expect(result.byTool == [.codex: 50])
+    }
+
+    @Test("Today's quota summary rolls over without adding or deleting records")
+    func quotaDayRolloverClearsTodayOnly() {
+        let records = [DailyStatsRecord(date: date(2026, 10, 3), tool: .codex, totalInputTokens: 40, totalOutputTokens: 10)]
+        let before = QuotaUsageTotals.summarize(records, at: date(2026, 10, 3, hour: 23, minute: 59), calendar: calendar)
+        let after = QuotaUsageTotals.summarize(records, at: date(2026, 10, 4), calendar: calendar)
+        #expect(before.today == 50)
+        #expect(after.today == 0)
+        #expect(after.byTool.isEmpty)
+        #expect(after.week == 50)
+        #expect(after.total == 50)
+    }
+
+    @Test("Updating an existing daily row changes the quota summary")
+    func quotaSummaryReflectsInPlaceTokenUpdate() {
+        let record = DailyStatsRecord(date: date(2026, 10, 3), tool: .claudeCode, totalInputTokens: 10)
+        let before = QuotaUsageTotals.summarize([record], at: date(2026, 10, 3, hour: 12), calendar: calendar)
+        record.totalInputTokens = 70
+        record.totalOutputTokens = 20
+        let after = QuotaUsageTotals.summarize([record], at: date(2026, 10, 3, hour: 12), calendar: calendar)
+        #expect(before.today == 10)
+        #expect(after.today == 90)
+        #expect(after.byTool[.claudeCode] == 90)
+    }
+
+    @Test("A past Codex reset does not prove a full unused window")
+    func codexPastResetBecomesUnknown() {
+        let now = date(2026, 10, 3, hour: 12, minute: 30)
+        let window = CodexWindow(usedPercent: 88, windowMinutes: 300, windowSeconds: nil, resetsAt: date(2026, 10, 3, hour: 12).timeIntervalSince1970)
+        let result = CodexQuotaWindowDisplay(window: window, at: now)
+        #expect(result.isStale)
+        #expect(result.used == nil)
+        #expect(result.remaining == nil)
+        #expect(result.fraction == nil)
+    }
+
+    @Test("Codex allowance is invalid at the exact reset boundary")
+    func codexResetBoundaryBecomesUnknown() {
+        let now = date(2026, 10, 3, hour: 12)
+        let window = CodexWindow(usedPercent: 88, windowMinutes: 300, windowSeconds: nil, resetsAt: now.timeIntervalSince1970)
+        let result = CodexQuotaWindowDisplay(window: window, at: now)
+        #expect(result.isStale)
+        #expect(result.remaining == nil)
+        #expect(result.fraction == nil)
+    }
+
+    @Test("A known future Codex window with missing usage stays unknown")
+    func codexMissingUsageIsNotZeroUsage() {
+        let now = date(2026, 10, 3, hour: 12)
+        let window = CodexWindow(usedPercent: nil, windowMinutes: 300, windowSeconds: nil, resetsAt: date(2026, 10, 3, hour: 13).timeIntervalSince1970)
+        let result = CodexQuotaWindowDisplay(window: window, at: now)
+        #expect(!result.isStale)
+        #expect(result.used == nil)
+        #expect(result.remaining == nil)
+        #expect(result.fraction == nil)
+    }
+
+    @Test("A fresh Codex observation retains its reported allowance")
+    func codexFreshUsageKeepsReportedPercentage() {
+        let now = date(2026, 10, 3, hour: 12)
+        let window = CodexWindow(usedPercent: 88, windowMinutes: 300, windowSeconds: nil, resetsAt: date(2026, 10, 3, hour: 13).timeIntervalSince1970)
+        let result = CodexQuotaWindowDisplay(window: window, at: now)
+        #expect(!result.isStale)
+        #expect(result.used == 88)
+        #expect(result.remaining == 12)
+        #expect(result.fraction == 0.12)
+    }
+
+    @Test("The Sunday-aligned leap-year 2028 heatmap needs 54 columns")
+    func activityLeapYearIncludesLastWeek() {
+        #expect(activityHeatmapColumnCount(year: 2028, calendar: calendar) == 54)
+        #expect(activityHeatmapColumnCount(year: 2026, calendar: calendar) == 53)
+    }
+
+    @Test("Activity heatmaps exclude future dates and other years")
+    func activityHeatmapExcludesFutureSamples() {
+        let samples = [
+            ActivityHeatmapSample(date: date(2027, 12, 31), tokens: 500),
+            ActivityHeatmapSample(date: date(2028, 1, 31), tokens: 75),
+            ActivityHeatmapSample(date: date(2028, 2, 2), tokens: 300)
+        ]
+        let totals = activityHeatmapDailyTotals(samples: samples, year: 2028, now: date(2028, 2, 1, hour: 12), calendar: calendar)
+        #expect(totals == [date(2028, 1, 31): 75])
+    }
+
+    @Test("Heatmap totals follow same-count sample updates")
+    func activityHeatmapSameCountUpdateChangesTotals() {
+        let before = [ActivityHeatmapSample(date: date(2026, 10, 3), tokens: 10)]
+        let after = [ActivityHeatmapSample(date: date(2026, 10, 3), tokens: 70)]
+        let now = date(2026, 10, 3, hour: 12)
+        #expect(before.count == after.count)
+        #expect(activityHeatmapDailyTotals(samples: before, year: 2026, now: now, calendar: calendar)[date(2026, 10, 3)] == 10)
+        #expect(activityHeatmapDailyTotals(samples: after, year: 2026, now: now, calendar: calendar)[date(2026, 10, 3)] == 70)
+    }
+
+    @Test("Menu-bar today's totals exclude yesterday and tomorrow")
+    func menuBarTodayUsesHalfOpenCalendarDay() {
+        let stats = [
+            MenuBarDailyStatsSnapshot(date: date(2026, 10, 2), tool: .codex, inputTokens: 999, outputTokens: 1),
+            MenuBarDailyStatsSnapshot(date: date(2026, 10, 3), tool: .codex, inputTokens: 40, outputTokens: 10),
+            MenuBarDailyStatsSnapshot(date: date(2026, 10, 3), tool: .claudeCode, inputTokens: 20, outputTokens: 5),
+            MenuBarDailyStatsSnapshot(date: date(2026, 10, 4), tool: .codex, inputTokens: 999, outputTokens: 1)
+        ]
+        let result = menuBarTodayTokens(from: stats, dayStart: date(2026, 10, 3), calendar: calendar)
+        #expect(result == [.codex: 50, .claudeCode: 25])
+    }
+
+    @Test("Menu-bar fractions reject expired or nonfinite allowance")
+    func menuBarExpiredAndInvalidFractionsStayUnknown() {
+        let now = date(2026, 10, 3, hour: 12)
+        #expect(menuBarQuotaFraction(remainingFraction: 0.68, resetAt: date(2026, 10, 3, hour: 11), now: now) == nil)
+        #expect(menuBarQuotaFraction(remainingFraction: 0.68, resetAt: now, now: now) == nil)
+        #expect(menuBarQuotaFraction(remainingFraction: Double.nan, resetAt: date(2026, 10, 3, hour: 13), now: now) == nil)
+        #expect(menuBarQuotaFraction(remainingFraction: Double.infinity, resetAt: nil, now: now) == nil)
+        #expect(menuBarQuotaFraction(remainingFraction: nil, resetAt: nil, now: now) == nil)
+        #expect(menuBarQuotaFraction(remainingFraction: 0.68, resetAt: date(2026, 10, 3, hour: 13), now: now) == 0.68)
+    }
+
+    @Test("Hidden Antigravity accounts are removed before menu-bar aggregation")
+    func menuBarAntigravityHidingPreservesVisibleAccountOrder() {
+        let accounts = [
+            AGAccountQuota(email: "first@example.com", tier: nil, groups: []),
+            AGAccountQuota(email: "hidden@example.com", tier: nil, groups: []),
+            AGAccountQuota(email: "last@example.com", tier: nil, groups: [])
+        ]
+        let visible = menuBarVisibleAntigravityAccounts(accounts, hiddenAccountEmailsRaw: "hidden@example.com,,")
+        #expect(visible.map(\.email) == ["first@example.com", "last@example.com"])
+        #expect(menuBarVisibleAntigravityAccounts(accounts, hiddenAccountEmailsRaw: "first@example.com,hidden@example.com,last@example.com").isEmpty)
+    }
+
+    @Test("Copilot missing or nonfinite allowance remains unknown")
+    func copilotInvalidAllowanceIsNotZero() {
+        let invalidValues: [Double?] = [nil, Double.nan, Double.infinity, -Double.infinity]
+        for value in invalidValues {
+            #expect(copilotAnalysisRemainingFraction(percentRemaining: value) == nil)
+        }
+        #expect(copilotAnalysisRemainingFraction(percentRemaining: 75) == 0.75)
+        #expect(copilotAnalysisRemainingFraction(percentRemaining: 120) == 1)
+        #expect(copilotAnalysisRemainingFraction(percentRemaining: -5) == 0)
+    }
+}

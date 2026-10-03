@@ -77,7 +77,9 @@ struct CodexAccountSnapshot: Identifiable, Sendable {
     }
 
     var quota: ToolQuota {
-        let remainingPct = limits?.fiveHourWindow.map { Int($0.remainingPercent) }
+        let weeklyExhausted = limits?.oneWeekWindow?.remainingPercent == 0
+        let window = weeklyExhausted ? limits?.oneWeekWindow : (limits?.fiveHourWindow ?? limits?.oneWeekWindow)
+        let remainingPct = window?.remainingPercent.map { Int($0) }
         return ToolQuota(
             id: "codex:\(accountID)",
             tool: .codex,
@@ -86,7 +88,7 @@ struct CodexAccountSnapshot: Identifiable, Sendable {
             remaining: remainingPct,
             total: 100,
             unit: .tokens,
-            resetAt: limits?.fiveHourWindow?.resetDate,
+            resetAt: window?.resetDate,
             updatedAt: limits?.observedAt ?? updatedAt,
             raw: limits
         )

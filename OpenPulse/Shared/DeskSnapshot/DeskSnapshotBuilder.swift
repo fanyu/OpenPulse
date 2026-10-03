@@ -149,9 +149,10 @@ enum DeskSnapshotBuilder {
     }
 
     private static func makeWindowSnapshot(label: String, from window: CodexWindow) -> DeskQuotaWindowSnapshot? {
-        makeWindowSnapshot(
+        guard let remaining = window.remainingPercent else { return nil }
+        return makeWindowSnapshot(
             label: label,
-            remaining: Int(window.remainingPercent.rounded()),
+            remaining: Int(remaining.rounded()),
             total: 100,
             resetAt: window.resetDate
         )

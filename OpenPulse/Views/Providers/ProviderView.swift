@@ -1,117 +1,131 @@
 import SwiftUI
 
-/// Provider Tab — configure auth, accounts, and model visibility per provider.
+/// Account access and connection settings for every supported tool.
 struct ProviderView: View {
-    @Environment(AppStore.self) private var appStore
     @State private var selected: Provider? = nil
 
-    var body: some View {
-        VStack(spacing: 0) {
-            providerFilterBar
-                .padding(.horizontal, 24)
-                .padding(.top, 16)
-                .padding(.bottom, 12)
-            
-            Divider().opacity(0.1)
-            
-            ScrollView {
-                VStack(alignment: .leading, spacing: 28) {
-                    if let provider = selected {
-                        ProviderCardContainer(provider: provider)
-                    } else {
-                        ForEach(Provider.allCases, id: \.self) { provider in
-                            ProviderCardContainer(provider: provider)
-                        }
-                    }
-                }
-                .padding(24)
-            }
-        }
-        .navigationTitle("接入")
-        .background(Color(NSColor.windowBackgroundColor))
+    private var visibleProviders: [Provider] {
+        selected.map { [$0] } ?? Provider.allCases
     }
 
-    private var providerFilterBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
-                FilterChip(label: "全部", isSelected: selected == nil) {
-                    withAnimation(.spring(duration: 0.3)) { selected = nil }
-                }
-                ForEach(Provider.allCases, id: \.self) { provider in
-                    FilterChip(label: provider.displayName, isSelected: selected == provider) {
-                        withAnimation(.spring(duration: 0.3)) {
-                            selected = (selected == provider) ? nil : provider
-                        }
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 28) {
+                ProviderPageHeader(selection: $selected)
+                LazyVStack(alignment: .leading, spacing: 24) {
+                    ForEach(visibleProviders) { provider in
+                        ProviderCardContainer(provider: provider)
                     }
                 }
+            }
+            .padding(28)
+            .frame(maxWidth: 1100, alignment: .leading)
+            .frame(maxWidth: .infinity)
+        }
+        .navigationTitle("接入")
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+}
+
+private struct ProviderPageHeader: View {
+    @Binding var selection: Provider?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("接入")
+                    .font(.system(size: 30, weight: .semibold))
+                Text("管理工具账号、授权与模型路由。")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            ViewThatFits(in: .horizontal) {
+                ProviderFilterPicker(selection: $selection, usesMenu: false)
+                ProviderFilterPicker(selection: $selection, usesMenu: true)
             }
         }
     }
 }
 
-// MARK: - Card Container
-
-private struct ProviderCardContainer: View {
-    let provider: Provider
-    @Environment(AppStore.self) private var appStore
+private struct ProviderFilterPicker: View {
+    @Binding var selection: Provider?
+    let usesMenu: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            HStack(spacing: 12) {
-                ToolLogoImage(tool: provider.tool, size: 32)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(provider.displayName).font(.title3.bold())
-                    Text(provider.tool.displayName).font(.caption2).foregroundStyle(.tertiary)
-                }
-                Spacer()
-                statusBadge
+        if usesMenu {
+            picker.pickerStyle(.menu)
+        } else {
+            picker.pickerStyle(.segmented).fixedSize(horizontal: true, vertical: false)
+        }
+    }
+
+    private var picker: some View {
+        Picker("工具", selection: $selection) {
+            Text("全部").tag(Optional<Provider>.none)
+            ForEach(Provider.allCases) { provider in
+                Text(provider.displayName).tag(Optional(provider))
             }
-            
-            Divider().opacity(0.1)
-            
-            providerContent
+        }
+    }
+}
+
+private struct ProviderCardContainer: View {
+    @Environment(AppStore.self) private var appStore
+    let provider: Provider
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            ProviderSectionHeader(provider: provider)
+            Divider()
+            VStack(alignment: .leading, spacing: 0) {
+                switch provider {
+                case .claudeCode: ClaudeProviderContent()
+                case .codex: CodexProviderContent(appStore: appStore)
+                case .copilot: CopilotProviderContent()
+                case .antigravity: AntigravityProviderContent(appStore: appStore)
+                }
+            }
         }
         .padding(24)
-        .background(Color(NSColor.controlBackgroundColor), in: RoundedRectangle(cornerRadius: 24))
-        .shadow(color: Color.black.opacity(0.03), radius: 8, y: 4)
-        .overlay(RoundedRectangle(cornerRadius: 24).stroke(Color.primary.opacity(0.05), lineWidth: 1))
+        .dashboardSurface()
     }
-    
-    @ViewBuilder
-    private var providerContent: some View {
-        switch provider {
-        case .claudeCode:   ClaudeProviderContent()
-        case .codex:        CodexProviderContent(appStore: appStore)
-        case .copilot:      CopilotProviderContent()
-        case .antigravity:  AntigravityProviderContent(appStore: appStore)
+}
+
+private struct ProviderSectionHeader: View {
+    @Environment(AppStore.self) private var appStore
+    let provider: Provider
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) {
+                identity
+                Spacer(minLength: 16)
+                status
+            }
+            VStack(alignment: .leading, spacing: 10) {
+                identity
+                status
+            }
         }
     }
 
-    @ViewBuilder
-    private var statusBadge: some View {
-        let configured = isConfigured
-        HStack(spacing: 5) {
-            Circle()
-                .fill(configured ? Color.green : Color.orange)
-                .frame(width: 6, height: 6)
-            Text(configured ? "已配置" : "待配置")
-                .font(.system(size: 10, weight: .bold))
-                .foregroundStyle(configured ? .green : .orange)
+    private var identity: some View {
+        HStack(spacing: 12) {
+            ToolLogoImage(tool: provider.tool, size: 30)
+            Text(provider.displayName).font(.title3.weight(.semibold))
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background((configured ? Color.green : Color.orange).opacity(0.1), in: Capsule())
     }
 
-    private var isConfigured: Bool {
-        switch provider {
-        case .codex:
-            return !(appStore.syncService?.latestCodexAccounts.isEmpty ?? true)
-                || FileManager.default.fileExists(atPath: URL.homeDirectory.appending(path: ".codex/auth.json").path)
-        case .claudeCode, .antigravity: return true
-        case .copilot:
-            guard let token = try? KeychainService.retrieve(key: KeychainService.Keys.githubToken) else { return false }
-            return !token.isEmpty
+    private var status: some View {
+        // Describe observed data without probing credentials while rendering.
+        let hasData: Bool = switch provider {
+        case .codex: !(appStore.syncService?.latestCodexAccounts.isEmpty ?? true)
+        case .claudeCode: appStore.syncService?.latestClaudeUsage != nil
+        case .copilot: appStore.syncService?.latestCopilotSnapshots != nil
+        case .antigravity: !(appStore.syncService?.latestAntigravityAccounts?.isEmpty ?? true)
         }
+        return Label(hasData ? String(localized: "已获取数据") : String(localized: "等待数据"), systemImage: hasData ? "checkmark.circle" : "clock")
+            .font(.caption)
+            .foregroundStyle(.secondary)
     }
 }

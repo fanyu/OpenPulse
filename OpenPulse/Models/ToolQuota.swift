@@ -3,13 +3,13 @@ import Foundation
 // MARK: - Reset date formatting
 
 /// Format a reset date consistently across the app.
-/// Same calendar day → "HH:mm"  (e.g. "14:30")
-/// Different day     → "M月d日 HH:mm"  (e.g. "5月3日 14:30")
+/// Uses the user's locale and retains the period in 12-hour time formats.
+/// Different calendar days also include the month and day.
 func resetDateString(for date: Date) -> String {
     if Calendar.current.isDateInToday(date) {
-        return date.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
+        return date.formatted(.dateTime.hour(.twoDigits(amPM: .abbreviated)).minute(.twoDigits))
     }
-    return date.formatted(.dateTime.month().day().hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
+    return date.formatted(.dateTime.month().day().hour(.twoDigits(amPM: .abbreviated)).minute(.twoDigits))
 }
 
 /// Quota / remaining allowance for a tool.
@@ -33,7 +33,7 @@ struct ToolQuota: Identifiable, Sendable {
 
     var resetCountdown: String? {
         guard let resetAt else { return nil }
-        guard resetAt.timeIntervalSinceNow > 0 else { return "即将重置" }
+        guard resetAt.timeIntervalSinceNow > 0 else { return String(localized: "即将重置") }
         return resetDateString(for: resetAt)
     }
 }

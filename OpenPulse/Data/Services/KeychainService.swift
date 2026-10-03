@@ -10,33 +10,54 @@ enum KeychainService {
 
     private static let service = "com.fanyu.openpulse"
 
+    /// Per-call operations make failure paths testable without a shared override or real Keychain access.
+    struct StoreOperations {
+        let update: ([CFString: Any], [CFString: Any]) -> OSStatus
+        let add: ([CFString: Any]) -> OSStatus
+        let deleteLegacy: ([CFString: Any]) -> OSStatus
+
+        static var security: Self {
+            Self(
+                update: { SecItemUpdate($0 as CFDictionary, $1 as CFDictionary) },
+                add: { SecItemAdd($0 as CFDictionary, nil) },
+                deleteLegacy: { SecItemDelete($0 as CFDictionary) }
+            )
+        }
+    }
+
     static func store(key: String, value: String) throws {
+        try store(key: key, value: value, operations: .security)
+    }
+
+    static func store(key: String, value: String, operations: StoreOperations) throws {
         let data = Data(value.utf8)
-        // Delete from both keychains to handle migration from legacy items.
         let legacyQuery: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
             kSecAttrService: service,
             kSecAttrAccount: key,
         ]
-        SecItemDelete(legacyQuery as CFDictionary)
-        let dpQuery: [CFString: Any] = [
-            kSecClass: kSecClassGenericPassword,
-            kSecAttrService: service,
-            kSecAttrAccount: key,
-            kSecUseDataProtectionKeychain: true,
-        ]
-        SecItemDelete(dpQuery as CFDictionary)
-        let attributes: [CFString: Any] = [
-            kSecClass: kSecClassGenericPassword,
-            kSecAttrService: service,
-            kSecAttrAccount: key,
+        let dpQuery = legacyQuery.merging([kSecUseDataProtectionKeychain: true]) { $1 }
+        let changes: [CFString: Any] = [
             kSecValueData: data,
             kSecAttrAccessible: kSecAttrAccessibleAfterFirstUnlock,
-            kSecUseDataProtectionKeychain: true,
         ]
-        let status = SecItemAdd(attributes as CFDictionary, nil)
+        // Never remove a working item to replace it: a failed write must preserve existing credentials.
+        var status = operations.update(dpQuery, changes)
+        if status == errSecItemNotFound {
+            status = operations.add(dpQuery.merging(changes) { $1 })
+            if status == errSecDuplicateItem {
+                // Another writer may have inserted between the update and add.
+                status = operations.update(dpQuery, changes)
+            }
+        }
         guard status == errSecSuccess else {
             throw KeychainError.storeFailed(status)
+        }
+
+        // The Data Protection item is saved before the legacy credential is removed.
+        let cleanupStatus = operations.deleteLegacy(legacyQuery)
+        guard cleanupStatus == errSecSuccess || cleanupStatus == errSecItemNotFound else {
+            throw KeychainError.legacyCleanupFailed(cleanupStatus)
         }
     }
 
@@ -102,13 +123,27 @@ enum KeychainService {
     }
 
     static func delete(key: String) {
+        try? deleteChecked(key: key)
+    }
+
+    static func deleteChecked(key: String) throws {
+        try deleteChecked(key: key, operation: { SecItemDelete($0 as CFDictionary) })
+    }
+
+    /// Attempt both locations and report failures, so account metadata can remain until credential deletion succeeds.
+    static func deleteChecked(key: String, operation: ([CFString: Any]) -> OSStatus) throws {
         let base: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
             kSecAttrService: service,
             kSecAttrAccount: key,
         ]
-        SecItemDelete(base as CFDictionary)
-        SecItemDelete((base.merging([kSecUseDataProtectionKeychain: true]) { $1 }) as CFDictionary)
+        let legacyStatus = operation(base)
+        let dataProtectionStatus = operation(base.merging([kSecUseDataProtectionKeychain: true]) { $1 })
+        for status in [legacyStatus, dataProtectionStatus] {
+            guard status == errSecSuccess || status == errSecItemNotFound else {
+                throw KeychainError.deleteFailed(status)
+            }
+        }
     }
 
     enum Keys {
@@ -121,11 +156,15 @@ enum KeychainService {
 
 enum KeychainError: Error, LocalizedError {
     case storeFailed(OSStatus)
+    case legacyCleanupFailed(OSStatus)
+    case deleteFailed(OSStatus)
     case retrieveFailed(OSStatus)
 
     var errorDescription: String? {
         switch self {
         case .storeFailed(let s): "Keychain store failed: \(s)"
+        case .legacyCleanupFailed(let s): "Credential saved, but legacy Keychain cleanup failed: \(s)"
+        case .deleteFailed(let s): "Keychain delete failed: \(s)"
         case .retrieveFailed(let s): "Keychain retrieve failed: \(s)"
         }
     }

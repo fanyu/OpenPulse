@@ -838,3 +838,65 @@ struct CodexLocalQuotaFreshnessTests {
         )
     }
 }
+
+import SQLite
+
+struct CodexIncrementalUsageRegressionTests {
+    @Test func oldConversationUpdatesAndWholeDayTotalsSurviveIncrementalSync() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "OpenPulse-Usage-\(UUID())")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let db = try Connection(root.appending(path: "state_5.sqlite").path)
+        try db.run("CREATE TABLE threads (id TEXT PRIMARY KEY, title TEXT, first_user_message TEXT, tokens_used INTEGER, created_at INTEGER, updated_at INTEGER, cwd TEXT, git_branch TEXT, model_provider TEXT, archived INTEGER)")
+        let first = UUID().uuidString
+        let second = UUID().uuidString
+        try db.run("INSERT INTO threads VALUES (?, 'Fixture', '', 101, 1700000000, 1700000000, '/Fixture', 'main', 'fixture-model', 0)", first)
+        try db.run("INSERT INTO threads VALUES (?, 'Fixture 2', '', 202, 1700001000, 1700001000, '/Fixture', 'main', 'fixture-model', 0)", second)
+        let parser = CodexParser(codexDir: root)
+        let initial = try await parser.parseDailyStats()
+        try db.run("UPDATE threads SET tokens_used = 303, updated_at = 1700003000 WHERE id = ?", first)
+        let cutoff = Date(timeIntervalSince1970: 1700002000)
+        let sessions = try await parser.parseSessions(since: cutoff)
+        let daily = try await parser.parseDailyStats(since: cutoff)
+        #expect(sessions.contains { $0.id.uuidString == first && $0.totalTokens == 303 })
+        #expect(initial.reduce(0) { $0 + $1.totalTokens } == 303)
+        #expect(daily.reduce(0) { $0 + $1.totalTokens } == 505)
+    }
+
+    @Test func missingCodexPercentageIsUnknownAndValuesAreBounded() {
+        #expect(CodexWindow(usedPercent: nil, windowMinutes: 300, windowSeconds: nil, resetsAt: nil).remainingPercent == nil)
+        #expect(CodexWindow(usedPercent: .nan, windowMinutes: 300, windowSeconds: nil, resetsAt: nil).remainingPercent == nil)
+        #expect(CodexWindow(usedPercent: 150, windowMinutes: 300, windowSeconds: nil, resetsAt: nil).remainingPercent == 0)
+    }
+}
+
+private final class CopilotFixtureURLProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let matches = request.value(forHTTPHeaderField: "Authorization") == "Bearer fixture-copilot-token"
+        let response = HTTPURLResponse(url: request.url!, statusCode: matches ? 200 : 401, httpVersion: nil, headerFields: nil)!
+        let body = matches ? "{\"quota_snapshots\":{\"premium\":{\"remaining\":25,\"entitlement\":100,\"percent_remaining\":25}},\"copilot_plan\":\"fixture\"}" : "denied"
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(body.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
+struct CopilotCredentialRegressionTests {
+    @Test func validationUsesExactlyTheEnteredToken() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [CopilotFixtureURLProtocol.self]
+        let session = URLSession(configuration: config)
+        defer { session.invalidateAndCancel() }
+        let client = CopilotAPIClient(session: session)
+        let result = try await client.fetchQuota(token: " fixture-copilot-token ")
+        #expect(result.quota.remaining == 25)
+        #expect(result.plan == "fixture")
+        do {
+            _ = try await client.fetchQuota(token: "wrong-fixture-token")
+            Issue.record("A rejected entered token must not fall back to another credential")
+        } catch { #expect(error is CopilotError) }
+    }
+}

@@ -71,10 +71,10 @@ final class GlobalHotkeyService {
     }
 
     /// Register `keyCode` + `carbonModifiers` as the global hotkey.
-    /// Pass `keyCode == 0` to unregister without setting a new one.
+    /// Zero modifiers mean unset; key code zero is the A key.
     func apply(keyCode: UInt32, carbonModifiers: UInt32) {
         if let ref = hotKeyRef { UnregisterEventHotKey(ref); hotKeyRef = nil }
-        guard keyCode != 0 else { return }
+        guard carbonModifiers != 0 else { return }
         let id = EventHotKeyID(signature: openpulseFCC, id: 1)
         RegisterEventHotKey(keyCode, carbonModifiers, id,
                             GetApplicationEventTarget(), 0, &hotKeyRef)
@@ -92,6 +92,7 @@ final class GlobalHotkeyService {
     /// Enter recording mode: the next key press with at least one modifier is captured.
     /// Escape cancels. The captured shortcut is saved automatically.
     func startRecording() {
+        guard !isRecording else { return }
         isRecording = true
         recordingMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             let carbonMods = event.modifierFlags.carbonModifiers
@@ -117,7 +118,7 @@ final class GlobalHotkeyService {
     // MARK: - Display
 
     static func displayString(keyCode: UInt32, carbonModifiers: UInt32) -> String {
-        guard keyCode != 0 else { return "无" }
+        guard carbonModifiers != 0 else { return String(localized: "无") }
         var s = ""
         if carbonModifiers & UInt32(controlKey) != 0 { s += "⌃" }
         if carbonModifiers & UInt32(optionKey)  != 0 { s += "⌥" }

@@ -22,33 +22,53 @@ enum OAuthPKCE {
 }
 
 final class OAuthCallbackBox<Value: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
     private var continuation: CheckedContinuation<Value, Error>?
+    private var result: Result<Value, Error>?
 
     func wait(timeoutSeconds: TimeInterval) async throws -> Value {
-        try await withThrowingTaskGroup(of: Value.self) { group in
-            group.addTask {
-                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Value, Error>) in
+        let timeoutTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(max(0, timeoutSeconds)))
+                self?.finish(.failure(NSError(domain: "OpenPulse.OAuth", code: 1, userInfo: [
+                    NSLocalizedDescriptionKey: String(localized: "登录超时，请重试。")
+                ])))
+            } catch { /* Completion cancelled this timer. */ }
+        }
+        defer { timeoutTask.cancel() }
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                lock.lock()
+                if let result {
+                    lock.unlock()
+                    continuation.resume(with: result)
+                } else {
+                    precondition(self.continuation == nil, "Only one OAuth waiter is supported")
                     self.continuation = continuation
+                    lock.unlock()
                 }
             }
-            group.addTask {
-                try await Task.sleep(for: .seconds(timeoutSeconds))
-                throw NSError(domain: "OpenPulse.CodexOAuth", code: 1, userInfo: [NSLocalizedDescriptionKey: "OpenAI 登录超时，请重试。"])
-            }
-            let value = try await group.next()!
-            group.cancelAll()
-            return value
+        } onCancel: {
+            self.finish(.failure(CancellationError()))
         }
     }
 
     func succeed(_ value: Value) {
-        continuation?.resume(returning: value)
-        continuation = nil
+        finish(.success(value))
     }
 
     func fail(_ error: Error) {
-        continuation?.resume(throwing: error)
-        continuation = nil
+        finish(.failure(error))
+    }
+
+    private func finish(_ result: Result<Value, Error>) {
+        lock.lock()
+        guard self.result == nil else { lock.unlock(); return }
+        self.result = result
+        let continuation = self.continuation
+        self.continuation = nil
+        lock.unlock()
+        continuation?.resume(with: result)
     }
 }
 
@@ -80,7 +100,9 @@ final class SimpleHTTPServer: @unchecked Sendable {
         guard let port = NWEndpoint.Port(rawValue: port) else {
             throw NSError(domain: NSPOSIXErrorDomain, code: Int(EINVAL))
         }
-        listener = try NWListener(using: .tcp, on: port)
+        let parameters = NWParameters.tcp
+        parameters.requiredLocalEndpoint = .hostPort(host: .ipv4(.loopback), port: port)
+        listener = try NWListener(using: parameters, on: port)
         self.handler = handler
     }
 
@@ -155,4 +177,17 @@ func renderResponse(_ response: HTTPResponse) -> Data {
     \r
     """
     return Data(header.utf8) + response.body
+}
+
+/// Reject ambiguous callback parameters before validating state or exchanging a code.
+func oauthCallbackParameters(_ items: [URLQueryItem]) -> [String: String]? {
+    var seenNames = Set<String>()
+    var parameters: [String: String] = [:]
+    for item in items {
+        guard seenNames.insert(item.name).inserted else { return nil }
+        if let value = item.value {
+            parameters[item.name] = value
+        }
+    }
+    return parameters
 }

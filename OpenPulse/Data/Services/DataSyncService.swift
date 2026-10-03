@@ -17,6 +17,10 @@ final class DataSyncService {
     /// Per-tool sync state (replacing single global isSyncing).
     let states = SyncStateMap()
 
+    /// Invalidates derived usage caches after a successful usage write, including
+    /// in-place updates that leave SwiftData query counts unchanged.
+    private(set) var dataRevision: UInt64 = 0
+
     /// Latest Codex multi-account snapshots.
     private(set) var latestCodexAccounts: [CodexAccountSnapshot] = []
 
@@ -36,7 +40,7 @@ final class DataSyncService {
     // MARK: - MenuBarView compatibility helpers
 
     /// True when any tool is actively refreshing.
-    var isSyncingActive: Bool { Tool.allCases.contains { states[$0].isRefreshing } }
+    var isSyncingActive: Bool { isRefreshAllInFlight || Tool.allCases.contains { states[$0].isRefreshing } }
 
     /// Most recent sync date across all tools.
     var lastSyncDate: Date? { Tool.allCases.compactMap { states[$0].lastSyncDate }.max() }
@@ -111,7 +115,7 @@ final class DataSyncService {
     private let modelContainer: ModelContainer
     /// Dedicated read-only context for cheap lookups (hasStoredData, notifications).
     /// Reused across calls to avoid repeated context allocation overhead.
-    private let readContext: ModelContext
+    private var readContext: ModelContext
 
     // Per-tool failure gates
     private var failureGates: [Tool: ConsecutiveFailureGate] = {
@@ -123,7 +127,7 @@ final class DataSyncService {
     private var fsEventStream: FSEventStream?
     private var fsDebounceTask: Task<Void, Never>?
     private var pendingFSPaths: Set<String> = []
-    @ObservationIgnored private var isRefreshAllInFlight = false
+    private var isRefreshAllInFlight = false
 
     // Tracks the last sync cutoff date used per-tool for incremental parsing
     private var lastParsedAt: [Tool: Date] = [:]
@@ -140,13 +144,14 @@ final class DataSyncService {
     init(
         modelContainer: ModelContainer,
         codexAccountService: CodexAccountService,
-        deskSnapshotPublisher: DeskSnapshotPublisher? = DeskSnapshotPublisher.makeIfAvailable()
+        deskSnapshotPublisher: DeskSnapshotPublisher? = DeskSnapshotPublisher.makeIfAvailable(),
+        restoreCachedSnapshots: Bool = true
     ) {
         self.modelContainer = modelContainer
         self.codexAccountService = codexAccountService
         self.deskSnapshotPublisher = deskSnapshotPublisher
-        self.latestAntigravityAccounts = Self.restoredAntigravityAccountsCache()
-        self.latestClaudeUsage = Self.restoredClaudeUsageCache()
+        self.latestAntigravityAccounts = restoreCachedSnapshots ? Self.restoredAntigravityAccountsCache() : nil
+        self.latestClaudeUsage = restoreCachedSnapshots ? Self.restoredClaudeUsageCache() : nil
         let ctx = ModelContext(modelContainer)
         ctx.autosaveEnabled = false
         self.readContext = ctx
@@ -162,7 +167,9 @@ final class DataSyncService {
         purgeOrphanedQuotas()
         for tool in Tool.allCases { schedulePollTimer(for: tool) }
         startFSEventWatching()
-        NotificationService.shared.requestPermission()
+        if UserDefaults.standard.bool(forKey: "notifications.enabled") {
+            NotificationService.shared.requestPermission()
+        }
         Task { await refreshAll() }
     }
 
@@ -180,6 +187,7 @@ final class DataSyncService {
 
     /// Refresh all tools concurrently. This is the primary entry point.
     func refreshAll() async {
+        guard !isRefreshAllInFlight else { return }
         isRefreshAllInFlight = true
         defer {
             isRefreshAllInFlight = false
@@ -237,7 +245,37 @@ final class DataSyncService {
             try await refreshCopilot(context: context)
         }
 
+        try saveUsageContext(context)
+    }
+
+    /// Shared save boundary; failed saves never announce a new usage snapshot.
+    func saveUsageContext(_ context: ModelContext) throws {
+        let usageChanged = (context.insertedModelsArray + context.changedModelsArray + context.deletedModelsArray)
+            .contains { $0 is SessionRecord || $0 is DailyStatsRecord }
         try context.save()
+        readContext = makeWriteContext()
+        if usageChanged { dataRevision &+= 1 }
+    }
+
+    func usageCacheWasCleared() {
+        lastParsedAt.removeAll()
+        codexBackfillDone = false
+        latestCodexAccounts = []
+        latestClaudeUsage = nil
+        latestClaudeAccountInfo = nil
+        latestAntigravityAccounts = nil
+        latestCopilotSnapshots = nil
+        latestCopilotResetAt = nil
+        latestCopilotPlan = nil
+        readContext = makeWriteContext()
+        for tool in Tool.allCases {
+            states[tool].reset()
+            failureGates[tool]?.reset()
+        }
+        for key in ["cached.claudeUsageData", "cached.antigravityAccountsData", "cached.codexLimitsData"] {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+        dataRevision &+= 1
     }
 
     // MARK: - Claude Code
@@ -253,11 +291,11 @@ final class DataSyncService {
             return (sessions, cliStats + desktopStats)
         }.value
 
-        upsertSessions(sessions, context: context)
+        try await upsertSessions(sessions, context: context)
 
         // Merge cache stats with session-derived stats so today's tokens are always present.
         // stats-cache.json may not cover today yet; sessions are always fresh.
-        var mergedStats = mergeDailyStats(cacheStats, sessions: sessions, tool: .claudeCode)
+        var mergedStats = try mergeDailyStats(cacheStats, sessions: sessions, tool: .claudeCode, context: context)
 
         // If today still has no tokens after the merge (incremental cutoff may have skipped
         // earlier sessions), do a full scan of today's sessions to fill the gap.
@@ -268,8 +306,8 @@ final class DataSyncService {
             let todaySessions = try await Task.detached(priority: .utility) {
                 try await self.claudeParser.parseSessions(since: todayStart)
             }.value
-            upsertSessions(todaySessions, context: context)
-            mergedStats = mergeDailyStats(mergedStats, sessions: todaySessions, tool: .claudeCode)
+            try await upsertSessions(todaySessions, context: context)
+            mergedStats = try mergeDailyStats(mergedStats, sessions: todaySessions, tool: .claudeCode, context: context)
         }
 
         mergedStats.forEach { upsertDailyStats($0, context: context) }
@@ -336,7 +374,6 @@ final class DataSyncService {
         let since = incrementalCutoff(for: .codex)
         let needsBackfill = !codexBackfillDone && hasCodexPlaceholderModels(context: context)
         let effectiveSince: Date? = needsBackfill ? nil : since
-        if needsBackfill { codexBackfillDone = true }
 
         let (sessions, dailyStats, rateLimitSnapshot) = try await Task.detached(priority: .utility) {
             let sessions = try await self.codexParser.parseSessions(since: effectiveSince)
@@ -345,7 +382,8 @@ final class DataSyncService {
             return (sessions, stats, rl)
         }.value
 
-        upsertSessions(sessions, context: context)
+        try await upsertSessions(sessions, context: context)
+        if needsBackfill && !sessions.isEmpty { codexBackfillDone = true }
         dailyStats.forEach { upsertDailyStats($0, context: context) }
 
         // 2. Account sync + quota
@@ -392,7 +430,7 @@ final class DataSyncService {
             let fallback = ToolQuota(
                 id: Tool.codex.rawValue, tool: .codex,
                 accountKey: nil, accountLabel: nil,
-                remaining: limits.fiveHourWindow.map { Int($0.remainingPercent) },
+                remaining: limits.fiveHourWindow?.remainingPercent.map { Int($0) },
                 total: 100, unit: .tokens,
                 resetAt: limits.fiveHourWindow?.resetDate,
                 updatedAt: Date(), raw: limits
@@ -409,7 +447,7 @@ final class DataSyncService {
         let sessions = try await Task.detached(priority: .utility) {
             try await self.antigravityParser.parseSessions(since: since)
         }.value
-        upsertSessions(sessions, context: context)
+        try await upsertSessions(sessions, context: context)
 
         // 2. Quota API
         do {
@@ -423,6 +461,7 @@ final class DataSyncService {
             upsertQuota(antigravityAggregateQuota(from: refreshedAccounts), context: context)
         } catch {
             AppLogger.shared.warning("[antigravity] quota failed: \(error.localizedDescription)")
+            throw error
         }
     }
 
@@ -501,28 +540,29 @@ final class DataSyncService {
                     let d = (try? await self.claudeParser.parseDailyStatsFromCache()) ?? []
                     return (s, d)
                 }.value
-                upsertSessions(sessions, context: context)
-                stats.forEach { upsertDailyStats($0, context: context) }
+                try await upsertSessions(sessions, context: context)
+                try mergeDailyStats(stats, sessions: sessions, tool: .claudeCode, context: context)
+                    .forEach { upsertDailyStats($0, context: context) }
             case .codex:
                 let needsBackfill = !codexBackfillDone && hasCodexPlaceholderModels(context: context)
                 let effectiveSince: Date? = needsBackfill ? nil : since
-                if needsBackfill { codexBackfillDone = true }
                 let (sessions, stats) = try await Task.detached(priority: .utility) {
                     let s = try await self.codexParser.parseSessions(since: effectiveSince)
                     let d = try await self.codexParser.parseDailyStats(since: since)
                     return (s, d)
                 }.value
-                upsertSessions(sessions, context: context)
+                try await upsertSessions(sessions, context: context)
+                if needsBackfill && !sessions.isEmpty { codexBackfillDone = true }
                 stats.forEach { upsertDailyStats($0, context: context) }
             case .antigravity:
                 let sessions = try await Task.detached(priority: .utility) {
                     try await self.antigravityParser.parseSessions(since: since)
                 }.value
-                upsertSessions(sessions, context: context)
+                try await upsertSessions(sessions, context: context)
             case .copilot:
                 break   // no local files
             }
-            try context.save()
+            try saveUsageContext(context)
             states[tool].recordSuccess()
             failureGates[tool]?.recordSuccess()
             lastParsedAt[tool] = Date()
@@ -590,39 +630,64 @@ final class DataSyncService {
         return ctx
     }
 
-    private func upsertSessions(_ sessions: [ToolSession], context: ModelContext) {
-        for session in sessions {
-            let id = session.id
-            var desc = FetchDescriptor<SessionRecord>(predicate: #Predicate { $0.id == id })
-            desc.fetchLimit = 1
-            if let existing = (try? context.fetch(desc))?.first {
-                existing.inputTokens  = session.inputTokens
-                existing.outputTokens = session.outputTokens
-                existing.cacheReadTokens  = session.cacheReadTokens
-                existing.cacheWriteTokens = session.cacheWriteTokens
-                existing.endedAt = session.endedAt
-                if !session.taskDescription.isEmpty { existing.taskDescription = session.taskDescription }
-                if !session.model.isEmpty            { existing.model = session.model }
-            } else {
-                context.insert(SessionRecord(
-                    id: session.id, tool: session.tool,
-                    startedAt: session.startedAt, endedAt: session.endedAt,
-                    inputTokens: session.inputTokens, outputTokens: session.outputTokens,
-                    cacheReadTokens: session.cacheReadTokens, cacheWriteTokens: session.cacheWriteTokens,
-                    taskDescription: session.taskDescription, model: session.model,
-                    cwd: session.cwd, gitBranch: session.gitBranch
-                ))
+    func upsertSessions(_ sessions: [ToolSession], context: ModelContext) async throws {
+        for start in stride(from: 0, to: sessions.count, by: Self.upsertBatchYieldSize) {
+            let batch = Array(sessions[start..<min(start + Self.upsertBatchYieldSize, sessions.count)])
+            let ids = batch.map(\.id)
+            let desc = FetchDescriptor<SessionRecord>(predicate: #Predicate { ids.contains($0.id) })
+            let records = try context.fetch(desc)
+            var existingByID = records.reduce(into: [UUID: SessionRecord]()) { $0[$1.id] = $1 }
+            for session in batch {
+                if let existing = existingByID[session.id] {
+                    if existing.inputTokens != session.inputTokens { existing.inputTokens = session.inputTokens }
+                    if existing.outputTokens != session.outputTokens { existing.outputTokens = session.outputTokens }
+                    if existing.cacheReadTokens != session.cacheReadTokens { existing.cacheReadTokens = session.cacheReadTokens }
+                    if existing.cacheWriteTokens != session.cacheWriteTokens { existing.cacheWriteTokens = session.cacheWriteTokens }
+                    if existing.endedAt != session.endedAt { existing.endedAt = session.endedAt }
+                    if !session.taskDescription.isEmpty && existing.taskDescription != session.taskDescription { existing.taskDescription = session.taskDescription }
+                    if !session.model.isEmpty && existing.model != session.model { existing.model = session.model }
+                    if !session.cwd.isEmpty && existing.cwd != session.cwd { existing.cwd = session.cwd }
+                    if existing.gitBranch != session.gitBranch { existing.gitBranch = session.gitBranch }
+                } else {
+                    let record = SessionRecord(
+                        id: session.id, tool: session.tool,
+                        startedAt: session.startedAt, endedAt: session.endedAt,
+                        inputTokens: session.inputTokens, outputTokens: session.outputTokens,
+                        cacheReadTokens: session.cacheReadTokens, cacheWriteTokens: session.cacheWriteTokens,
+                        taskDescription: session.taskDescription, model: session.model,
+                        cwd: session.cwd, gitBranch: session.gitBranch
+                    )
+                    context.insert(record)
+                    existingByID[session.id] = record
+                }
             }
+            // Yield between bounded batches rather than blocking the UI for an import.
+            await Task.yield()
         }
     }
 
     /// Merges cache-based daily stats with session-derived stats.
     /// Cache stats are preferred for historical days; sessions fill gaps (especially today).
-    private func mergeDailyStats(_ cacheStats: [DailyStats], sessions: [ToolSession], tool: Tool) -> [DailyStats] {
+    private func mergeDailyStats(_ cacheStats: [DailyStats], sessions: [ToolSession], tool: Tool, context: ModelContext) throws -> [DailyStats] {
         let calendar = Calendar.current
+        // Incremental files are not complete daily totals. Include already imported
+        // conversations for each affected range before replacing persisted day rows.
+        var sourceSessions = sessions
+        if let first = sessions.map(\.startedAt).min(), let last = sessions.map(\.startedAt).max() {
+            let start = calendar.startOfDay(for: first)
+            let end = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: last))!
+            let toolRaw = tool.rawValue
+            let desc = FetchDescriptor<SessionRecord>(predicate: #Predicate { $0.toolRaw == toolRaw && $0.startedAt >= start && $0.startedAt < end })
+            sourceSessions = try context.fetch(desc).map { record in
+                ToolSession(id: record.id, tool: tool, startedAt: record.startedAt, endedAt: record.endedAt,
+                            inputTokens: record.inputTokens, outputTokens: record.outputTokens,
+                            cacheReadTokens: record.cacheReadTokens, cacheWriteTokens: record.cacheWriteTokens,
+                            taskDescription: record.taskDescription, model: record.model, cwd: record.cwd, gitBranch: record.gitBranch)
+            }
+        }
         // Aggregate sessions by day
         var sessionMap: [Date: (input: Int, output: Int, cacheRead: Int, count: Int)] = [:]
-        for s in sessions {
+        for s in sourceSessions {
             let day = calendar.startOfDay(for: s.startedAt)
             var entry = sessionMap[day] ?? (0, 0, 0, 0)
             entry.input     += s.inputTokens
@@ -663,10 +728,10 @@ final class DataSyncService {
         var desc = FetchDescriptor<DailyStatsRecord>(predicate: #Predicate { $0.date == date && $0.toolRaw == toolRaw })
         desc.fetchLimit = 1
         if let existing = (try? context.fetch(desc))?.first {
-            existing.totalInputTokens  = stats.totalInputTokens
-            existing.totalOutputTokens = stats.totalOutputTokens
-            existing.totalCacheReadTokens = stats.totalCacheReadTokens
-            existing.sessionCount = stats.sessionCount
+            if existing.totalInputTokens != stats.totalInputTokens { existing.totalInputTokens = stats.totalInputTokens }
+            if existing.totalOutputTokens != stats.totalOutputTokens { existing.totalOutputTokens = stats.totalOutputTokens }
+            if existing.totalCacheReadTokens != stats.totalCacheReadTokens { existing.totalCacheReadTokens = stats.totalCacheReadTokens }
+            if existing.sessionCount != stats.sessionCount { existing.sessionCount = stats.sessionCount }
         } else {
             context.insert(DailyStatsRecord(
                 date: stats.date, tool: stats.tool,
@@ -958,20 +1023,25 @@ final class DataSyncService {
     private func checkQuotaNotifications() {
         var infos: [String: NotificationService.QuotaInfo] = [:]
 
+        let now = Date()
         if let current = latestCodexAccounts.first(where: \.isCurrent),
-           let win = current.limits?.fiveHourWindow,
-           let used = win.usedPercent {
-            infos[Tool.codex.rawValue] = .init(fraction: max(0, (100 - used) / 100), resetAt: win.resetDate)
+           let fraction = current.quota.fraction,
+           current.quota.resetAt.map({ $0 > now }) != false {
+            infos[Tool.codex.rawValue] = .init(fraction: fraction, resetAt: current.quota.resetAt)
         }
         if let usage = latestClaudeUsage, let frac = usage.effectiveFraction {
             let resetAt = usage.isWeeklyExhausted ? (usage.sevenDay?.resetDate ?? usage.fiveHour?.resetDate) : usage.fiveHour?.resetDate
-            infos[Tool.claudeCode.rawValue] = .init(fraction: frac, resetAt: resetAt)
+            if resetAt.map({ $0 > now }) != false {
+                infos[Tool.claudeCode.rawValue] = .init(fraction: frac, resetAt: resetAt)
+            }
         }
         let ctx  = readContext
         let desc = FetchDescriptor<QuotaRecord>()
         if let records = try? ctx.fetch(desc) {
             for r in records {
                 guard infos[r.toolRaw] == nil,
+                      !(r.toolRaw == Tool.codex.rawValue && r.accountKey != nil),
+                      r.resetAt.map({ $0 > now }) != false,
                       let rem = r.remaining, let tot = r.total, tot > 0 else { continue }
                 infos[r.toolRaw] = .init(fraction: Double(rem) / Double(tot), resetAt: r.resetAt)
             }

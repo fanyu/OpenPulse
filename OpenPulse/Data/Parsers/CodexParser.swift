@@ -15,6 +15,14 @@ enum JSONLReader {
     private static let newline = UInt8(0x0A)
 
     static func forEachLine(of url: URL, _ body: (Data, Int) -> Void) {
+        forEachLine(of: url, until: { data, index in
+            body(data, index)
+            return false
+        })
+    }
+
+    /// Stops reading as soon as a caller finds its value.
+    static func forEachLine(of url: URL, until body: (Data, Int) -> Bool) {
         // Memory-mapped: pages are faulted in on demand and can be evicted by the
         // kernel, so a 500 MB log costs no lasting resident memory. Lines are handed
         // back as raw bytes so callers can reject most of them before paying for a
@@ -24,12 +32,12 @@ enum JSONLReader {
         var lineStart = data.startIndex
         var lineIndex = 0
         while let newlineIndex = data[lineStart...].firstIndex(of: newline) {
-            body(data[lineStart..<newlineIndex], lineIndex)
+            if body(data[lineStart..<newlineIndex], lineIndex) { return }
             lineIndex += 1
             lineStart = data.index(after: newlineIndex)
         }
         if lineStart < data.endIndex {
-            body(data[lineStart...], lineIndex)
+            _ = body(data[lineStart...], lineIndex)
         }
     }
 }
@@ -97,6 +105,8 @@ actor CodexParser {
             guard let db = try? Connection(.uri(dbPath, parameters: [.mode(.readOnly)])) else { return [] }
 
             let threads = Table("threads")
+            let hasUpdatedAt = (try db.scalar("SELECT COUNT(*) FROM pragma_table_info('threads') WHERE name = 'updated_at'") as? Int64) == 1
+            let updatedCol = Expression<Int64?>("updated_at")
             let idCol = Expression<String>("id")
             let titleCol = Expression<String?>("title")
             let firstMsgCol = Expression<String?>("first_user_message")
@@ -112,13 +122,18 @@ actor CodexParser {
             if cachedModelMap == nil || date == nil {
                 cachedModelMap = buildModelMap()
             }
+            if let date { refreshModelMap(since: date) }
             let modelMap = cachedModelMap ?? [:]
 
             var sessions: [ToolSession] = []
             for row in try db.prepare(threads) {
                 // created_at is Unix SECONDS (not ms)
                 let startDate = Date(timeIntervalSince1970: TimeInterval(row[createdCol]))
-                if let cutoff = date, startDate < cutoff { continue }
+                // Existing conversations can gain tokens long after they were created.
+                // Older schemas without updated_at require a full scan for correctness.
+                if let cutoff = date, hasUpdatedAt,
+                   startDate < cutoff,
+                   TimeInterval(row[updatedCol] ?? row[createdCol]) < cutoff.timeIntervalSince1970 { continue }
                 if row[archivedCol] == true { continue }
 
                 let tokens = Int(row[tokensCol] ?? 0)
@@ -132,7 +147,7 @@ actor CodexParser {
                     tool: .codex,
                     startedAt: startDate,
                     inputTokens: tokens * 4 / 5,   // rough split: ~80% input, ~20% output
-                    outputTokens: tokens / 5,
+                    outputTokens: tokens - tokens * 4 / 5,
                     taskDescription: String(description.prefix(300)),
                     model: modelName,
                     cwd: row[cwdCol] ?? "",
@@ -178,19 +193,28 @@ actor CodexParser {
 
     /// Reads a JSONL file and returns the model name from the first turn_context event.
     private func extractModelFromJSONL(_ url: URL) -> String? {
-        guard let data = try? Data(contentsOf: url),
-              let content = String(data: data, encoding: .utf8) else { return nil }
+        var model: String?
+        JSONLReader.forEachLine(of: url, until: { line, _ in
+            guard line.range(of: Data("turn_context".utf8)) != nil,
+                  let event = try? JSONDecoder().decode(CodexTurnContextEvent.self, from: line),
+                  event.type == "turn_context", let value = event.payload?.model, !value.isEmpty else { return false }
+            model = value
+            return true
+        })
+        return model
+    }
 
-        for line in content.components(separatedBy: "\n") {
-            guard !line.isEmpty,
-                  let lineData = line.data(using: .utf8),
-                  let event = try? JSONDecoder().decode(CodexTurnContextEvent.self, from: lineData),
-                  event.type == "turn_context",
-                  let model = event.payload?.model,
-                  !model.isEmpty else { continue }
-            return model
+    private func refreshModelMap(since cutoff: Date) {
+        for root in [sessionsDir, archivedDir] {
+            guard let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.contentModificationDateKey]) else { continue }
+            for case let url as URL in enumerator where url.pathExtension == "jsonl" {
+                guard let modified = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
+                      modified >= cutoff else { continue }
+                let parts = url.deletingPathExtension().lastPathComponent.components(separatedBy: "-")
+                guard parts.count >= 5, let model = extractModelFromJSONL(url) else { continue }
+                cachedModelMap?[parts.suffix(5).joined(separator: "-")] = model
+            }
         }
-        return nil
     }
 
     func parseDailyStats(since date: Date? = nil) async throws -> [DailyStats] {
@@ -210,7 +234,8 @@ actor CodexParser {
 
             for row in try db.prepare(threads) {
                 let d = Date(timeIntervalSince1970: TimeInterval(row[createdCol]))
-                if let cutoff = date, d < cutoff { continue }
+                // Daily rows are whole-day totals. A rolling cutoff would overwrite
+                // today's existing row with only conversations created in the last hour.
                 if row[archivedCol] == true { continue }
                 let tokens = Int(row[tokensCol] ?? 0)
                 guard tokens > 0 else { continue }
@@ -226,7 +251,7 @@ actor CodexParser {
                     date: calendar.startOfDay(for: d),
                     tool: .codex,
                     totalInputTokens: val.tokens * 4 / 5,
-                    totalOutputTokens: val.tokens / 5,
+                    totalOutputTokens: val.tokens - val.tokens * 4 / 5,
                     sessionCount: val.count
                 )
             }.sorted { $0.date < $1.date }
@@ -773,7 +798,10 @@ struct CodexWindow: Codable, Sendable {
     }
 
     var resetDate: Date? { resetsAt.map { Date(timeIntervalSince1970: $0) } }
-    var remainingPercent: Double { 100 - (usedPercent ?? 0) }
+    var remainingPercent: Double? {
+        guard let usedPercent, usedPercent.isFinite else { return nil }
+        return min(100, max(0, 100 - usedPercent))
+    }
     var durationSeconds: Int { windowSeconds ?? (windowMinutes ?? 0) * 60 }
 
     /// Human-readable window label derived from windowMinutes.

@@ -4,6 +4,59 @@ import SwiftData
 import AppKit
 
 struct MenuBarView: View {
+    @State private var dayStart = Calendar.current.startOfDay(for: Date())
+
+    var body: some View {
+        MenuBarContentView(dayStart: dayStart)
+            .onAppear { updateDayBoundary() }
+            .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
+                updateDayBoundary()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange)) { _ in
+                updateDayBoundary()
+            }
+            .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in
+                updateDayBoundary()
+            }
+    }
+
+    private func updateDayBoundary() {
+        dayStart = Calendar.current.startOfDay(for: Date())
+    }
+}
+
+struct MenuBarDailyStatsSnapshot: Equatable {
+    let date: Date
+    let tool: Tool
+    let inputTokens: Int
+    let outputTokens: Int
+}
+
+func menuBarTodayTokens(
+    from stats: [MenuBarDailyStatsSnapshot],
+    dayStart: Date,
+    calendar: Calendar = .current
+) -> [Tool: Int] {
+    let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart.addingTimeInterval(86_400)
+    var tokens: [Tool: Int] = [:]
+    for record in stats where record.date >= dayStart && record.date < dayEnd {
+        tokens[record.tool, default: 0] += record.inputTokens + record.outputTokens
+    }
+    return tokens
+}
+
+private struct MenuBarQuotaNowKey: EnvironmentKey {
+    static var defaultValue: Date { Date() }
+}
+
+private extension EnvironmentValues {
+    var menuBarQuotaNow: Date {
+        get { self[MenuBarQuotaNowKey.self] }
+        set { self[MenuBarQuotaNowKey.self] = newValue }
+    }
+}
+
+private struct MenuBarContentView: View {
     @Environment(AppStore.self) private var appStore
     @Query private var dailyStats: [DailyStatsRecord]
     @Query private var quotas: [QuotaRecord]
@@ -12,11 +65,13 @@ struct MenuBarView: View {
     @AppStorage("menubar.toolOrder") private var toolOrderRaw = Tool.defaultOrderRaw
     @AppStorage("menubar.hiddenTools") private var hiddenToolsRaw = ""
     @AppStorage("menubar.antigravityDisplayMode") private var antigravityDisplayMode = "accounts"
-    init() {
-        // Only load today's aggregate stats — avoids scanning today's raw sessions
-        // every time the menu bar popover is shown or refreshed.
-        let start = Calendar.current.startOfDay(for: Date())
-        _dailyStats = Query(filter: #Predicate<DailyStatsRecord> { $0.date >= start })
+    let dayStart: Date
+
+    init(dayStart: Date) {
+        self.dayStart = dayStart
+        // A moving, bounded aggregate query keeps yesterday out after midnight.
+        let dayEnd = Calendar.current.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart.addingTimeInterval(86_400)
+        _dailyStats = Query(filter: #Predicate<DailyStatsRecord> { $0.date >= dayStart && $0.date < dayEnd })
     }
 
     private var orderedVisibleTools: [Tool] {
@@ -27,15 +82,24 @@ struct MenuBarView: View {
     }
 
     @State private var contentHeight: CGFloat = 0
+    @State private var headerHeight: CGFloat = 88
+    @State private var footerHeight: CGFloat = 82
     // Cached per-tool today token counts — one pass over today's aggregate stats only.
     @State private var todayTokensByTool: [Tool: Int] = [:]
 
-    private func rebuildTodayTokens() {
-        var map: [Tool: Int] = [:]
-        for stats in dailyStats {
-            map[stats.tool, default: 0] += stats.totalInputTokens + stats.totalOutputTokens
+    private var todayStatsSnapshot: [MenuBarDailyStatsSnapshot] {
+        dailyStats.map {
+            MenuBarDailyStatsSnapshot(
+                date: $0.date,
+                tool: $0.tool,
+                inputTokens: $0.totalInputTokens,
+                outputTokens: $0.totalOutputTokens
+            )
         }
-        todayTokensByTool = map
+    }
+
+    private func rebuildTodayTokens() {
+        todayTokensByTool = menuBarTodayTokens(from: todayStatsSnapshot, dayStart: dayStart)
     }
 
     private var todayTokens: Int { todayTokensByTool.values.reduce(0, +) }
@@ -45,31 +109,71 @@ struct MenuBarView: View {
 
     private var maxScrollHeight: CGFloat {
         let screenHeight = NSScreen.main?.visibleFrame.height ?? 800
-        return max(300, screenHeight - 58 - 52 - 22 - 24)
+        return max(300, screenHeight - headerHeight - footerHeight - 22 - 24)
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            headerSection
-            Divider().opacity(0.3).padding(.horizontal)
-            ScrollView {
-                VStack(spacing: 10) {
-                    ForEach(orderedVisibleTools, id: \.self) { tool in
-                        toolCard(for: tool)
+            MenuBarHeader(
+                todayTokens: todayTokens,
+                visibleToolCount: orderedVisibleTools.count,
+                isSyncing: isSyncing,
+                onRefresh: {
+                    performMenuBarAction {
+                        await appStore.syncService?.sync()
                     }
                 }
-                .padding(12)
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
+            )
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { headerHeight = $0 }
+            Divider().padding(.horizontal, 16)
+            ScrollView {
+                // Only quota cards tick; today's bounded query and cached totals
+                // remain in the parent and rebuild only when usage or day changes.
+                TimelineView(.periodic(from: .now, by: 60)) { context in
+                    VStack(spacing: 12) {
+                        if orderedVisibleTools.isEmpty {
+                            MenuBarEmptyToolsView()
+                        } else {
+                            ForEach(orderedVisibleTools, id: \.self) { tool in
+                                toolCard(for: tool)
+                            }
+                        }
+                    }
+                    .environment(\.menuBarQuotaNow, context.date)
+                    .padding(14)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
+                }
             }
             .frame(height: min(contentHeight, maxScrollHeight))
             .scrollIndicators(.hidden)
-            Divider().opacity(0.3).padding(.horizontal)
-            footerSection
+            Divider().padding(.horizontal, 16)
+            MenuBarFooter(
+                lastSyncDate: lastSyncDate,
+                syncError: appStore.syncService?.syncError.map { syncErrorHelpText(fallback: $0) },
+                onOpen: {
+                    performMenuBarAction {
+                        WindowCoordinator.shared.showMainWindow()
+                    }
+                },
+                onSettings: {
+                    performMenuBarAction {
+                        WindowCoordinator.shared.showMainWindow(select: .settings)
+                    }
+                },
+                onQuit: {
+                    performMenuBarAction {
+                        NSApp.terminate(nil)
+                    }
+                }
+            )
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { footerHeight = $0 }
         }
         .frame(width: 420)
         .background(MenuBarWindowCapture())
         .task { rebuildTodayTokens() }
-        .onChange(of: dailyStats.count) { _, _ in rebuildTodayTokens() }
+        .onChange(of: todayStatsSnapshot) { _, _ in rebuildTodayTokens() }
+        .onChange(of: dayStart) { _, _ in rebuildTodayTokens() }
+        .onChange(of: appStore.syncService?.dataRevision) { _, _ in rebuildTodayTokens() }
     }
 
     @ViewBuilder
@@ -121,112 +225,19 @@ struct MenuBarView: View {
                     quota: fallback,
                     todayTokens: todaySessionTokens(for: .antigravity)
                 )
+            } else {
+                MenuBarToolShell {
+                    MenuBarToolIdentity(tool: .antigravity, todayTokens: todaySessionTokens(for: .antigravity)) {
+                        ConfigShortcutButton(tool: .antigravity)
+                    }
+                } content: {
+                    MenuBarQuotaUnavailable()
+                }
             }
         }
     }
 
     private func todaySessionTokens(for tool: Tool) -> Int { todayTokensByTool[tool] ?? 0 }
-
-    private var headerSection: some View {
-        HStack(alignment: .center) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("OpenPulse")
-                    .font(.system(size: 18, weight: .bold, design: .rounded))
-                HStack(spacing: 4) {
-                    if isSyncing {
-                        ProgressView().controlSize(.mini).scaleEffect(0.8)
-                        Text("同步中…").font(.caption2).foregroundStyle(.secondary)
-                    } else {
-                        let activeCount = orderedVisibleTools.filter { todayTokensByTool[$0] != nil }.count
-                        Text("\(activeCount) 个工具")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                        if todayTokens > 0 {
-                            Text("·")
-                                .font(.system(size: 10))
-                                .foregroundStyle(.secondary)
-                            Text("今日 \(todayTokens.compactTokenString) tokens")
-                                .font(.system(size: 10, weight: .medium, design: .monospaced))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-            }
-            Spacer()
-            Image(nsImage: NSApp.applicationIconImage)
-                .resizable()
-                .frame(width: 28, height: 28)
-                .padding(.trailing, 8)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-    }
-
-    private var footerSection: some View {
-        HStack {
-            if let lastSync = lastSyncDate {
-                Text("更新于 \(lastSync, style: .relative)前")
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(.secondary)
-            } else {
-                Text("尚未同步")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.secondary)
-            }
-            if let err = appStore.syncService?.syncError {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.orange)
-                    .help(syncErrorHelpText(fallback: err))
-            }
-            Spacer()
-            HStack(spacing: 8) {
-                Button(action: {
-                    performMenuBarAction {
-                        await appStore.syncService?.sync()
-                    }
-                }) {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .keyboardShortcut("r", modifiers: .command)
-                .help(String(localized: "刷新同步 (⌘R)"))
-                .disabled(isSyncing)
-                Button(action: {
-                    performMenuBarAction {
-                        WindowCoordinator.shared.showMainWindow()
-                    }
-                }) {
-                    Image(systemName: "macwindow")
-                }
-                .keyboardShortcut("m", modifiers: .command)
-                .help(String(localized: "打开主窗口 (⌘M)"))
-                Button(action: {
-                    performMenuBarAction {
-                        WindowCoordinator.shared.showMainWindow(select: .settings)
-                    }
-                }) {
-                    Image(systemName: "gearshape")
-                }
-                .keyboardShortcut(",", modifiers: .command)
-                .help(String(localized: "设置 (⌘,)"))
-                Button(action: {
-                    performMenuBarAction {
-                        NSApp.terminate(nil)
-                    }
-                }) {
-                    Image(systemName: "power")
-                }
-                .keyboardShortcut("q", modifiers: .command)
-                .help(String(localized: "退出 (⌘Q)"))
-                .foregroundStyle(.secondary)
-            }
-            .buttonStyle(.glass)
-            .controlSize(.small)
-            .labelStyle(.iconOnly)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-    }
 
     private func syncErrorHelpText(fallback: String) -> String {
         logger.latestPersistentSyncError?.summary ?? fallback
@@ -240,6 +251,143 @@ struct MenuBarView: View {
     }
 }
 
+private struct MenuBarHeader: View {
+    let todayTokens: Int
+    let visibleToolCount: Int
+    let isSyncing: Bool
+    let onRefresh: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("OpenPulse")
+                    .font(.system(size: 17, weight: .semibold))
+                Spacer()
+                Button(action: onRefresh) {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 13, weight: .medium))
+                        .frame(width: 26, height: 26)
+                }
+                .buttonStyle(.borderless)
+                .keyboardShortcut("r", modifiers: .command)
+                .help("刷新同步 (⌘R)")
+                .accessibilityLabel("刷新同步")
+                .disabled(isSyncing)
+            }
+
+            HStack(alignment: .bottom, spacing: 12) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(todayTokens.compactTokenString)
+                        .font(.system(size: 24, weight: .semibold))
+                        .monospacedDigit()
+                    Text("今日 tokens")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityElement(children: .combine)
+                Spacer(minLength: 8)
+                if isSyncing {
+                    HStack(spacing: 5) {
+                        ProgressView().controlSize(.mini)
+                        Text("同步中…")
+                    }
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                } else {
+                    Text("\(visibleToolCount) 个工具")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 14)
+        .padding(.bottom, 16)
+    }
+}
+
+private struct MenuBarFooter: View {
+    let lastSyncDate: Date?
+    let syncError: String?
+    let onOpen: () -> Void
+    let onSettings: () -> Void
+    let onQuit: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                if let lastSyncDate {
+                    Text("更新于 \(lastSyncDate, style: .relative)前")
+                        .help(lastSyncDate.formatted(date: .abbreviated, time: .shortened))
+                } else {
+                    Text("尚未同步")
+                }
+                Spacer(minLength: 4)
+                if let syncError {
+                    Label("同步出现问题", systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                        .help(syncError)
+                        .accessibilityHint(syncError)
+                }
+            }
+            .font(.system(size: 11))
+            .foregroundStyle(.secondary)
+
+            HStack(spacing: 10) {
+                Button(action: onOpen) {
+                    HStack(spacing: 8) {
+                        Label("打开 OpenPulse", systemImage: "macwindow")
+                        Spacer(minLength: 8)
+                        Text("⌘M")
+                            .font(.system(size: 11))
+                            .opacity(0.7)
+                    }
+                    .font(.system(size: 12, weight: .medium))
+                    .padding(.vertical, 2)
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.regular)
+                .keyboardShortcut("m", modifiers: .command)
+                .help("打开主窗口 (⌘M)")
+
+                Menu {
+                    Button("设置…", systemImage: "gearshape", action: onSettings)
+                        .keyboardShortcut(",", modifiers: .command)
+                    Divider()
+                    Button("退出 OpenPulse", systemImage: "power", action: onQuit)
+                        .keyboardShortcut("q", modifiers: .command)
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(width: 26, height: 28)
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("更多操作")
+                .accessibilityLabel("更多操作")
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 12)
+    }
+}
+
+private struct MenuBarEmptyToolsView: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("没有显示的工具")
+                .font(.system(size: 13, weight: .semibold))
+            Text("在设置中选择要显示的工具。")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 private struct ConfigShortcutButton: View {
     let tool: Tool
 
@@ -247,23 +395,33 @@ private struct ConfigShortcutButton: View {
 
     var body: some View {
         if let configFile {
-            Image(systemName: "gearshape")
-                .font(.system(size: 13, weight: .semibold))
-                .frame(width: 22, height: 22)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    GlobalHotkeyService.shared.closeMenuBar()
-                    if FileManager.default.fileExists(atPath: configFile.url.path) {
-                        NSWorkspace.shared.open(configFile.url)
-                    } else {
-                        NSWorkspace.shared.activateFileViewerSelecting([configFile.url.deletingLastPathComponent()])
-                    }
+            Button {
+                GlobalHotkeyService.shared.closeMenuBar()
+                if FileManager.default.fileExists(atPath: configFile.url.path) {
+                    NSWorkspace.shared.open(configFile.url)
+                } else {
+                    NSWorkspace.shared.activateFileViewerSelecting([configFile.url.deletingLastPathComponent()])
                 }
-                .accessibilityLabel(Text(String(localized: "打开 \(configFile.displayName)")))
-                .accessibilityAddTraits(.isButton)
+            } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(width: 26, height: 26)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
             .foregroundStyle(.secondary)
-            .help(String(localized: "打开 \(configFile.displayName)"))
+            .accessibilityLabel(Text("打开 \(configFile.displayName)"))
+            .help("打开 \(configFile.displayName)")
         }
+    }
+}
+
+private struct MenuBarQuotaUnavailable: View {
+    var body: some View {
+        Text("尚未获取额度")
+            .font(.system(size: 11))
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -277,7 +435,7 @@ private struct MenuBarToolShell<Identity: View, Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             identity
             content
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -310,20 +468,20 @@ private struct MenuBarToolIdentity<Accessory: View>: View {
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
             HStack(spacing: 10) {
-                ToolLogoImage(tool: tool, size: 28)
+                ToolLogoImage(tool: tool, size: 24)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(tool.displayName)
-                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .font(.system(size: 14, weight: .semibold))
                         .lineLimit(1)
                     if let subtitle, !subtitle.isEmpty {
                         Text(subtitle)
-                            .font(.system(size: 10, weight: .medium))
+                            .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
                     if let metaText, !metaText.isEmpty {
                         Text(metaText)
-                            .font(.system(size: 9))
+                            .font(.system(size: 11))
                             .foregroundStyle(.tertiary)
                             .lineLimit(1)
                     }
@@ -331,7 +489,12 @@ private struct MenuBarToolIdentity<Accessory: View>: View {
             }
             Spacer(minLength: 8)
             if todayTokens > 0 {
-                TodayTokenBadge(tokens: todayTokens)
+                Text(todayTokens.compactTokenString)
+                    .font(.system(size: 11, weight: .medium))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .help("今日 \(todayTokens.compactTokenString) tokens")
+                    .accessibilityLabel(Text("今日 \(todayTokens.compactTokenString) tokens"))
             }
             accessory
         }
@@ -350,22 +513,19 @@ private struct MenuBarQuotaPanel: View {
         isExhaustedOverride ?? ((fraction ?? 1.0) <= 0.001 || primaryValue == "0%")
     }
     var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
+        VStack(alignment: .leading, spacing: 8) {
             Text(LocalizedStringKey(title))
-                .font(.system(size: 10, weight: .bold))
+                .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
 
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(primaryValue)
-                    .font(.system(size: 21, weight: .black, design: .monospaced))
-                    .foregroundStyle(isExhausted ? Color.secondary.opacity(0.6) : .primary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
-                Spacer(minLength: 2)
-                MenuBarResetLine(countdown: countdown, isExhausted: isExhausted)
-                    .layoutPriority(1)
-            }
+            Text(primaryValue)
+                .font(.system(size: 22, weight: .semibold))
+                .monospacedDigit()
+                .foregroundStyle(isExhausted ? Color.secondary : .primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+
             QuotaProgressBar(
                 fraction: isExhausted ? 0.0 : fraction,
                 color: isExhausted ? Color.primary.opacity(0.12) : menuBarQuotaBarColor(fraction: fraction),
@@ -373,44 +533,59 @@ private struct MenuBarQuotaPanel: View {
                 showsGlow: false
             )
 
+            MenuBarResetLine(countdown: countdown)
+
             if let footer, !footer.isEmpty {
                 Text(LocalizedStringKey(footer))
-                    .font(.system(size: 9))
-                    .foregroundStyle(.tertiary)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 10)
+        .padding(.vertical, 2)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color.primary.opacity(0.045), lineWidth: 0.5)
-        }
     }
 }
 
 private struct MenuBarResetLine: View {
     let countdown: String?
-    var isExhausted: Bool = false
 
     var body: some View {
-        HStack(spacing: 4) {
-            Image(systemName: "clock.arrow.circlepath")
-                .font(.system(size: 8, weight: .bold))
-                .foregroundStyle(.secondary)
-            Text(countdown ?? "—")
-                .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
-                .foregroundStyle(countdown == nil ? .tertiary : .secondary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
+        Group {
+            if let countdown {
+                Text("\(countdown) 重置")
+            } else {
+                Text("重置时间未知")
+            }
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 3.5)
-        .background(Color.primary.opacity(0.055), in: Capsule())
-        .accessibilityElement(children: .combine)
+        .font(.system(size: 11))
+        .monospacedDigit()
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
+        .minimumScaleFactor(0.85)
     }
+}
+
+func menuBarQuotaFraction(
+    remainingFraction: Double?,
+    resetAt: Date?,
+    now: Date = Date()
+) -> Double? {
+    guard !menuBarQuotaIsExpired(resetAt: resetAt, now: now),
+          let remainingFraction, remainingFraction.isFinite else { return nil }
+    return min(1, max(0, remainingFraction))
+}
+
+func menuBarQuotaIsExpired(resetAt: Date?, now: Date = Date()) -> Bool {
+    resetAt.map { $0 <= now } ?? false
+}
+
+private func menuBarQuotaPercentText(_ fraction: Double?) -> String {
+    fraction.map { "\(Int(($0 * 100).rounded()))%" } ?? "—"
+}
+
+private func menuBarQuotaRefreshFooter(resetAt: Date?, now: Date) -> String? {
+    menuBarQuotaIsExpired(resetAt: resetAt, now: now) ? String(localized: "等待更新") : nil
 }
 
 private func menuBarQuotaBarColor(fraction: Double?) -> Color {
@@ -422,7 +597,7 @@ private func menuBarQuotaBarColor(fraction: Double?) -> Color {
 }
 
 private func menuBarTimeOnlyResetString(for date: Date) -> String {
-    date.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
+    date.formatted(.dateTime.hour(.twoDigits(amPM: .abbreviated)).minute(.twoDigits))
 }
 
 private func menuBarShortResetString(for date: Date) -> String {
@@ -550,6 +725,7 @@ private struct CodexMenuBarQuotaRows: View {
 }
 
 private struct CodexMenuBarQuotaRowView: View {
+    @Environment(\.menuBarQuotaNow) private var now
     let row: CodexMenuBarQuotaRow
     let showTitle: Bool
 
@@ -562,7 +738,7 @@ private struct CodexMenuBarQuotaRowView: View {
                     .lineLimit(1)
             }
 
-            HStack(spacing: 8) {
+            HStack(alignment: .top, spacing: 16) {
                 quotaPanel(label: String(localized: "5小时余量"), isFiveHour: true, window: row.fiveHourWindow)
                 quotaPanel(label: String(localized: "本周余量"), isFiveHour: false, window: row.oneWeekWindow)
             }
@@ -570,7 +746,7 @@ private struct CodexMenuBarQuotaRowView: View {
     }
     @ViewBuilder
     private func quotaPanel(label: String, isFiveHour: Bool, window: CodexWindow?) -> some View {
-        let state = codexMenuBarDisplayState(for: window, isFiveHour: isFiveHour)
+        let state = codexMenuBarDisplayState(for: window, isFiveHour: isFiveHour, now: now)
         MenuBarQuotaPanel(
             title: label,
             fraction: state.fraction,
@@ -581,7 +757,7 @@ private struct CodexMenuBarQuotaRowView: View {
     }
 }
 
-private func codexMenuBarDisplayState(for window: CodexWindow?, isFiveHour: Bool) -> CodexMenuBarWindowDisplayState {
+private func codexMenuBarDisplayState(for window: CodexWindow?, isFiveHour: Bool, now: Date) -> CodexMenuBarWindowDisplayState {
     guard let window else {
         return CodexMenuBarWindowDisplayState(
             fraction: nil,
@@ -591,31 +767,27 @@ private func codexMenuBarDisplayState(for window: CodexWindow?, isFiveHour: Bool
         )
     }
 
-    let countdown = window.resetDate.map {
+    let resetDate = window.resetDate
+    let fraction = menuBarQuotaFraction(
+        remainingFraction: window.usedPercent.map { (100 - $0) / 100 },
+        resetAt: resetDate,
+        now: now
+    )
+    let countdown = resetDate.map {
         isFiveHour ? menuBarTimeOnlyResetString(for: $0) : menuBarShortResetString(for: $0)
     }
-
-    if let resetDate = window.resetDate, resetDate < Date() {
-        return CodexMenuBarWindowDisplayState(
-            fraction: 1,
-            primaryValue: "100%",
-            countdown: countdown,
-            footer: String(localized: "已重置")
-        )
-    }
-
-    let fraction = window.usedPercent.map { max(0, min(1, (100 - $0) / 100)) }
     return CodexMenuBarWindowDisplayState(
         fraction: fraction,
-        primaryValue: fraction.map { "\(Int(($0 * 100).rounded()))%" } ?? "—",
+        primaryValue: menuBarQuotaPercentText(fraction),
         countdown: countdown,
-        footer: nil
+        footer: menuBarQuotaRefreshFooter(resetAt: resetDate, now: now)
     )
 }
 
 // MARK: - Claude Code
 
 struct ClaudeQuotaCard: View {
+    @Environment(\.menuBarQuotaNow) private var now
     let usage: ClaudeUsageResponse?
     let quota: QuotaRecord?
     let accountInfo: ClaudeAccountInfo?
@@ -632,39 +804,47 @@ struct ClaudeQuotaCard: View {
             }
         } content: {
             if let usage {
-                let isWeeklyExhausted = usage.isWeeklyExhausted
-                HStack(spacing: 8) {
+                let fiveHourFraction = menuBarQuotaFraction(
+                    remainingFraction: usage.fiveHour?.utilization.map { (100 - $0) / 100 },
+                    resetAt: usage.fiveHour?.resetDate,
+                    now: now
+                )
+                let weeklyFraction = menuBarQuotaFraction(
+                    remainingFraction: usage.sevenDay?.utilization.map { (100 - $0) / 100 },
+                    resetAt: usage.sevenDay?.resetDate,
+                    now: now
+                )
+                let isWeeklyExhausted = weeklyFraction.map { $0 <= 0.001 } ?? false
+                HStack(alignment: .top, spacing: 16) {
                     MenuBarQuotaPanel(
                         title: "5小时余量",
-                        fraction: usage.fiveHour?.utilization.map { max(0, min(1, (100 - $0) / 100)) },
-                        primaryValue: usage.fiveHour?.utilization.map { "\(max(0, Int((100 - $0).rounded())))%" } ?? "—",
+                        fraction: fiveHourFraction,
+                        primaryValue: menuBarQuotaPercentText(fiveHourFraction),
                         countdown: usage.fiveHour?.resetDate.map { menuBarTimeOnlyResetString(for: $0) },
-                        footer: nil,
+                        footer: isWeeklyExhausted
+                            ? String(localized: "本周额度已耗尽")
+                            : menuBarQuotaRefreshFooter(resetAt: usage.fiveHour?.resetDate, now: now),
                         isExhaustedOverride: isWeeklyExhausted ? true : nil
                     )
                     MenuBarQuotaPanel(
                         title: "本周余量",
-                        fraction: usage.sevenDay?.utilization.map { max(0, min(1, (100 - $0) / 100)) },
-                        primaryValue: usage.sevenDay?.utilization.map { "\(max(0, Int((100 - $0).rounded())))%" } ?? "—",
+                        fraction: weeklyFraction,
+                        primaryValue: menuBarQuotaPercentText(weeklyFraction),
                         countdown: usage.sevenDay?.resetDate.map { menuBarShortResetString(for: $0) },
-                        footer: nil
+                        footer: menuBarQuotaRefreshFooter(resetAt: usage.sevenDay?.resetDate, now: now)
                     )
                 }
             } else if let q = quota, let r = q.remaining, let t = q.total, t > 0 {
-                let frac = Double(r) / Double(t)
-                let pct = Int((frac * 100).rounded())
+                let frac = menuBarQuotaFraction(remainingFraction: Double(r) / Double(t), resetAt: q.resetAt, now: now)
                 MenuBarQuotaPanel(
                     title: "5小时余量",
                     fraction: frac,
-                    primaryValue: "\(pct)%",
-                    countdown: q.resetAt.map { menuBarTimeOnlyResetString(for: $0) } ?? q.toModel().resetCountdown,
-                    footer: nil
+                    primaryValue: menuBarQuotaPercentText(frac),
+                    countdown: q.resetAt.map { menuBarTimeOnlyResetString(for: $0) },
+                    footer: menuBarQuotaRefreshFooter(resetAt: q.resetAt, now: now)
                 )
             } else {
-                Text("未获取到额度")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                MenuBarQuotaUnavailable()
             }
         }
     }
@@ -693,6 +873,7 @@ struct ClaudeQuotaCard: View {
 
 struct CodexQuotaCard: View {
     @Environment(AppStore.self) private var appStore
+    @Environment(\.menuBarQuotaNow) private var now
     let limits: CodexRateLimits?
     let fallbackQuota: QuotaRecord?
     let todayTokens: Int
@@ -710,20 +891,21 @@ struct CodexQuotaCard: View {
             VStack(alignment: .leading, spacing: 8) {
                 if let limits, !codexMenuBarQuotaRows(for: limits).isEmpty {
                     CodexMenuBarQuotaRows(limits: limits)
-                } else if let q = fallbackQuota, let r = q.remaining, let t = q.total {
-                    let frac = Double(r) / Double(t)
-                    let pct = Int((frac * 100).rounded())
+                } else if let q = fallbackQuota, let r = q.remaining, let t = q.total, t > 0 {
+                    let frac = menuBarQuotaFraction(remainingFraction: Double(r) / Double(t), resetAt: q.resetAt, now: now)
                     MenuBarQuotaPanel(
                         title: "5小时余量",
                         fraction: frac,
-                        primaryValue: "\(pct)%",
-                        countdown: q.resetAt.map { menuBarTimeOnlyResetString(for: $0) } ?? q.toModel().resetCountdown,
-                        footer: nil
+                        primaryValue: menuBarQuotaPercentText(frac),
+                        countdown: q.resetAt.map { menuBarTimeOnlyResetString(for: $0) },
+                        footer: menuBarQuotaRefreshFooter(resetAt: q.resetAt, now: now)
                     )
+                } else {
+                    MenuBarQuotaUnavailable()
                 }
                 if let statusMessage {
                     Text(statusMessage)
-                        .font(.caption2)
+                        .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -744,27 +926,24 @@ struct CodexAccountQuotaCard: View {
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
                         Text(account.titleText)
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(.system(size: 12, weight: .semibold))
                             .lineLimit(1)
                             .truncationMode(.middle)
                         if account.isCurrent {
                             Text("当前")
-                                .font(.system(size: 9, weight: .bold))
-                                .foregroundStyle(.green)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Color.green.opacity(0.12), in: Capsule())
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.secondary)
                         }
                     }
                     if let subtitleText = account.subtitleText {
                         Text(subtitleText)
-                            .font(.system(size: 9))
+                            .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .truncationMode(.middle)
                     } else if let metaText = account.metaText {
                         Text(metaText)
-                            .font(.system(size: 9))
+                            .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -776,7 +955,8 @@ struct CodexAccountQuotaCard: View {
                         onSwitch(account.id)
                     }
                     .buttonStyle(.bordered)
-                    .controlSize(.mini)
+                    .controlSize(.small)
+                    .font(.system(size: 11))
                     .disabled(isSwitching)
                 }
             }
@@ -784,7 +964,7 @@ struct CodexAccountQuotaCard: View {
             if let limits = account.limits {
                 if codexMenuBarQuotaRows(for: limits).isEmpty {
                     Text("尚未获取配额")
-                        .font(.caption2)
+                        .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
@@ -794,9 +974,9 @@ struct CodexAccountQuotaCard: View {
                     CodexResetCreditsLine(resetCredits: resetCredits)
                 }
             } else if let error = account.usageError {
-                Text(error).font(.caption2).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
+                Text(error).font(.system(size: 11)).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
             } else {
-                Text("尚未获取配额").font(.caption2).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
+                Text("尚未获取配额").font(.system(size: 11)).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
@@ -836,26 +1016,26 @@ private struct CodexResetCreditsLine: View {
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(.green)
             Text("可用重置券")
-                .font(.system(size: 9, weight: .medium))
+                .font(.system(size: 11))
                 .foregroundStyle(.secondary)
             Text("\(availableCount)")
-                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .font(.system(size: 11, weight: .semibold))
+                .monospacedDigit()
                 .foregroundStyle(.primary)
             if let expiryText {
                 Text("过期")
-                    .font(.system(size: 9, weight: .medium))
+                    .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                 Text(expiryText)
-                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                    .font(.system(size: 11))
+                    .monospacedDigit()
                     .foregroundStyle(Color.primary.opacity(0.78))
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 5)
+        .padding(.top, 2)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.primary.opacity(0.045), in: Capsule())
     }
 }
 
@@ -881,16 +1061,9 @@ struct CodexMultiAccountQuotaCard: View {
                                 try await appStore.codexAccountService.smartSwitch()
                             }
                         }
-                        .buttonStyle(
-                            ProminentActionButtonStyle(
-                                fillColor: Color.green.opacity(0.78),
-                                fontSizeOverride: 10,
-                                horizontalPaddingOverride: 7,
-                                verticalPaddingOverride: 2,
-                                cornerRadius: 8
-                            )
-                        )
-                        .controlSize(.mini)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .font(.system(size: 11))
                         .disabled(isSwitching)
                     }
                     ConfigShortcutButton(tool: .codex)
@@ -918,7 +1091,7 @@ struct CodexMultiAccountQuotaCard: View {
                 }
                 if let statusMessage {
                     Text(statusMessage)
-                        .font(.caption2)
+                        .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -995,7 +1168,7 @@ private struct CodexProviderMenuButton: View {
                                 Image(systemName: "checkmark")
                             } else if provider.defaultModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                                 Text("未配模型")
-                                    .font(.caption2)
+                                    .font(.system(size: 11))
                                     .foregroundStyle(.secondary)
                             }
                         }
@@ -1137,7 +1310,7 @@ private struct CodexProviderMenuButton: View {
                                 scope: CodexRouterDiagnostics.diagnosticScope,
                                 message: CodexRouterDiagnostics.rollbackFailedMessage(
                                     target: provider.id,
-                                    fallback: previousProviderID ?? provider.id,
+                                    fallback: previousProviderID,
                                     reason: error.localizedDescription
                                 )
                             )
@@ -1200,6 +1373,7 @@ private struct CodexProviderMenuButton: View {
 // MARK: - Copilot
 
 struct CopilotQuotaCard: View {
+    @Environment(\.menuBarQuotaNow) private var now
     let snapshots: [String: CopilotSnapshot]?
     let resetAt: Date?
     let plan: String?
@@ -1236,7 +1410,7 @@ struct CopilotQuotaCard: View {
                             Array(ordered[$0..<min($0 + 2, ordered.count)])
                         }
                         ForEach(pairs, id: \.first?.key) { pair in
-                            HStack(alignment: .top, spacing: 8) {
+                            HStack(alignment: .top, spacing: 16) {
                                 ForEach(pair, id: \.key) { item in
                                     copilotPanel(for: item.value)
                                 }
@@ -1248,23 +1422,28 @@ struct CopilotQuotaCard: View {
                     }
                 }
             } else if let q = fallbackQuota, let r = q.remaining, let t = q.total, t > 0 {
-                let frac = Double(r) / Double(t)
+                let frac = menuBarQuotaFraction(remainingFraction: Double(r) / Double(t), resetAt: q.resetAt, now: now)
                 let used = t - r
-                let pct = Int((frac * 100).rounded())
                 MenuBarQuotaPanel(
                     title: "Copilot 余量",
                     fraction: frac,
-                    primaryValue: "\(pct)%",
-                    countdown: q.toModel().resetCountdown,
-                    footer: "\(used)/\(t)"
+                    primaryValue: menuBarQuotaPercentText(frac),
+                    countdown: q.resetAt.map { menuBarShortResetString(for: $0) },
+                    footer: menuBarQuotaRefreshFooter(resetAt: q.resetAt, now: now) ?? "\(used)/\(t)"
                 )
+            } else {
+                MenuBarQuotaUnavailable()
             }
         }
     }
 
     private func copilotPanel(for snapshot: CopilotSnapshot) -> some View {
         let isInf = snapshot.unlimited ?? false
-        let pctText = snapshot.percentRemaining.map { "\(Int($0.rounded()))%" } ?? "—"
+        let fraction = menuBarQuotaFraction(
+            remainingFraction: snapshot.percentRemaining.map { $0 / 100 },
+            resetAt: resetAt,
+            now: now
+        )
         let countsText: String? = {
             if let remaining = snapshot.remaining, let entitlement = snapshot.entitlement {
                 return "\(max(0, remaining))/\(entitlement)"
@@ -1274,10 +1453,10 @@ struct CopilotQuotaCard: View {
 
         return MenuBarQuotaPanel(
             title: snapshot.displayName,
-            fraction: isInf ? 1.0 : snapshot.percentRemaining.map { $0 / 100.0 },
-            primaryValue: isInf ? "∞" : pctText,
+            fraction: isInf ? 1.0 : fraction,
+            primaryValue: isInf ? "∞" : menuBarQuotaPercentText(fraction),
             countdown: resetAt.map { menuBarShortResetString(for: $0) },
-            footer: countsText
+            footer: isInf ? countsText : (menuBarQuotaRefreshFooter(resetAt: resetAt, now: now) ?? countsText)
         )
     }
 }
@@ -1285,6 +1464,7 @@ struct CopilotQuotaCard: View {
 // MARK: - Antigravity
 
 private struct AGMenuBarGroupCard: View {
+    @Environment(\.menuBarQuotaNow) private var now
     let group: AGQuotaGroup
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -1292,21 +1472,26 @@ private struct AGMenuBarGroupCard: View {
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.secondary)
             
-            let is5hUnusable = group.isFiveHourUnusable || (group.fiveHour?.remainingFraction ?? 1.0) <= 0.001
-            HStack(spacing: 8) {
+            let fiveHourFraction = agQuotaDisplayFraction(for: group.fiveHour)
+            let weeklyFraction = agQuotaDisplayFraction(for: group.weekly)
+            let fiveHourReset = group.fiveHour?.resetTime.flatMap { $0 > now ? $0 : nil }
+            let weeklyReset = group.weekly?.resetTime.flatMap { $0 > now ? $0 : nil }
+            let isWeeklyExhausted = weeklyFraction.map { $0 <= 0.001 } ?? false
+            let is5hUnusable = isWeeklyExhausted || (fiveHourFraction.map { $0 <= 0.001 } ?? false)
+            HStack(alignment: .top, spacing: 16) {
                 MenuBarQuotaPanel(
                     title: "5小时余量",
-                    fraction: group.fiveHour?.remainingFraction,
-                    primaryValue: group.fiveHour?.remainingPercentText ?? "—",
-                    countdown: group.fiveHour?.validatedResetDate.map { menuBarTimeOnlyResetString(for: $0) },
-                    footer: nil,
+                    fraction: fiveHourFraction,
+                    primaryValue: menuBarQuotaPercentText(fiveHourFraction),
+                    countdown: fiveHourReset.map { menuBarTimeOnlyResetString(for: $0) },
+                    footer: isWeeklyExhausted ? String(localized: "本周额度已耗尽") : nil,
                     isExhaustedOverride: is5hUnusable
                 )
                 MenuBarQuotaPanel(
                     title: "本周余量",
-                    fraction: group.weekly?.remainingFraction,
-                    primaryValue: group.weekly?.remainingPercentText ?? "—",
-                    countdown: group.weekly?.validatedResetDate.map { menuBarShortResetString(for: $0) },
+                    fraction: weeklyFraction,
+                    primaryValue: menuBarQuotaPercentText(weeklyFraction),
+                    countdown: weeklyReset.map { menuBarShortResetString(for: $0) },
                     footer: nil
                 )
             }
@@ -1324,14 +1509,26 @@ private struct AGMenuBarAccountQuotaBody: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Text(account.badgeLabel)
-                    .font(.system(size: 9))
+                    .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .fixedSize()
                 Spacer()
             }
-            ForEach(account.groups) { AGMenuBarGroupCard(group: $0) }
+            if account.groups.isEmpty {
+                MenuBarQuotaUnavailable()
+            } else {
+                ForEach(account.groups) { AGMenuBarGroupCard(group: $0) }
+            }
         }
     }
+}
+
+func menuBarVisibleAntigravityAccounts(
+    _ accounts: [AGAccountQuota],
+    hiddenAccountEmailsRaw: String
+) -> [AGAccountQuota] {
+    let hiddenEmails = Set(hiddenAccountEmailsRaw.components(separatedBy: ",").filter { !$0.isEmpty })
+    return accounts.filter { !hiddenEmails.contains($0.email) }
 }
 
 /// Top-level card: shared header (logo + title + ConfigShortcut + TodayTokenBadge),
@@ -1339,6 +1536,11 @@ private struct AGMenuBarAccountQuotaBody: View {
 struct AntigravityMultiAccountCard: View {
     let accounts: [AGAccountQuota]
     let todayTokens: Int
+    @AppStorage("ag.hiddenAccountEmails") private var hiddenAccountEmailsRaw = ""
+
+    private var visibleAccounts: [AGAccountQuota] {
+        menuBarVisibleAntigravityAccounts(accounts, hiddenAccountEmailsRaw: hiddenAccountEmailsRaw)
+    }
 
     var body: some View {
         MenuBarToolShell {
@@ -1350,9 +1552,15 @@ struct AntigravityMultiAccountCard: View {
             }
         } content: {
             VStack(spacing: 10) {
-                ForEach(accounts) { account in
-                    AntigravityAccountSection(account: account)
-                    if account.id != accounts.last?.id {
+                if visibleAccounts.isEmpty {
+                    Text("暂无可用账号额度")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                ForEach(visibleAccounts) { account in
+                    AGMenuBarAccountQuotaBody(account: account)
+                    if account.id != visibleAccounts.last?.id {
                         Divider().opacity(0.18)
                     }
                 }
@@ -1366,12 +1574,8 @@ struct AntigravityAggregateCard: View {
     let todayTokens: Int
     @AppStorage("ag.hiddenAccountEmails") private var hiddenAccountEmailsRaw = ""
 
-    private var hiddenAccountEmails: Set<String> {
-        Set(hiddenAccountEmailsRaw.components(separatedBy: ",").filter { !$0.isEmpty })
-    }
-
     private var visibleAccounts: [AGAccountQuota] {
-        accounts.filter { !hiddenAccountEmails.contains($0.email) }
+        menuBarVisibleAntigravityAccounts(accounts, hiddenAccountEmailsRaw: hiddenAccountEmailsRaw)
     }
 
     var body: some View {
@@ -1385,7 +1589,7 @@ struct AntigravityAggregateCard: View {
         } content: {
             if visibleAccounts.isEmpty {
                 Text("暂无可用账号额度")
-                    .font(.system(size: 10))
+                    .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
@@ -1395,8 +1599,8 @@ struct AntigravityAggregateCard: View {
                         Image(systemName: "square.stack.3d.up.fill")
                             .font(.system(size: 10))
                             .foregroundStyle(.secondary)
-                        Text("Pro 账号额度聚合 (\(summary.proAccountCount)个账号)")
-                            .font(.system(size: 10, weight: .medium))
+                        Text("账号额度聚合 (\(summary.proAccountCount)个账号)")
+                            .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                         Spacer()
                     }
@@ -1428,6 +1632,7 @@ struct AntigravityAccountSection: View {
 }
 
 struct AntigravityFallbackCard: View {
+    @Environment(\.menuBarQuotaNow) private var now
     let quota: QuotaRecord
     let todayTokens: Int
     var body: some View {
@@ -1440,15 +1645,16 @@ struct AntigravityFallbackCard: View {
             }
         } content: {
             if let r = quota.remaining, let t = quota.total, t > 0 {
-                let frac = Double(r) / Double(t)
-                let pct = Int((frac * 100).rounded())
+                let frac = menuBarQuotaFraction(remainingFraction: Double(r) / Double(t), resetAt: quota.resetAt, now: now)
                 MenuBarQuotaPanel(
                     title: "总余量",
                     fraction: frac,
-                    primaryValue: "\(pct)%",
-                    countdown: quota.toModel().resetCountdown,
-                    footer: nil
+                    primaryValue: menuBarQuotaPercentText(frac),
+                    countdown: quota.resetAt.map { menuBarShortResetString(for: $0) },
+                    footer: menuBarQuotaRefreshFooter(resetAt: quota.resetAt, now: now)
                 )
+            } else {
+                MenuBarQuotaUnavailable()
             }
         }
     }
@@ -1456,9 +1662,13 @@ struct AntigravityFallbackCard: View {
 
 private extension View {
     func menuBarCardSurface() -> some View {
-        padding(12)
+        padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .glassEffect(.regular, in: .rect(cornerRadius: 14))
+            .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color.primary.opacity(0.055), lineWidth: 0.5)
+            }
     }
 }
 

@@ -41,18 +41,18 @@ struct CodexRouterStatus: Sendable {
 
     var statusText: String {
         if !isConfigured {
-            return "未检测到 codex-router 配置"
+            return String(localized: "未检测到 codex-router 配置")
         }
         if !isUserEnabled {
-            return "Router 已关闭（可在 Provider 中开启）"
+            return String(localized: "Router 已关闭（可在 Provider 中开启）")
         }
         if !isRouterHealthy {
             if let healthError {
-                return "Router 健康检查失败：\(healthError)"
+                return String(localized: "Router 健康检查失败：\(healthError)")
             }
-            return "Router 健康检查失败"
+            return String(localized: "Router 健康检查失败")
         }
-        return "Router 已就绪"
+        return String(localized: "Router 已就绪")
     }
 }
 

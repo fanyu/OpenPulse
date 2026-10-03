@@ -16,6 +16,13 @@ actor CopilotAPIClient {
         return try await fetchUserQuota(token: token)
     }
 
+    /// Validate an entered credential without silently substituting a local token.
+    func fetchQuota(token: String) async throws -> (quota: ToolQuota, snapshots: [String: CopilotSnapshot], plan: String?) {
+        let token = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !token.isEmpty else { throw CopilotError.noToken }
+        return try await fetchUserQuota(token: token)
+    }
+
     // MARK: - Token resolution
 
     private func resolveAccessToken() throws -> String {

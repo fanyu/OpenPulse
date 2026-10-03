@@ -2,13 +2,71 @@ import SwiftUI
 import SwiftData
 import Charts
 
+// MARK: - Dashboard presentation
+
+struct DashboardMetric: View {
+    let title: String
+    let value: String
+    var subtitle: String? = nil
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(LocalizedStringKey(title))
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.system(size: 28, weight: .semibold).monospacedDigit())
+                .tracking(-0.7)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .contentTransition(.numericText())
+            if let subtitle {
+                Text(LocalizedStringKey(subtitle))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+struct DashboardSectionTitle: View {
+    let title: String
+    var subtitle: String? = nil
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(LocalizedStringKey(title))
+                .font(.system(size: 16, weight: .semibold))
+            if let subtitle {
+                Text(LocalizedStringKey(subtitle))
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+extension View {
+    func dashboardSurface(cornerRadius: CGFloat = 16) -> some View {
+        background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.065), lineWidth: 1)
+            }
+    }
+}
+
 // MARK: - Shared Progress Bar
 
 struct QuotaProgressBar: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let fraction: Double?
     let color: Color
     var height: CGFloat = 4
-    var showsGlow = true
+    var showsGlow = false
 
     var body: some View {
         GeometryReader { geo in
@@ -16,10 +74,10 @@ struct QuotaProgressBar: View {
                 Capsule().fill(Color.primary.opacity(0.06)).frame(height: height)
                 if let f = fraction {
                     Capsule()
-                        .fill(color.gradient)
+                        .fill(color)
                         .frame(width: geo.size.width * CGFloat(max(0, min(1, f))), height: height)
                         .shadow(color: showsGlow ? color.opacity(0.25) : .clear, radius: showsGlow ? 2 : 0, y: showsGlow ? 1 : 0)
-                        .animation(.spring(duration: 0.4, bounce: 0.1), value: f)
+                        .animation(reduceMotion ? nil : .spring(response: 0.4, dampingFraction: 1), value: f)
                 }
             }
         }
@@ -270,13 +328,19 @@ struct TokenRatioChart: View {
 }
 
 struct WeeklyAreaChart: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     struct Point: Identifiable {
-        let id = UUID()
+        var id: Date { date }
         let date: Date
         let value: Int
     }
     let data: [Point]
     let color: Color
+
+    private var axisLabelColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.72) : Color.black.opacity(0.55)
+    }
 
     /// Number of days spanned by `data`, used to adapt the X-axis density and format.
     private var spanDays: Int {
@@ -293,27 +357,20 @@ struct WeeklyAreaChart: View {
                 )
                 .foregroundStyle(
                     LinearGradient(
-                        colors: [color.opacity(0.4), color.opacity(0)],
+                        colors: [color.opacity(0.14), color.opacity(0.01)],
                         startPoint: .top,
                         endPoint: .bottom
                     )
                 )
-                .interpolationMethod(.catmullRom)
+                .interpolationMethod(.linear)
 
                 LineMark(
                     x: .value("Date", pt.date, unit: .day),
                     y: .value("Tokens", pt.value)
                 )
                 .foregroundStyle(color)
-                .lineStyle(StrokeStyle(lineWidth: 3))
-                .interpolationMethod(.catmullRom)
-
-                PointMark(
-                    x: .value("Date", pt.date, unit: .day),
-                    y: .value("Tokens", pt.value)
-                )
-                .foregroundStyle(color)
-                .symbolSize(30)
+                .lineStyle(StrokeStyle(lineWidth: 2))
+                .interpolationMethod(.linear)
             }
         }
         .chartXAxis {
@@ -321,16 +378,19 @@ struct WeeklyAreaChart: View {
                 // 7 天：每天一个刻度，显示星期缩写（周一…周日）
                 AxisMarks(values: .stride(by: .day, count: 1)) { _ in
                     AxisValueLabel(format: .dateTime.weekday(.abbreviated))
+                        .foregroundStyle(axisLabelColor)
                 }
             } else if spanDays <= 30 {
                 // 30 天：每 5 天一个刻度，显示月/日
                 AxisMarks(values: .stride(by: .day, count: 5)) { _ in
                     AxisValueLabel(format: .dateTime.month(.defaultDigits).day())
+                        .foregroundStyle(axisLabelColor)
                 }
             } else {
                 // 90 天：每 2 周一个刻度，显示月/日
                 AxisMarks(values: .stride(by: .day, count: 14)) { _ in
                     AxisValueLabel(format: .dateTime.month(.defaultDigits).day())
+                        .foregroundStyle(axisLabelColor)
                 }
             }
         }
@@ -339,6 +399,7 @@ struct WeeklyAreaChart: View {
                 AxisValueLabel {
                     if let v = value.as(Int.self) {
                         Text(v >= 1000 ? "\(v / 1000)k" : "\(v)")
+                            .foregroundStyle(axisLabelColor)
                     }
                 }
                 AxisGridLine()
@@ -445,10 +506,10 @@ struct UnifiedQuotaRow: View {
     let secondaryValue: String?
     let countdown: String?
 
-    private var titleFont: Font { style == .compact ? .system(size: 10, weight: .semibold) : .system(size: 13, weight: .semibold) }
-    private var valueFont: Font { style == .compact ? .system(size: 10, weight: .bold, design: .monospaced) : .system(size: 14, weight: .bold, design: .monospaced) }
-    private var secondaryFont: Font { style == .compact ? .system(size: 9, weight: .medium) : .system(size: 11) }
-    private var barHeight: CGFloat { style == .compact ? 4 : 8 }
+    private var titleFont: Font { style == .compact ? .system(size: 11, weight: .medium) : .system(size: 12, weight: .medium) }
+    private var valueFont: Font { style == .compact ? .system(size: 12, weight: .semibold).monospacedDigit() : .system(size: 20, weight: .semibold).monospacedDigit() }
+    private var secondaryFont: Font { .system(size: 11) }
+    private var barHeight: CGFloat { style == .compact ? 4 : 5 }
     private var spacing: CGFloat { style == .compact ? 4 : 8 }
 
     var body: some View {
@@ -477,7 +538,7 @@ struct UnifiedQuotaRow: View {
                 HStack(alignment: .firstTextBaseline) {
                     Text(title)
                         .font(titleFont)
-                        .foregroundStyle(style == .compact ? .secondary : .primary)
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
 
                     Spacer()
@@ -508,7 +569,7 @@ struct UnifiedQuotaRow: View {
             if p == "∞" {
                 Image(systemName: "infinity")
                     .font(style == .compact ? .system(size: 10, weight: .bold) : .system(size: 14, weight: .black))
-                    .foregroundStyle(style == .compact ? .secondary : .primary)
+                        .foregroundStyle(.secondary)
             } else {
                 Text(p).font(valueFont)
                     .foregroundStyle(fraction.map { $0 < 0.15 ? Color.red : (style == .compact ? .primary : .primary) } ?? .primary)
@@ -631,12 +692,12 @@ struct DetailCardContainer<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .center) {
-                ToolLogoImage(tool: tool, size: 24)
+            HStack(alignment: .top, spacing: 12) {
+                ToolLogoImage(tool: tool, size: 28)
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 8) {
                         Text(title ?? tool.displayName)
-                            .font(.headline)
+                            .font(.system(size: 14, weight: .semibold))
                         if let tagText {
                             SubscriptionTag(text: tagText)
                         }
@@ -648,19 +709,13 @@ struct DetailCardContainer<Content: View>: View {
                             .lineLimit(1)
                             .truncationMode(.middle)
                     }
+                    if todayTokens > 0 {
+                        Text("今日 \(todayTokens.compactTokenString) tokens")
+                            .font(.system(size: 11).monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 Spacer()
-                if todayTokens > 0 {
-                    HStack(spacing: 3) {
-                        Image(systemName: "bolt.fill").font(.system(size: 10))
-                        Text("\(todayTokens.compactTokenString)")
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
-                    }
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.primary.opacity(0.05), in: Capsule())
-                }
                 if let onRefresh {
                     Button(action: onRefresh) {
                         Group {
@@ -676,21 +731,15 @@ struct DetailCardContainer<Content: View>: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(isRefreshing)
-                    .help(isRefreshing ? "Refreshing..." : "Refresh")
-                    .background(Color.primary.opacity(0.05), in: Circle())
+                    .help(isRefreshing ? String(localized: "正在刷新") : String(localized: "刷新配额"))
+                    .accessibilityLabel("刷新配额")
                 }
             }
             
             content()
         }
         .padding(20)
-        .background(Color(NSColor.controlBackgroundColor))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .shadow(color: Color.black.opacity(0.03), radius: 8, y: 4)
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(Color.primary.opacity(0.05), lineWidth: 1)
-        )
+        .dashboardSurface()
     }
 }
 
@@ -698,15 +747,11 @@ struct DetailCardContainer<Content: View>: View {
 struct TodayTokenBadge: View {
     let tokens: Int
     var body: some View {
-        HStack(spacing: 2) {
-            Image(systemName: "bolt.fill")
-            Text(tokens.compactTokenString)
-        }
-        .font(.system(size: 9, weight: .bold, design: .monospaced))
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 5)
-        .padding(.vertical, 2)
-        .background(Color.primary.opacity(0.06), in: Capsule())
+        Text(tokens.compactTokenString)
+            .font(.system(size: 11).monospacedDigit())
+            .foregroundStyle(.secondary)
+            .help("今日用量")
+            .accessibilityLabel("今日 \(tokens.compactTokenString) tokens")
     }
 }
 
@@ -715,11 +760,11 @@ struct SubscriptionTag: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: 9, weight: .semibold))
-            .foregroundStyle(Color.accentColor)
+            .font(.system(size: 10, weight: .medium))
+            .foregroundStyle(.secondary)
             .padding(.horizontal, 6)
             .padding(.vertical, 3)
-            .background(Color.accentColor.opacity(0.12), in: Capsule())
+            .background(Color.primary.opacity(0.05), in: Capsule())
     }
 }
 
@@ -733,7 +778,7 @@ struct ResetCountdownLabel: View {
             Image(systemName: "clock.arrow.2.circlepath")
             Text("\(countdown) 重置")
         }
-        .font(.system(size: 9, weight: .semibold))
+        .font(.system(size: 11))
         .foregroundStyle(.secondary)
         .lineLimit(1)
     }
