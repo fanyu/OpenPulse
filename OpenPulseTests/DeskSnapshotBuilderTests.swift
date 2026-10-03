@@ -77,6 +77,7 @@ struct DeskSnapshotBuilderTests {
                 fiveHour: .init(utilization: 81, resetsAt: "3000"),
                 sevenDay: .init(utilization: 44, resetsAt: "6000")
             ),
+            claudeObservedAt: now,
             fallbackQuotas: [
                 QuotaRecord(
                     tool: .codex,
@@ -655,5 +656,209 @@ struct DashboardSourceRegressionTests {
         #expect(copilotAnalysisRemainingFraction(percentRemaining: 75) == 0.75)
         #expect(copilotAnalysisRemainingFraction(percentRemaining: 120) == 1)
         #expect(copilotAnalysisRemainingFraction(percentRemaining: -5) == 0)
+    }
+}
+
+struct DeskSnapshotCloudUpsertTests {
+    @Test func fixedCurrentRecordUpdatesToSecondSnapshotWithoutAChangeTag() async throws {
+        let cloud = DeskSnapshotCloudStoreDouble()
+        let first = Self.snapshot(updatedAt: 1_000, remaining: 68)
+        let second = Self.snapshot(updatedAt: 1_100, remaining: 41)
+        let firstRecord = DeskSnapshotRecordCodec.makeRecord(snapshot: first, zoneID: nil)
+        let secondRecord = DeskSnapshotRecordCodec.makeRecord(snapshot: second, zoneID: nil)
+        #expect(firstRecord.recordID == secondRecord.recordID)
+        #expect(firstRecord.recordChangeTag == nil)
+        #expect(secondRecord.recordChangeTag == nil)
+
+        try await DeskSnapshotPublisher.upsertCloudRecord(firstRecord) { records, policy in
+            await cloud.modify(records, policy: policy)
+        }
+        try await DeskSnapshotPublisher.upsertCloudRecord(secondRecord) { records, policy in
+            await cloud.modify(records, policy: policy)
+        }
+
+        let saved = try #require(await cloud.record(for: secondRecord.recordID))
+        #expect(try DeskSnapshotRecordCodec.decode(saved) == second)
+        #expect(await cloud.attemptCount == 2)
+    }
+
+    @Test func individualSaveFailureIsThrownEvenWhenModifyOperationCompletes() async throws {
+        let record = DeskSnapshotRecordCodec.makeRecord(snapshot: Self.snapshot(updatedAt: 1_000, remaining: 68), zoneID: nil)
+        do {
+            try await DeskSnapshotPublisher.upsertCloudRecord(record) { records, _ in
+                [records[0].recordID: .failure(DeskSnapshotCloudFixtureError.perRecordFailure)]
+            }
+            Issue.record("An individual record failure must not be treated as a successful cloud save")
+        } catch DeskSnapshotCloudFixtureError.perRecordFailure {
+        } catch { Issue.record("Expected the individual record's original failure") }
+    }
+
+    @Test func missingIndividualSaveResultIsNotTreatedAsSuccess() async throws {
+        let record = DeskSnapshotRecordCodec.makeRecord(snapshot: Self.snapshot(updatedAt: 1_000, remaining: 68), zoneID: nil)
+        do {
+            try await DeskSnapshotPublisher.upsertCloudRecord(record) { _, _ in [:] }
+            Issue.record("A missing record result must not be treated as a successful cloud save")
+        } catch let error as CKError {
+            #expect(error.code == .internalError)
+        } catch { Issue.record("Expected an incomplete CloudKit result error") }
+    }
+
+    private static func snapshot(updatedAt: TimeInterval, remaining: Int) -> DeskSnapshot {
+        DeskSnapshot(
+            snapshotID: "desk-current", sourceDeviceID: "fixture-mac", schemaVersion: 2,
+            updatedAt: Date(timeIntervalSince1970: updatedAt),
+            codex: .init(tool: .codex, displayLabel: "Codex", remaining: remaining, total: 100,
+                         fraction: Double(remaining) / 100, resetAt: Date(timeIntervalSince1970: 2_000),
+                         weekly: nil, status: .healthy, petState: .patrol),
+            claude: .init(tool: .claudeCode, displayLabel: "Claude", remaining: 42, total: 100,
+                          fraction: 0.42, resetAt: Date(timeIntervalSince1970: 3_000),
+                          weekly: nil, status: .warning, petState: .pause)
+        )
+    }
+}
+
+private enum DeskSnapshotCloudFixtureError: Error { case perRecordFailure }
+
+/// Synthetic change-tag policy behavior only; never opens a CloudKit database or global KVS.
+private actor DeskSnapshotCloudStoreDouble {
+    private var records: [CKRecord.ID: CKRecord] = [:]
+    private(set) var attemptCount = 0
+
+    func modify(_ incoming: [CKRecord], policy: CKModifyRecordsOperation.RecordSavePolicy) -> [CKRecord.ID: Result<CKRecord, any Error>] {
+        attemptCount += 1
+        var results: [CKRecord.ID: Result<CKRecord, any Error>] = [:]
+        for record in incoming {
+            if records[record.recordID] != nil && policy == .ifServerRecordUnchanged {
+                results[record.recordID] = .failure(CKError(.serverRecordChanged))
+                continue
+            }
+            records[record.recordID] = record
+            results[record.recordID] = .success(record)
+        }
+        return results
+    }
+
+    func record(for id: CKRecord.ID) -> CKRecord? { records[id] }
+}
+
+struct DeskSnapshotWindowAccuracyTests {
+    @Test func weeklyExhaustionKeepsSessionValuesAndSetsEffectiveStatus() throws {
+        let now = Date(timeIntervalSince1970: 2_000)
+        let snapshot = try #require(DeskSnapshotBuilder.build(
+            now: now,
+            codexAccounts: [Self.account(sessionRemaining: 80, weeklyRemaining: 0, observedAt: now)],
+            claudeUsage: .init(fiveHour: .init(utilization: 25, resetsAt: "4000"),
+                               sevenDay: .init(utilization: 100, resetsAt: "8000")),
+            claudeObservedAt: now,
+            fallbackQuotas: []
+        ))
+        #expect(snapshot.codex.session.remaining == 80)
+        #expect(snapshot.codex.session.resetAt == Date(timeIntervalSince1970: 4_000))
+        #expect(snapshot.codex.weekly?.remaining == 0)
+        #expect(snapshot.codex.status == .exhausted)
+        #expect(snapshot.codex.petState == .exhausted)
+        #expect(snapshot.claude.session.remaining == 75)
+        #expect(snapshot.claude.session.resetAt == Date(timeIntervalSince1970: 4_000))
+        #expect(snapshot.claude.weekly?.remaining == 0)
+        #expect(snapshot.claude.status == .exhausted)
+        #expect(snapshot.claude.petState == .exhausted)
+    }
+
+    @Test func weeklyOnlySourcesKeepSessionUnknown() throws {
+        let now = Date(timeIntervalSince1970: 2_000)
+        let snapshot = try #require(DeskSnapshotBuilder.build(
+            now: now,
+            codexAccounts: [Self.account(sessionRemaining: nil, weeklyRemaining: 0, observedAt: now)],
+            claudeUsage: .init(fiveHour: nil, sevenDay: .init(utilization: 100, resetsAt: "8000")),
+            claudeObservedAt: now,
+            fallbackQuotas: []
+        ))
+        for tool in [snapshot.codex, snapshot.claude] {
+            #expect(tool.session.remaining == nil)
+            #expect(tool.session.fraction == nil)
+            #expect(tool.session.resetAt == nil)
+            #expect(tool.weekly?.remaining == 0)
+            #expect(tool.status == .exhausted)
+        }
+    }
+
+    @Test func publishingDoesNotRefreshOldOrUnknownClaudeObservations() throws {
+        let now = Date(timeIntervalSince1970: 2_000)
+        for observedAt in [Date(timeIntervalSince1970: 1_000), nil] as [Date?] {
+            let snapshot = try #require(DeskSnapshotBuilder.build(
+                now: now,
+                codexAccounts: [Self.account(sessionRemaining: 80, weeklyRemaining: 80, observedAt: now)],
+                claudeUsage: .init(fiveHour: .init(utilization: 20, resetsAt: "4000"), sevenDay: nil),
+                claudeObservedAt: observedAt,
+                fallbackQuotas: []
+            ))
+            #expect(snapshot.updatedAt == now)
+            #expect(snapshot.claude.remaining == 80)
+            #expect(snapshot.claude.status == .stale)
+            #expect(snapshot.claude.petState == .waiting)
+        }
+    }
+
+    @Test func elapsedSessionOrWeeklyResetNeedsNewObservation() throws {
+        let now = Date(timeIntervalSince1970: 2_000)
+        for expiredWeekly in [false, true] {
+            var account = Self.account(sessionRemaining: 80, weeklyRemaining: 0, observedAt: now)
+            account.limits = .init(
+                primary: .init(usedPercent: 20, windowMinutes: 300, windowSeconds: nil,
+                               resetsAt: expiredWeekly ? 4_000 : 2_000),
+                secondary: .init(usedPercent: 100, windowMinutes: 10_080, windowSeconds: nil,
+                                 resetsAt: expiredWeekly ? 2_000 : 8_000),
+                credits: nil, resetCredits: nil, planType: "pro", observedAt: now
+            )
+            let snapshot = try #require(DeskSnapshotBuilder.build(
+                now: now,
+                codexAccounts: [account],
+                claudeUsage: .init(
+                    fiveHour: .init(utilization: 20, resetsAt: expiredWeekly ? "4000" : "2000"),
+                    sevenDay: .init(utilization: 100, resetsAt: expiredWeekly ? "2000" : "8000")
+                ),
+                claudeObservedAt: now,
+                fallbackQuotas: []
+            ))
+            #expect(snapshot.codex.status == .stale)
+            #expect(snapshot.claude.status == .stale)
+            #expect(snapshot.codex.petState == .waiting)
+            #expect(snapshot.claude.petState == .waiting)
+        }
+    }
+
+    @Test func invalidClaudePercentDoesNotBecomeAnIntegerOrInventAWindow() throws {
+        let now = Date(timeIntervalSince1970: 2_000)
+        for utilization in [Double.nan, Double.infinity, -Double.infinity] {
+            let snapshot = try #require(DeskSnapshotBuilder.build(
+                now: now,
+                codexAccounts: [Self.account(sessionRemaining: 80, weeklyRemaining: 80, observedAt: now)],
+                claudeUsage: .init(fiveHour: .init(utilization: utilization, resetsAt: "4000"),
+                                   sevenDay: .init(utilization: 20, resetsAt: "8000")),
+                claudeObservedAt: now,
+                fallbackQuotas: []
+            ))
+            #expect(snapshot.claude.session.remaining == nil)
+            #expect(snapshot.claude.session.fraction == nil)
+            #expect(snapshot.claude.weekly?.remaining == 80)
+            #expect(snapshot.claude.status == .warning)
+        }
+    }
+
+    private static func account(sessionRemaining: Double?, weeklyRemaining: Double, observedAt: Date) -> CodexAccountSnapshot {
+        .init(
+            id: "fixture-account", label: "Fixture", email: "fixture@example.com", accountID: "fixture-account",
+            planType: "pro", teamName: nil, addedAt: .distantPast, updatedAt: observedAt,
+            lastFetchedAt: observedAt,
+            limits: .init(
+                primary: sessionRemaining.map {
+                    .init(usedPercent: 100 - $0, windowMinutes: 300, windowSeconds: nil, resetsAt: 4_000)
+                },
+                secondary: .init(usedPercent: 100 - weeklyRemaining, windowMinutes: 10_080,
+                                 windowSeconds: nil, resetsAt: 8_000),
+                credits: nil, resetCredits: nil, planType: "pro", observedAt: observedAt
+            ),
+            usageError: nil, isCurrent: true
+        )
     }
 }

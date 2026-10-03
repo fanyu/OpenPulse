@@ -23,7 +23,15 @@ actor DeskSnapshotPublisher {
             self.saveRecord = saveRecord
         } else if let database {
             self.saveRecord = { record in
-                _ = try await database.save(record)
+                try await Self.upsertCloudRecord(record) { records, policy in
+                    let result = try await database.modifyRecords(
+                        saving: records,
+                        deleting: [],
+                        savePolicy: policy,
+                        atomically: true
+                    )
+                    return result.saveResults
+                }
             }
         } else {
             self.saveRecord = nil
@@ -31,6 +39,16 @@ actor DeskSnapshotPublisher {
         self.publishStore = publishStore
         self.keyValueStore = keyValueStore
         self.now = now
+    }
+
+    /// This single designated record is an upsert; a fresh CKRecord has no server change tag.
+    static func upsertCloudRecord(
+        _ record: CKRecord,
+        modifyRecords: @Sendable ([CKRecord], CKModifyRecordsOperation.RecordSavePolicy) async throws -> [CKRecord.ID: Result<CKRecord, any Error>]
+    ) async throws {
+        let results = try await modifyRecords([record], .changedKeys)
+        guard let result = results[record.recordID] else { throw CKError(.internalError) }
+        _ = try result.get()
     }
 
     static func makeIfAvailable(
@@ -57,12 +75,14 @@ actor DeskSnapshotPublisher {
     func publishIfNeeded(
         codexAccounts: [CodexAccountSnapshot],
         claudeUsage: ClaudeUsageResponse?,
+        claudeObservedAt: Date? = nil,
         fallbackQuotas: [QuotaRecord]
     ) async {
         guard let snapshot = DeskSnapshotBuilder.build(
             now: now(),
             codexAccounts: codexAccounts,
             claudeUsage: claudeUsage,
+            claudeObservedAt: claudeObservedAt,
             fallbackQuotas: fallbackQuotas
         ) else {
             return

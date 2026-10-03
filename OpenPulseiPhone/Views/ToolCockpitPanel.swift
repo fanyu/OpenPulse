@@ -170,12 +170,14 @@ struct ToolCockpitPanel: View {
     private var quotaBubble: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 24.0)) { timeline in
             let phase = PetMotion.phase(at: timeline.date, for: presentation.motion)
+            let exhaustedUsage = presentation.exhaustedUsage
 
-            if let countdown = presentation.session.resetCountdown(at: timeline.date) {
+            if presentation.status == .exhausted,
+               let countdown = exhaustedUsage?.resetCountdown(at: timeline.date) {
                 ExhaustedResetCountdownBubble(text: countdown.text, phase: phase)
             } else {
                 StandardQuotaBubble(
-                    percentText: presentation.session.percentText,
+                    percentText: (exhaustedUsage ?? presentation.session).percentText,
                     label: bubbleLabel,
                     accent: accent,
                     phase: phase

@@ -1123,9 +1123,17 @@ struct CodexMultiAccountQuotaCard: View {
                     }
                 }
             } catch {
+                let switchError = error.localizedDescription
+                // Auth/selection can be committed before the relaunch fails.
+                // Read back metadata only: a full sync could auto-switch again.
+                do {
+                    try await appStore.syncService?.reloadCodexAccountSnapshots()
+                } catch {
+                    AppLogger.shared.warning("[codex] account snapshot reload after switch failure failed: \(error.localizedDescription)")
+                }
                 await MainActor.run {
                     isSwitching = false
-                    statusMessage = error.localizedDescription
+                    statusMessage = switchError
                 }
             }
         }

@@ -14,7 +14,8 @@ import SQLite
 enum JSONLReader {
     private static let newline = UInt8(0x0A)
 
-    static func forEachLine(of url: URL, _ body: (Data, Int) -> Void) {
+    @discardableResult
+    static func forEachLine(of url: URL, _ body: (Data, Int) -> Void) -> Bool {
         forEachLine(of: url, until: { data, index in
             body(data, index)
             return false
@@ -22,23 +23,25 @@ enum JSONLReader {
     }
 
     /// Stops reading as soon as a caller finds its value.
-    static func forEachLine(of url: URL, until body: (Data, Int) -> Bool) {
+    @discardableResult
+    static func forEachLine(of url: URL, until body: (Data, Int) -> Bool) -> Bool {
         // Memory-mapped: pages are faulted in on demand and can be evicted by the
         // kernel, so a 500 MB log costs no lasting resident memory. Lines are handed
         // back as raw bytes so callers can reject most of them before paying for a
         // String, and can decode JSON straight from the slice.
-        guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return }
+        guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return false }
 
         var lineStart = data.startIndex
         var lineIndex = 0
         while let newlineIndex = data[lineStart...].firstIndex(of: newline) {
-            if body(data[lineStart..<newlineIndex], lineIndex) { return }
+            if body(data[lineStart..<newlineIndex], lineIndex) { return true }
             lineIndex += 1
             lineStart = data.index(after: newlineIndex)
         }
         if lineStart < data.endIndex {
             _ = body(data[lineStart...], lineIndex)
         }
+        return true
     }
 }
 
@@ -78,14 +81,16 @@ actor CodexParser {
     /// avoid re-enumerating potentially thousands of archived JSONL files every 5 min.
     private var cachedModelMap: [String: String]?
 
-    /// Running reduction of every rate-limit candidate seen so far, keyed by identity.
-    /// The reduction is "keep the newest per identity", which is associative and
-    /// commutative, so merging one freshly written file into this map is equivalent to
-    /// re-reducing all of them. FSEvents fires on every Codex log write, and without
-    /// this each burst re-read up to 200 files to find a line that lives in exactly one.
-    private var cachedRateLimitCandidates: [String: RateLimitCandidate] = [:]
-    /// mtime of the newest file consumed by the last scan; older files can't have changed.
-    private var rateLimitScanHighWaterMark: Date?
+    private struct RateLimitFileSignature: Equatable {
+        let modifiedAt: Date
+        let size: Int?
+        let fileIdentifier: AnyHashable?
+    }
+
+    /// Cache per source file, including files with no usable quota event. Each file
+    /// has its own signature; another file's future mtime cannot hide an append.
+    private var cachedRateLimitCandidatesByFile: [URL: [RateLimitCandidate]] = [:]
+    private var cachedRateLimitFileSignatures: [URL: RateLimitFileSignature] = [:]
 
     init(codexDir: URL = .homeDirectory.appending(path: ".codex")) {
         self.codexDir = codexDir
@@ -316,37 +321,28 @@ actor CodexParser {
     private func scanRecentlyModifiedFilesForRateLimits() -> LocalRateLimitSnapshot? {
         let cutoff = Date().addingTimeInterval(-Self.rateLimitFileWindow)
         let files = recentlyModifiedJSONLFiles(in: [sessionsDir, archivedDir], limit: 200, cutoff: cutoff)
-
-        // Only files touched since the last scan can hold a candidate we haven't seen.
-        // mtime granularity is coarse on some filesystems, so the boundary file is
-        // re-read (>=) rather than risk skipping a line appended in the same second.
-        let watermark = rateLimitScanHighWaterMark
-        for file in files where watermark == nil || file.modifiedAt >= watermark! {
-            for candidate in parseRateLimitCandidatesFromFile(file.url) {
-                if let existing = cachedRateLimitCandidates[candidate.identity],
-                   !isNewer(candidate, than: existing) { continue }
-                cachedRateLimitCandidates[candidate.identity] = candidate
-            }
+        let selectedURLs = Set(files.map(\.url))
+        // Match exactly the bounded source set a full scan would reduce, including
+        // deletions, replacements, and files aging out of the selection window.
+        cachedRateLimitCandidatesByFile = cachedRateLimitCandidatesByFile.filter { selectedURLs.contains($0.key) }
+        cachedRateLimitFileSignatures = cachedRateLimitFileSignatures.filter { selectedURLs.contains($0.key) }
+        for file in files {
+            guard cachedRateLimitFileSignatures[file.url] != file.signature else { continue }
+            guard let candidates = readRateLimitCandidatesFromFile(file.url) else { continue }
+            cachedRateLimitCandidatesByFile[file.url] = candidates
+            cachedRateLimitFileSignatures[file.url] = file.signature
         }
-        rateLimitScanHighWaterMark = files.first?.modifiedAt ?? watermark
-
-        // Forget candidates whose source file has aged out of the window, so a limit
-        // can't outlive the files a full rescan would have read it from.
-        cachedRateLimitCandidates = cachedRateLimitCandidates.filter {
-            ($0.value.modifiedAt ?? .distantPast) >= cutoff
-        }
-
-        return makeRateLimitSnapshot(from: Array(cachedRateLimitCandidates.values))
+        return makeRateLimitSnapshot(from: cachedRateLimitCandidatesByFile.values.flatMap { $0 })
     }
 
     private func recentlyModifiedJSONLFiles(
         in roots: [URL],
         limit: Int,
         cutoff: Date
-    ) -> [(url: URL, modifiedAt: Date)] {
+    ) -> [(url: URL, signature: RateLimitFileSignature)] {
         let fm = FileManager.default
-        let keys: Set<URLResourceKey> = [.isRegularFileKey, .contentModificationDateKey]
-        var candidates: [(url: URL, modifiedAt: Date)] = []
+        let keys: Set<URLResourceKey> = [.isRegularFileKey, .contentModificationDateKey, .fileSizeKey, .fileResourceIdentifierKey]
+        var candidates: [(url: URL, signature: RateLimitFileSignature)] = []
 
         for root in roots where fm.fileExists(atPath: root.path) {
             guard let enumerator = fm.enumerator(
@@ -361,11 +357,14 @@ actor CodexParser {
                       values.isRegularFile == true,
                       let modifiedAt = values.contentModificationDate,
                       modifiedAt >= cutoff else { continue }
-                candidates.append((url, modifiedAt))
+                candidates.append((url, RateLimitFileSignature(modifiedAt: modifiedAt, size: values.fileSize, fileIdentifier: values.fileResourceIdentifier as? AnyHashable)))
             }
         }
 
-        return Array(candidates.sorted { $0.modifiedAt > $1.modifiedAt }.prefix(limit))
+        return Array(candidates.sorted {
+            if $0.signature.modifiedAt != $1.signature.modifiedAt { return $0.signature.modifiedAt > $1.signature.modifiedAt }
+            return $0.url.path < $1.url.path
+        }.prefix(limit))
     }
 
     private func scanDirForRateLimits(_ dir: URL) async -> LocalRateLimitSnapshot? {
@@ -384,6 +383,10 @@ actor CodexParser {
     private static let tokenCountNeedle = Data("token_count".utf8)
 
     private func parseRateLimitCandidatesFromFile(_ url: URL) -> [RateLimitCandidate] {
+        readRateLimitCandidatesFromFile(url) ?? []
+    }
+
+    private func readRateLimitCandidatesFromFile(_ url: URL) -> [RateLimitCandidate]? {
         let decoder = JSONDecoder()
         let modifiedAt = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
 
@@ -396,7 +399,7 @@ actor CodexParser {
         // one here and then be discarded there, losing the limit entirely.
         var latestByIdentity: [String: RateLimitCandidate] = [:]
 
-        JSONLReader.forEachLine(of: url) { lineData, lineIndex in
+        let didRead = JSONLReader.forEachLine(of: url) { lineData, lineIndex in
             // Cheap byte-level reject before the expensive decode — only token_count
             // events carry rate limits. Decoding straight from the line bytes also
             // avoids the old String round-trip.
@@ -420,6 +423,7 @@ actor CodexParser {
             if let existing = latestByIdentity[identity], !isNewer(candidate, than: existing) { return }
             latestByIdentity[identity] = candidate
         }
+        guard didRead else { return nil }
         return Array(latestByIdentity.values)
     }
 

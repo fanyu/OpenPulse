@@ -62,15 +62,39 @@ struct DeskPetPresentation: Equatable, Sendable {
     let motion: DeskMotionStyle
     let isStale: Bool
 
-    static func make(from snapshot: DeskToolSnapshot, now: Date) -> DeskPetPresentation {
+    var exhaustedUsage: DeskUsagePresentation? {
+        guard status == .exhausted else { return nil }
+
+        let sessionExhausted = session.isAvailable && session.remaining == 0
+        let weeklyExhausted = weekly.isAvailable && weekly.remaining == 0
+        if sessionExhausted && weeklyExhausted,
+           let weeklyReset = weekly.resetAt,
+           weeklyReset > (session.resetAt ?? .distantPast) {
+            return weekly
+        }
+        if sessionExhausted { return session }
+        if weeklyExhausted { return weekly }
+        return nil
+    }
+
+    static func make(
+        from snapshot: DeskToolSnapshot,
+        now: Date,
+        snapshotUpdatedAt: Date? = nil
+    ) -> DeskPetPresentation {
+        let isStale = snapshot.status == .stale
+            || snapshotUpdatedAt.map { now.timeIntervalSince($0) > 600 } == true
+            || hasExpiredReset(snapshot.session, now: now)
+            || hasExpiredReset(snapshot.weekly, now: now)
+
         return DeskPetPresentation(
             tool: snapshot.tool,
             title: snapshot.displayLabel,
             session: usagePresentation(from: snapshot.session, fallbackLabel: "5h Session", now: now),
             weekly: usagePresentation(from: snapshot.weekly, fallbackLabel: "7d Weekly", now: now),
-            status: snapshot.status,
-            motion: motionStyle(for: snapshot.petState),
-            isStale: snapshot.status == .stale
+            status: isStale ? .stale : snapshot.status,
+            motion: isStale ? .waiting : motionStyle(for: snapshot.petState),
+            isStale: isStale
         )
     }
 
@@ -79,6 +103,16 @@ struct DeskPetPresentation: Equatable, Sendable {
         fallbackLabel: String,
         now: Date
     ) -> DeskUsagePresentation {
+        if hasExpiredReset(window, now: now) {
+            return DeskUsagePresentation(
+                label: displayLabel(window?.label ?? fallbackLabel),
+                percentText: "--%",
+                resetText: "Awaiting refresh",
+                fraction: nil,
+                isAvailable: false
+            )
+        }
+
         let resolvedFraction: Double? = if let window {
             window.fraction ?? fallbackFraction(remaining: window.remaining, total: window.total)
         } else {
@@ -94,6 +128,10 @@ struct DeskPetPresentation: Equatable, Sendable {
             remaining: window?.remaining,
             resetAt: window?.resetAt
         )
+    }
+
+    private static func hasExpiredReset(_ window: DeskQuotaWindowSnapshot?, now: Date) -> Bool {
+        window?.resetAt.map { $0 <= now } == true
     }
 
     private static func fallbackFraction(remaining: Int?, total: Int?) -> Double? {

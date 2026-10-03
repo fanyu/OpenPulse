@@ -9218,6 +9218,159 @@
           }
         }
       }
+    },
+    "Codex 账号保存失败，凭证恢复也未完成，请重新导入或登录。" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex account could not be saved and credentials were not fully restored. Import them again or sign in."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex 账号保存失败，凭证恢复也未完成，请重新导入或登录。"
+          }
+        }
+      }
+    },
+    "Codex 账号凭证不可用，请重新导入或登录。" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex account credentials are unavailable. Import them again or sign in."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex 账号凭证不可用，请重新导入或登录。"
+          }
+        }
+      }
+    },
+    "Codex 账号文件无效，原文件已保留。" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invalid Codex account file. The original file was preserved."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex 账号文件无效，原文件已保留。"
+          }
+        }
+      }
+    },
+    "Codex 账号状态保存失败，当前认证文件恢复也未完成。" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex account state could not be saved and the current authentication file was not fully restored."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex 账号状态保存失败，当前认证文件恢复也未完成。"
+          }
+        }
+      }
+    },
+    "无法确认 Codex 账号凭证已安全保存，原账号文件已保留。" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Could not verify that Codex account credentials were saved securely. The original account file was preserved."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法确认 Codex 账号凭证已安全保存，原账号文件已保留。"
+          }
+        }
+      }
+    },
+    "请先切换到其他 Codex 账号，再删除当前账号。" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Switch to another Codex account before deleting the current account."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请先切换到其他 Codex 账号，再删除当前账号。"
+          }
+        }
+      }
+    },
+    "账号已切换，但 Codex 重新启动失败：%@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Account switched, but Codex could not restart: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "账号已切换，但 Codex 重新启动失败：%@"
+          }
+        }
+      }
+    },
+    "显示全部" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show all"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示全部"
+          }
+        }
+      }
+    },
+    "显示更多会话" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show more sessions"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示更多会话"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

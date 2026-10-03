@@ -165,7 +165,7 @@ actor ClaudeCodeParser {
             total: 100,
             unit: .messages,
             resetAt: resetAt,
-            updatedAt: Date(),
+            updatedAt: capturedAt,
             raw: usage
         )
     }

@@ -678,6 +678,85 @@ struct CodexLocalQuotaFreshnessTests {
         #expect(enText.contains("ago"))
     }
 
+    @Test func newQuotaFileIsReadBelowAnotherFilesFutureModificationTime() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "OpenPulse-CodexFileCache-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sessions = root.appending(path: "sessions")
+        try FileManager.default.createDirectory(at: sessions, withIntermediateDirectories: true)
+        let first = sessions.appending(path: "source-a.jsonl")
+        let second = sessions.appending(path: "source-b.jsonl")
+        let now = Date()
+        try writeQuotaEvent(limitID: nil, usedPercent: 10, timestamp: now.addingTimeInterval(-20), to: first)
+        try FileManager.default.setAttributes([.modificationDate: now.addingTimeInterval(3600)], ofItemAtPath: first.path)
+        let parser = CodexParser(codexDir: root)
+        let initial = await parser.parseLatestRateLimitsSnapshot()
+        #expect(initial?.limits.oneWeekWindow?.usedPercent == 10)
+
+        try writeQuotaEvent(limitID: nil, usedPercent: 85, timestamp: now, to: second)
+        try FileManager.default.setAttributes([.modificationDate: now], ofItemAtPath: second.path)
+        let refreshed = await parser.parseLatestRateLimitsSnapshot()
+
+        #expect(refreshed?.limits.oneWeekWindow?.usedPercent == 85)
+        #expect(refreshed?.sourceURL.resolvingSymlinksInPath() == second.resolvingSymlinksInPath())
+    }
+
+    @Test func appendedQuotaIsReadWhenItsFileModificationTimeIsPreserved() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "OpenPulse-CodexFileCache-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sessions = root.appending(path: "sessions")
+        try FileManager.default.createDirectory(at: sessions, withIntermediateDirectories: true)
+        let future = sessions.appending(path: "source-a.jsonl")
+        let changing = sessions.appending(path: "source-b.jsonl")
+        let now = Date()
+        try writeQuotaEvent(limitID: nil, usedPercent: 10, timestamp: now.addingTimeInterval(-20), to: future)
+        try FileManager.default.setAttributes([.modificationDate: now.addingTimeInterval(3600)], ofItemAtPath: future.path)
+        try writeQuotaEvent(limitID: nil, usedPercent: 20, timestamp: now.addingTimeInterval(-10), to: changing)
+        try FileManager.default.setAttributes([.modificationDate: now], ofItemAtPath: changing.path)
+        let parser = CodexParser(codexDir: root)
+        let initial = await parser.parseLatestRateLimitsSnapshot()
+        #expect(initial?.limits.oneWeekWindow?.usedPercent == 20)
+
+        var appended = try Data(contentsOf: changing)
+        appended.append(0x0A)
+        appended.append(try quotaEventData(limitID: nil, usedPercent: 80, timestamp: now))
+        try appended.write(to: changing)
+        try FileManager.default.setAttributes([.modificationDate: now], ofItemAtPath: changing.path)
+        let refreshed = await parser.parseLatestRateLimitsSnapshot()
+
+        #expect(refreshed?.limits.oneWeekWindow?.usedPercent == 80)
+    }
+
+    @Test func deletedQuotaSourceNoLongerParticipatesInCachedReduction() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "OpenPulse-CodexFileCache-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sessions = root.appending(path: "sessions")
+        try FileManager.default.createDirectory(at: sessions, withIntermediateDirectories: true)
+        let older = sessions.appending(path: "source-a.jsonl")
+        let newer = sessions.appending(path: "source-b.jsonl")
+        let now = Date()
+        try writeQuotaEvent(limitID: nil, usedPercent: 20, timestamp: now.addingTimeInterval(-10), to: older)
+        try writeQuotaEvent(limitID: nil, usedPercent: 80, timestamp: now, to: newer)
+        let parser = CodexParser(codexDir: root)
+        let initial = await parser.parseLatestRateLimitsSnapshot()
+        #expect(initial?.limits.oneWeekWindow?.usedPercent == 80)
+
+        try FileManager.default.removeItem(at: newer)
+        let refreshed = await parser.parseLatestRateLimitsSnapshot()
+
+        #expect(refreshed?.limits.oneWeekWindow?.usedPercent == 20)
+        #expect(refreshed?.sourceURL.resolvingSymlinksInPath() == older.resolvingSymlinksInPath())
+    }
+
+    @Test func jsonlReaderDistinguishesAnUnavailableFileFromAnEmptyFile() throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "OpenPulse-JSONLRead-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let empty = root.appending(path: "empty.jsonl")
+        try Data().write(to: empty)
+        #expect(JSONLReader.forEachLine(of: empty) { _, _ in Issue.record("An empty fixture has no lines") })
+        #expect(!JSONLReader.forEachLine(of: root.appending(path: "missing.jsonl")) { _, _ in Issue.record("An unavailable fixture has no lines") })
+    }
+
     private func makeRateLimits(
         generalUsedPercent: Double?,
         observedAt: Date?,

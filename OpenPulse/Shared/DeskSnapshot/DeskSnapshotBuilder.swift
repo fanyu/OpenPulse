@@ -6,19 +6,24 @@ enum DeskSnapshotBuilder {
         now: Date,
         codexAccounts: [CodexAccountSnapshot],
         claudeUsage: ClaudeUsageResponse?,
+        claudeObservedAt: Date? = nil,
         fallbackQuotas: [QuotaRecord]
     ) -> DeskSnapshot? {
-        let currentCodexQuota = codexAccounts
-            .first(where: \.isCurrent)?
-            .quota
+        let currentCodexAccount = codexAccounts.first(where: \.isCurrent)
+        let codexWeekly = currentCodexAccount?.limits?.oneWeekWindow
+            .flatMap { makeWindowSnapshot(label: "7d Weekly", from: $0) }
+        let claudeWeekly = claudeUsage?.sevenDay
+            .flatMap { makeWindowSnapshot(label: "7d Weekly", from: $0) }
 
         guard
             let codexQuota = preferredQuota(
-                currentCodexQuota,
+                toolQuota(from: currentCodexAccount),
+                weekly: codexWeekly,
                 fallback: fallbackQuota(for: .codex, in: fallbackQuotas)?.toModel()
             ),
             let claudeQuota = preferredQuota(
-                toolQuota(from: claudeUsage, now: now),
+                toolQuota(from: claudeUsage, observedAt: claudeObservedAt),
+                weekly: claudeWeekly,
                 fallback: fallbackQuota(for: .claudeCode, in: fallbackQuotas)?.toModel()
             )
         else {
@@ -30,41 +35,62 @@ enum DeskSnapshotBuilder {
             sourceDeviceID: sourceDeviceID(),
             schemaVersion: 2,
             updatedAt: now,
-            codex: makeCodexSnapshot(
+            codex: makeToolSnapshot(
                 from: codexQuota,
-                accounts: codexAccounts,
-                fallbackQuotas: fallbackQuotas,
+                label: "Codex",
+                weekly: codexWeekly,
                 now: now
             ),
-            claude: makeClaudeSnapshot(
+            claude: makeToolSnapshot(
                 from: claudeQuota,
-                usage: claudeUsage,
-                fallbackQuotas: fallbackQuotas,
+                label: "Claude",
+                weekly: claudeWeekly,
                 now: now
             )
         )
     }
 
-    private static func toolQuota(from usage: ClaudeUsageResponse?, now: Date) -> ToolQuota? {
-        guard let window = usage?.fiveHour else { return nil }
+    private static func toolQuota(from account: CodexAccountSnapshot?) -> ToolQuota? {
+        guard let account, let limits = account.limits,
+              limits.hasKnownGeneralWindow else { return nil }
+        let window = limits.fiveHourWindow
+        return ToolQuota(
+            id: "codex:\(account.accountID)",
+            tool: .codex,
+            accountKey: account.accountID,
+            accountLabel: account.label,
+            remaining: window?.remainingPercent.map { Int($0) },
+            total: 100,
+            unit: .tokens,
+            resetAt: window?.resetDate,
+            updatedAt: limits.observedAt ?? account.updatedAt,
+            raw: limits
+        )
+    }
 
-        let remaining = window.utilization.map { max(0, Int((100 - $0).rounded())) }
+    private static func toolQuota(from usage: ClaudeUsageResponse?, observedAt: Date?) -> ToolQuota? {
+        guard let usage, usage.fiveHour != nil || usage.sevenDay != nil else { return nil }
         return ToolQuota(
             id: "claude:five-hour",
             tool: .claudeCode,
             accountKey: nil,
             accountLabel: nil,
-            remaining: remaining,
+            remaining: remainingPercent(from: usage.fiveHour?.utilization),
             total: 100,
             unit: .tokens,
-            resetAt: window.resetDate,
-            updatedAt: now,
+            resetAt: usage.fiveHour?.resetDate,
+            updatedAt: observedAt ?? .distantPast,
             raw: usage
         )
     }
 
-    private static func preferredQuota(_ primary: ToolQuota?, fallback: ToolQuota?) -> ToolQuota? {
-        if let primary, isUsable(primary) {
+    private static func preferredQuota(
+        _ primary: ToolQuota?,
+        weekly: DeskQuotaWindowSnapshot?,
+        fallback: ToolQuota?
+    ) -> ToolQuota? {
+        // A weekly-only source can describe a blocker without inventing a 5h value.
+        if let primary, isUsable(primary) || weekly?.fraction != nil {
             return primary
         }
         if let fallback, isUsable(fallback) {
@@ -84,56 +110,27 @@ enum DeskSnapshotBuilder {
         return remaining >= 0
     }
 
-    private static func makeCodexSnapshot(
-        from quota: ToolQuota,
-        accounts: [CodexAccountSnapshot],
-        fallbackQuotas _: [QuotaRecord],
-        now: Date
-    ) -> DeskToolSnapshot {
-        let weeklyWindow = accounts
-            .first(where: \.isCurrent)?
-            .limits?
-            .oneWeekWindow
-            .flatMap { makeWindowSnapshot(label: "7d Weekly", from: $0) }
-
-        return makeToolSnapshot(
-            from: quota,
-            label: "Codex",
-            weekly: weeklyWindow,
-            now: now
-        )
-    }
-
-    private static func makeClaudeSnapshot(
-        from quota: ToolQuota,
-        usage: ClaudeUsageResponse?,
-        fallbackQuotas _: [QuotaRecord],
-        now: Date
-    ) -> DeskToolSnapshot {
-        let weeklyWindow = usage?
-            .sevenDay
-            .flatMap { makeWindowSnapshot(label: "7d Weekly", from: $0) }
-
-        return makeToolSnapshot(
-            from: quota,
-            label: "Claude",
-            weekly: weeklyWindow,
-            now: now
-        )
-    }
-
     private static func makeToolSnapshot(
         from quota: ToolQuota,
         label: String,
         weekly: DeskQuotaWindowSnapshot?,
         now: Date
     ) -> DeskToolSnapshot {
-        let status = DeskQuotaStatus.resolve(
-            remaining: quota.remaining,
-            total: quota.total,
-            updatedAt: quota.updatedAt,
-            now: now
-        )
+        let status: DeskQuotaStatus
+        if now.timeIntervalSince(quota.updatedAt) > 600
+            || quota.resetAt.map({ $0 <= now }) == true
+            || weekly?.resetAt.map({ $0 <= now }) == true {
+            status = .stale
+        } else if weekly?.remaining == 0 {
+            status = .exhausted
+        } else {
+            status = DeskQuotaStatus.resolve(
+                remaining: quota.remaining,
+                total: quota.total,
+                updatedAt: quota.updatedAt,
+                now: now
+            )
+        }
 
         return DeskToolSnapshot(
             tool: quota.tool,
@@ -159,16 +156,21 @@ enum DeskSnapshotBuilder {
     }
 
     private static func makeWindowSnapshot(label: String, from window: UsageWindow) -> DeskQuotaWindowSnapshot? {
-        guard let utilization = window.utilization else {
+        guard let remaining = remainingPercent(from: window.utilization) else {
             return nil
         }
 
         return makeWindowSnapshot(
             label: label,
-            remaining: max(0, Int((100 - utilization).rounded())),
+            remaining: remaining,
             total: 100,
             resetAt: window.resetDate
         )
+    }
+
+    private static func remainingPercent(from utilization: Double?) -> Int? {
+        guard let utilization, utilization.isFinite else { return nil }
+        return Int(min(100, max(0, 100 - utilization)).rounded())
     }
 
     private static func makeWindowSnapshot(

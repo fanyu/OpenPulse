@@ -93,7 +93,7 @@ struct CodexProviderContent: View {
             }, onLogin: {
                 runAsyncAction { try await appStore.codexAccountService.addAccountViaOAuth() }
             }, onRefresh: {
-                runAsyncAction { _ = await appStore.codexAccountService.refreshAllUsage(force: true) }
+                runAsyncAction { _ = try await appStore.codexAccountService.refreshAllUsage(force: true) }
             })
 
             if let errorMessage { ProviderMessage(text: errorMessage, isError: true) }
@@ -105,7 +105,7 @@ struct CodexProviderContent: View {
                     runAsyncAction { _ = try await appStore.codexAccountService.switchAccount(id: id) }
                 },
                 onDelete: { id in
-                    runAsyncAction { await appStore.codexAccountService.deleteAccount(id: id) }
+                    runAsyncAction { try await appStore.codexAccountService.deleteAccount(id: id) }
                 }
             )
             Divider()
@@ -128,6 +128,9 @@ struct CodexProviderContent: View {
                 try await action()
                 await appStore.syncService?.sync(tool: .codex)
             } catch {
+                // A switch can commit before Codex fails to relaunch. Read back
+                // selection without triggering another auto-switch or restart.
+                try? await appStore.syncService?.reloadCodexAccountSnapshots()
                 errorMessage = error.localizedDescription
             }
         }

@@ -1,0 +1,57 @@
+{
+  "date": "2026-10-03",
+  "configuration": {
+    "build": "Release",
+    "xcode": "27.1",
+    "store": "in-memory SwiftData",
+    "sessions_seeded": 50000,
+    "activity_sessions": 49270,
+    "search": "Project-15",
+    "outbound_network": "rejected",
+    "credentials": "mocked",
+    "seed_context_retained": true
+  },
+  "method": {
+    "probe": "Main actor task: 600 sleeps of 16 ms; report delay beyond the requested sleep",
+    "interaction": "Native UI menu, Activity navigation and typed search, followed by accessibility readback",
+    "runs_per_reported_phase": 1,
+    "memory": "One post-search RSS sample, not peak memory or process physical footprint"
+  },
+  "baseline": {
+    "commit": "d677235",
+    "activity_read_ms": 928.751,
+    "first_load_max_main_queue_delay_ms": 2649.594,
+    "search_compute_ms": 113.5,
+    "search_max_main_queue_delay_ms": 273.491,
+    "rss_kib": 803440
+  },
+  "background_only": {
+    "activity_read_ms": 809.334,
+    "apply_snapshot_ms": 0.071,
+    "search_compute_ms": 102.925,
+    "apply_search_ms": 0.055,
+    "first_load_max_main_queue_delay_ms": 310.253,
+    "search_max_main_queue_delay_ms": 282.456,
+    "rss_kib": 584496
+  },
+  "final": {
+    "activity_source_sha256": "a7ccadef07fd9f61425b4e5f6f5075581a00deb71035f407b9fb8c87eac6b5d0",
+    "initial_rendered_row_limit": 200,
+    "activity_read_ms": 860.621,
+    "apply_snapshot_ms": 0.064,
+    "search_compute_ms": 126.825,
+    "apply_search_ms": 0.036,
+    "first_load_max_main_queue_delay_ms": 295.151,
+    "first_load_p95_main_queue_delay_ms": 1.298,
+    "search_max_main_queue_delay_ms": 358.353,
+    "search_p95_main_queue_delay_ms": 1.282,
+    "rss_kib": 259376
+  },
+  "limits": [
+    "Single synthetic runs do not establish production latency or statistical significance.",
+    "Main queue probe includes native UI/accessibility exercise and machine scheduling. Other project work was present on this Mac.",
+    "In-memory store and retained fixture seeding context differ from production disk history. RSS is not peak memory.",
+    "No search interaction speedup is established: its measured worst delay remains material.",
+    "Explicit Show all restores full native List enumeration and its cost."
+  ]
+}

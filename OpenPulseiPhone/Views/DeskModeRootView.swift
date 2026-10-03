@@ -44,19 +44,29 @@ struct DeskModeRootView: View {
             }
         }
         .task {
-            await appStore.refresh()
+            guard !OpenPulseiPhoneApp.isRunningTests else { return }
             appStore.tick()
 
-            var refreshCounter = 0
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(1))
-                guard !Task.isCancelled else { break }
-                refreshCounter += 1
-                if refreshCounter >= 15 {
-                    refreshCounter = 0
-                    await appStore.refresh()
+                do {
+                    try await Task.sleep(for: .seconds(1))
+                } catch {
+                    return
                 }
                 appStore.tick()
+            }
+        }
+        .task {
+            guard !OpenPulseiPhoneApp.isRunningTests else { return }
+            await appStore.refresh()
+
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .seconds(15))
+                } catch {
+                    return
+                }
+                await appStore.refresh()
             }
         }
     }

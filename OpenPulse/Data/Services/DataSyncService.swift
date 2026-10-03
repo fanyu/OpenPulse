@@ -26,6 +26,7 @@ final class DataSyncService {
 
     /// Latest Claude subscription quota response (nil when no subscription).
     private(set) var latestClaudeUsage: ClaudeUsageResponse?
+    private(set) var latestClaudeQuotaObservedAt: Date?
     private(set) var latestClaudeAccountInfo: ClaudeAccountInfo?
 
     /// Latest Antigravity account quota list.
@@ -54,26 +55,29 @@ final class DataSyncService {
     /// Refresh all tools (called from MenuBarView manual refresh button).
     func sync() async { await refreshAll() }
 
+    /// Read back a committed account switch without another API request or relaunch.
+    func reloadCodexAccountSnapshots() async throws {
+        let accounts = try await codexAccountService.listAccounts()
+        latestCodexAccounts = accounts
+    }
+
     func refreshAntigravityAccount(email: String) async {
         guard !refreshingAntigravityAccountEmails.contains(email) else { return }
-        refreshingAntigravityAccountEmails.insert(email)
-        defer { refreshingAntigravityAccountEmails.remove(email) }
-
-        do {
+        await performQuotaOnlyRefresh(for: .antigravity) {
+            self.refreshingAntigravityAccountEmails.insert(email)
+            defer { self.refreshingAntigravityAccountEmails.remove(email) }
             let account = try await antigravityParser.fetchQuota(forAccountEmail: email)
             let merged = mergeAntigravityAccounts(
                 current: latestAntigravityAccounts ?? [],
                 refreshed: [account],
                 orderedEmails: antigravityOrderedEmails(current: latestAntigravityAccounts ?? [], refreshed: [account])
             )
-            latestAntigravityAccounts = merged
-            Self.persistAntigravityAccountsCache(merged)
-
             let context = makeWriteContext()
             upsertQuota(antigravityAggregateQuota(from: merged), context: context)
-            try context.save()
-        } catch {
-            AppLogger.shared.warning("[antigravity] account refresh failed for \(email): \(error.localizedDescription)")
+            try saveUsageContext(context)
+            latestAntigravityAccounts = merged
+            Self.persistAntigravityAccountsCache(merged, defaults: cacheDefaults)
+            return true
         }
     }
 
@@ -104,12 +108,15 @@ final class DataSyncService {
 
     // MARK: - Private state
 
-    private let claudeParser  = ClaudeCodeParser()
+    private let claudeParser: ClaudeCodeParser
     private let codexParser   = CodexParser()
-    private let antigravityParser = AntigravityParser()
+    private let antigravityParser: AntigravityParser
     private let copilotClient = CopilotAPIClient()
     private let codexAccountService: CodexAccountService
     private let deskSnapshotPublisher: DeskSnapshotPublisher?
+    private let cacheDefaults: UserDefaults
+    @ObservationIgnored private let postRefreshOverride: (@MainActor (Tool?) async -> Void)?
+    @ObservationIgnored private let antigravityQuotaFetchOverride: (@MainActor () async throws -> AGQuotaFetchResult)?
     private var dotTextAPIService = DotTextAPIService()
 
     private let modelContainer: ModelContainer
@@ -127,6 +134,12 @@ final class DataSyncService {
     private var fsEventStream: FSEventStream?
     private var fsDebounceTask: Task<Void, Never>?
     private var pendingFSPaths: Set<String> = []
+    private var pendingLocalRefreshTools: Set<Tool> = []
+    private var pendingBridgeQuotaRefresh = false
+    private var pendingCodexLocalQuotaRefresh = false
+    @ObservationIgnored private var localCatchUpTasks: [Tool: Task<Void, Never>] = [:]
+    @ObservationIgnored private var localWorkGeneration: UInt64 = 0
+    private var acceptingLocalEvents = true
     private var isRefreshAllInFlight = false
 
     // Tracks the last sync cutoff date used per-tool for incremental parsing
@@ -145,13 +158,24 @@ final class DataSyncService {
         modelContainer: ModelContainer,
         codexAccountService: CodexAccountService,
         deskSnapshotPublisher: DeskSnapshotPublisher? = DeskSnapshotPublisher.makeIfAvailable(),
-        restoreCachedSnapshots: Bool = true
+        restoreCachedSnapshots: Bool = true,
+        claudeParser: ClaudeCodeParser = ClaudeCodeParser(),
+        antigravityParser: AntigravityParser = AntigravityParser(),
+        cacheDefaults: UserDefaults = .standard,
+        postRefresh: (@MainActor (Tool?) async -> Void)? = nil,
+        antigravityQuotaFetch: (@MainActor () async throws -> AGQuotaFetchResult)? = nil
     ) {
         self.modelContainer = modelContainer
         self.codexAccountService = codexAccountService
+        self.claudeParser = claudeParser
+        self.antigravityParser = antigravityParser
         self.deskSnapshotPublisher = deskSnapshotPublisher
-        self.latestAntigravityAccounts = restoreCachedSnapshots ? Self.restoredAntigravityAccountsCache() : nil
-        self.latestClaudeUsage = restoreCachedSnapshots ? Self.restoredClaudeUsageCache() : nil
+        self.cacheDefaults = cacheDefaults
+        self.postRefreshOverride = postRefresh
+        self.antigravityQuotaFetchOverride = antigravityQuotaFetch
+        self.latestAntigravityAccounts = restoreCachedSnapshots ? Self.restoredAntigravityAccountsCache(defaults: cacheDefaults) : nil
+        self.latestClaudeUsage = restoreCachedSnapshots ? Self.restoredClaudeUsageCache(defaults: cacheDefaults) : nil
+        self.latestClaudeQuotaObservedAt = restoreCachedSnapshots ? cacheDefaults.object(forKey: "cached.claudeQuotaObservedAt") as? Date : nil
         let ctx = ModelContext(modelContainer)
         ctx.autosaveEnabled = false
         self.readContext = ctx
@@ -163,6 +187,7 @@ final class DataSyncService {
     }
 
     func start() {
+        acceptingLocalEvents = true
         purgeLegacyRefreshPreferences()
         purgeOrphanedQuotas()
         for tool in Tool.allCases { schedulePollTimer(for: tool) }
@@ -174,11 +199,14 @@ final class DataSyncService {
     }
 
     func stop() {
+        acceptingLocalEvents = false
         pollTimers.values.forEach { $0.invalidate() }
         pollTimers.removeAll()
         fsEventStream?.stop()
         fsEventStream = nil
         fsDebounceTask?.cancel()
+        fsDebounceTask = nil
+        clearPendingLocalRefreshes()
         dotTextPushTask?.cancel()
         Task { await deskSnapshotPublishDebouncer?.cancel() }
     }
@@ -197,15 +225,13 @@ final class DataSyncService {
                 group.addTask { await self.refreshTool(tool) }
             }
         }
-        await scheduleDeskSnapshotPublishIfNeeded()
-        scheduleDotTextPush(force: true)
-        checkQuotaNotifications()
+        await publishAfterSuccessfulRefresh()
     }
 
     /// Refresh a single tool (called by per-tool timers and FSEvents).
     func refreshTool(_ tool: Tool) async {
         guard states[tool].beginRefresh() else { return }
-        defer { states[tool].endRefresh() }
+        defer { endRefreshAndScheduleLocalCatchUp(for: tool) }
 
         do {
             try await performToolRefresh(tool)
@@ -213,7 +239,7 @@ final class DataSyncService {
             failureGates[tool]?.recordSuccess()
             lastParsedAt[tool] = Date()
             if !isRefreshAllInFlight {
-                await scheduleDeskSnapshotPublishIfNeeded(for: tool)
+                await publishAfterSuccessfulRefresh(for: tool)
             }
         } catch {
             let hasPriorData = hasStoredData(for: tool)
@@ -225,6 +251,25 @@ final class DataSyncService {
                 states[tool].clearError()
             }
             AppLogger.shared.warning("[\(tool.rawValue)] refresh error (surfaced=\(shouldSurface)): \(error.localizedDescription)")
+        }
+    }
+
+    /// Quota-only work owns the same per-tool gate as polling and session imports.
+    /// An accepted, saved snapshot advances sync time, never the session parse cursor.
+    func performQuotaOnlyRefresh(for tool: Tool, onBusy: (@MainActor () -> Void)? = nil, operation: @MainActor () async throws -> Bool) async {
+        guard !Task.isCancelled else { return }
+        guard states[tool].beginRefresh() else { onBusy?(); return }
+        defer { endRefreshAndScheduleLocalCatchUp(for: tool) }
+        do {
+            guard try await operation() else { return }
+            states[tool].recordSuccess()
+            failureGates[tool]?.recordSuccess()
+            if !isRefreshAllInFlight {
+                await publishAfterSuccessfulRefresh(for: tool)
+            }
+        } catch {
+            // Keep the last successful snapshot and error state on local read failures.
+            AppLogger.shared.warning("[\(tool.rawValue)] quota-only refresh failed: \(error.localizedDescription)")
         }
     }
 
@@ -241,6 +286,7 @@ final class DataSyncService {
             try await refreshCodex(context: context)
         case .antigravity:
             try await refreshAntigravity(context: context)
+            return // Local tasks and quota have independent save boundaries.
         case .copilot:
             try await refreshCopilot(context: context)
         }
@@ -258,10 +304,14 @@ final class DataSyncService {
     }
 
     func usageCacheWasCleared() {
+        fsDebounceTask?.cancel()
+        fsDebounceTask = nil
+        clearPendingLocalRefreshes()
         lastParsedAt.removeAll()
         codexBackfillDone = false
         latestCodexAccounts = []
         latestClaudeUsage = nil
+        latestClaudeQuotaObservedAt = nil
         latestClaudeAccountInfo = nil
         latestAntigravityAccounts = nil
         latestCopilotSnapshots = nil
@@ -272,8 +322,8 @@ final class DataSyncService {
             states[tool].reset()
             failureGates[tool]?.reset()
         }
-        for key in ["cached.claudeUsageData", "cached.antigravityAccountsData", "cached.codexLimitsData"] {
-            UserDefaults.standard.removeObject(forKey: key)
+        for key in ["cached.claudeUsageData", "cached.claudeQuotaObservedAt", "cached.antigravityAccountsData", "cached.codexLimitsData"] {
+            cacheDefaults.removeObject(forKey: key)
         }
         dataRevision &+= 1
     }
@@ -323,8 +373,9 @@ final class DataSyncService {
 
     private func refreshClaudeQuota(context: ModelContext) async {
         // Restore persisted quota on first run so UI isn't empty at launch
-        if latestClaudeUsage == nil, let cached = Self.restoredClaudeUsageCache() {
+        if latestClaudeUsage == nil, let cached = Self.restoredClaudeUsageCache(defaults: cacheDefaults) {
             latestClaudeUsage = cached
+            latestClaudeQuotaObservedAt = cacheDefaults.object(forKey: "cached.claudeQuotaObservedAt") as? Date
             upsertQuota(toolQuotaFromClaudeUsage(cached), context: context)
         }
 
@@ -333,7 +384,8 @@ final class DataSyncService {
             let quota = try await claudeParser.readSubscriptionQuotaFromBridge()
             if let usage = quota.raw as? ClaudeUsageResponse {
                 latestClaudeUsage = usage
-                persistClaudeUsageCache(usage)
+                latestClaudeQuotaObservedAt = quota.updatedAt
+                persistClaudeUsageCache(usage, observedAt: quota.updatedAt)
             }
             upsertQuota(quota, context: context)
             return
@@ -346,7 +398,8 @@ final class DataSyncService {
             let quota = try await claudeParser.fetchSubscriptionQuotaFromClaudeDesktop()
             if let usage = quota.raw as? ClaudeUsageResponse {
                 latestClaudeUsage = usage
-                persistClaudeUsageCache(usage)
+                latestClaudeQuotaObservedAt = quota.updatedAt
+                persistClaudeUsageCache(usage, observedAt: quota.updatedAt)
             }
             upsertQuota(quota, context: context)
             return
@@ -359,11 +412,29 @@ final class DataSyncService {
             let quota = try await claudeParser.fetchSubscriptionQuota()
             if let usage = quota.raw as? ClaudeUsageResponse {
                 latestClaudeUsage = usage
-                persistClaudeUsageCache(usage)
+                latestClaudeQuotaObservedAt = quota.updatedAt
+                persistClaudeUsageCache(usage, observedAt: quota.updatedAt)
             }
             upsertQuota(quota, context: context)
         } catch {
             AppLogger.shared.warning("[claude] API quota failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// File events consume bridge data only; unavailable caches await the normal poll.
+    func refreshClaudeQuotaFromBridge() async {
+        await performQuotaOnlyRefresh(for: .claudeCode, onBusy: { self.pendingBridgeQuotaRefresh = true }) {
+            let quota = try await claudeParser.readSubscriptionQuotaFromBridge()
+            try Task.checkCancellation()
+            let context = makeWriteContext()
+            upsertQuota(quota, context: context)
+            try saveUsageContext(context)
+            if let usage = quota.raw as? ClaudeUsageResponse {
+                latestClaudeUsage = usage
+                latestClaudeQuotaObservedAt = quota.updatedAt
+                persistClaudeUsageCache(usage, observedAt: quota.updatedAt)
+            }
+            return true
         }
     }
 
@@ -387,10 +458,10 @@ final class DataSyncService {
         dailyStats.forEach { upsertDailyStats($0, context: context) }
 
         // 2. Account sync + quota
-        await codexAccountService.syncCurrentSelectionFromAuthFile()
+        try await codexAccountService.syncCurrentSelectionFromAuthFile()
         let smartSwitch = UserDefaults.standard.bool(forKey: "codex.smartSwitch.enabled")
-        let knownCount  = await codexAccountService.listAccounts().count
-        let currentHasResetCreditDetails = await codexAccountService.currentAccountHasResetCreditDetails()
+        let knownCount  = try await codexAccountService.listAccounts().count
+        let currentHasResetCreditDetails = try await codexAccountService.currentAccountHasResetCreditDetails()
 
         var accounts: [CodexAccountSnapshot]
         if !smartSwitch,
@@ -398,11 +469,11 @@ final class DataSyncService {
            let snapshot = rateLimitSnapshot,
            shouldPreferLocalCodexLimits(snapshot, accountCount: knownCount)
         {
-            _ = await codexAccountService.refreshCurrentUsage(force: true)
-            _ = await codexAccountService.applyLocalRateLimitsToCurrentAccount(snapshot.limits)
-            accounts = await codexAccountService.refreshStaleUsage(excludingCurrentAccount: true)
+            _ = try await codexAccountService.refreshCurrentUsage(force: true)
+            _ = try await codexAccountService.applyLocalRateLimitsToCurrentAccount(snapshot.limits)
+            accounts = try await codexAccountService.refreshStaleUsage(excludingCurrentAccount: true)
         } else {
-            accounts = await codexAccountService.refreshAllUsage()
+            accounts = try await codexAccountService.refreshAllUsage()
         }
 
         // Auto smart-switch
@@ -410,12 +481,12 @@ final class DataSyncService {
            let decision = try? await codexAccountService.autoSmartSwitchIfNeeded(accounts: accounts)
         {
             AppLogger.shared.warning("[codex] auto switch → \(decision.account.titleText)\(decision.usedCLIFallback ? " (CLI)" : "")")
-            accounts = await codexAccountService.listAccounts()
+            accounts = try await codexAccountService.listAccounts()
         } else if !smartSwitch,
                   let snapshot = rateLimitSnapshot,
                   shouldPreferLocalCodexLimits(snapshot, accountCount: accounts.count)
         {
-            accounts = await codexAccountService.applyLocalRateLimitsToCurrentAccount(snapshot.limits)
+            accounts = try await codexAccountService.applyLocalRateLimitsToCurrentAccount(snapshot.limits)
         }
 
         latestCodexAccounts = accounts
@@ -448,17 +519,44 @@ final class DataSyncService {
             try await self.antigravityParser.parseSessions(since: since)
         }.value
         try await upsertSessions(sessions, context: context)
+        try Task.checkCancellation()
+        try saveUsageContext(context)
+        lastParsedAt[.antigravity] = Date()
 
         // 2. Quota API
         do {
-            let result = try await antigravityParser.fetchAllAccountQuotas()
-            let refreshedAccounts = orderedAntigravityAccounts(
+            let result: AGQuotaFetchResult
+            if let antigravityQuotaFetchOverride {
+                result = try await antigravityQuotaFetchOverride()
+            } else {
+                result = try await antigravityParser.fetchAllAccountQuotas()
+            }
+            try Task.checkCancellation()
+            let refreshedEmails = Set(result.accounts.map(\.email))
+            let failedEmails = result.orderedEmails.filter { !refreshedEmails.contains($0) }
+            let mergedAccounts = mergeAntigravityAccounts(
+                current: latestAntigravityAccounts ?? [],
                 refreshed: result.accounts,
                 orderedEmails: result.orderedEmails
             )
-            latestAntigravityAccounts = refreshedAccounts
-            Self.persistAntigravityAccountsCache(refreshedAccounts)
-            upsertQuota(antigravityAggregateQuota(from: refreshedAccounts), context: context)
+            // A partial response includes older retained accounts. Do not give the
+            // aggregate a new observation time until every credentialed account succeeds.
+            let observedAt: Date
+            if failedEmails.isEmpty {
+                observedAt = Date()
+            } else {
+                let toolRaw = Tool.antigravity.rawValue
+                var previous = FetchDescriptor<QuotaRecord>(predicate: #Predicate { $0.toolRaw == toolRaw && $0.accountKey == nil })
+                previous.fetchLimit = 1
+                observedAt = try context.fetch(previous).first?.updatedAt ?? .distantPast
+            }
+            upsertQuota(antigravityAggregateQuota(from: mergedAccounts, observedAt: observedAt), context: context)
+            try saveUsageContext(context)
+            latestAntigravityAccounts = mergedAccounts
+            Self.persistAntigravityAccountsCache(mergedAccounts, defaults: cacheDefaults)
+            if !failedEmails.isEmpty {
+                throw AntigravityError.apiFailed("Quota refresh failed for \(failedEmails.count) of \(result.orderedEmails.count) accounts.")
+            }
         } catch {
             AppLogger.shared.warning("[antigravity] quota failed: \(error.localizedDescription)")
             throw error
@@ -484,7 +582,8 @@ final class DataSyncService {
 
     /// Called by FSEvents when local files change. Runs only the parsers for the affected
     /// tools — never touches network APIs. The 500 ms debounce collapses burst writes.
-    private func handleLocalFileChange(paths: [String]) {
+    func handleLocalFileChange(paths: [String]) {
+        guard acceptingLocalEvents else { return }
         pendingFSPaths.formUnion(paths)
         fsDebounceTask?.cancel()
         fsDebounceTask = Task { [weak self] in
@@ -494,7 +593,7 @@ final class DataSyncService {
         }
     }
 
-    private func flushLocalFileChanges() async {
+    func flushLocalFileChanges() async {
         let paths = pendingFSPaths.sorted()
         pendingFSPaths.removeAll()
         guard !paths.isEmpty else { return }
@@ -510,9 +609,7 @@ final class DataSyncService {
         }
 
         if bridgeTriggered {
-            let ctx = makeWriteContext()
-            await refreshClaudeQuota(context: ctx)
-            try? ctx.save()
+            await refreshClaudeQuotaFromBridge()
         }
 
         // Quick FSEvents-driven Codex quota update (local rate-limit JSONL only)
@@ -520,16 +617,15 @@ final class DataSyncService {
             await refreshCodexLocalQuotaFromFile()
         }
 
-        if bridgeTriggered || affectedTools.contains(.codex) || affectedTools.contains(.claudeCode) {
-            await scheduleDeskSnapshotPublishIfNeeded()
-        }
-
-        scheduleDotTextPush(force: false)
     }
 
-    private func refreshLocalFiles(for tool: Tool) async {
-        guard states[tool].beginRefresh() else { return }
-        defer { states[tool].endRefresh() }
+    func refreshLocalFiles(for tool: Tool) async {
+        guard !Task.isCancelled else { return }
+        guard states[tool].beginRefresh() else {
+            pendingLocalRefreshTools.insert(tool)
+            return
+        }
+        defer { endRefreshAndScheduleLocalCatchUp(for: tool) }
         let since = incrementalCutoff(for: tool)
         let context = makeWriteContext()
         do {
@@ -538,7 +634,8 @@ final class DataSyncService {
                 let (sessions, stats) = try await Task.detached(priority: .utility) {
                     let s = try await self.claudeParser.parseSessions(since: since)
                     let d = (try? await self.claudeParser.parseDailyStatsFromCache()) ?? []
-                    return (s, d)
+                    let desktop = (try? await self.claudeParser.parseDailyStatsFromClaudeDesktop()) ?? []
+                    return (s, d + desktop)
                 }.value
                 try await upsertSessions(sessions, context: context)
                 try mergeDailyStats(stats, sessions: sessions, tool: .claudeCode, context: context)
@@ -562,10 +659,14 @@ final class DataSyncService {
             case .copilot:
                 break   // no local files
             }
+            try Task.checkCancellation()
             try saveUsageContext(context)
             states[tool].recordSuccess()
             failureGates[tool]?.recordSuccess()
             lastParsedAt[tool] = Date()
+            if !isRefreshAllInFlight {
+                await publishAfterSuccessfulRefresh(for: tool)
+            }
         } catch {
             // Local file errors are silent — stale data is better than a flash of nothing
             AppLogger.shared.warning("[\(tool.rawValue)] local file parse error (silent): \(error.localizedDescription)")
@@ -574,19 +675,73 @@ final class DataSyncService {
 
     /// Re-read Codex local rate-limit JSONL and apply quota without hitting the API.
     private func refreshCodexLocalQuotaFromFile() async {
-        guard !UserDefaults.standard.bool(forKey: "codex.smartSwitch.enabled") else { return }
-        guard let snapshot = await codexParser.parseLatestRateLimitsSnapshot() else { return }
-        let accountCount = await codexAccountService.listAccounts().count
-        guard shouldPreferLocalCodexLimits(snapshot, accountCount: accountCount) else { return }
+        await performQuotaOnlyRefresh(for: .codex, onBusy: { self.pendingCodexLocalQuotaRefresh = true }) {
+            guard !UserDefaults.standard.bool(forKey: "codex.smartSwitch.enabled") else { return false }
+            guard let snapshot = await codexParser.parseLatestRateLimitsSnapshot() else { return false }
+            let accountCount = try await codexAccountService.listAccounts().count
+            guard shouldPreferLocalCodexLimits(snapshot, accountCount: accountCount) else { return false }
 
-        await codexAccountService.syncCurrentSelectionFromAuthFile()
-        let accounts = await codexAccountService.applyLocalRateLimitsToCurrentAccount(snapshot.limits)
-        let context  = makeWriteContext()
-        latestCodexAccounts = accounts
-        removeStaleCodexQuotas(validAccountKeys: Set(accounts.map(\.accountID)), context: context)
-        accounts.compactMap(\.generalQuota).forEach { upsertQuota($0, context: context) }
-        try? context.save()
-        AppLogger.shared.recordDiagnostic(scope: "codex.localQuota", message: "updated quota from local JSONL")
+            try await codexAccountService.syncCurrentSelectionFromAuthFile()
+            try Task.checkCancellation()
+            let accounts = try await codexAccountService.applyLocalRateLimitsToCurrentAccount(snapshot.limits)
+            try Task.checkCancellation()
+            let context = makeWriteContext()
+            removeStaleCodexQuotas(validAccountKeys: Set(accounts.map(\.accountID)), context: context)
+            accounts.compactMap(\.generalQuota).forEach { upsertQuota($0, context: context) }
+            try saveUsageContext(context)
+            latestCodexAccounts = accounts
+            AppLogger.shared.recordDiagnostic(scope: "codex.localQuota", message: "updated quota from local JSONL")
+            return true
+        }
+    }
+
+    private func endRefreshAndScheduleLocalCatchUp(for tool: Tool) {
+        states[tool].endRefresh()
+        scheduleLocalCatchUp(for: tool)
+    }
+
+    private func hasPendingLocalRefresh(for tool: Tool) -> Bool {
+        pendingLocalRefreshTools.contains(tool)
+            || (tool == .claudeCode && pendingBridgeQuotaRefresh)
+            || (tool == .codex && pendingCodexLocalQuotaRefresh)
+    }
+
+    private func scheduleLocalCatchUp(for tool: Tool) {
+        guard acceptingLocalEvents, !states[tool].isRefreshing, hasPendingLocalRefresh(for: tool), localCatchUpTasks[tool] == nil else { return }
+        let generation = localWorkGeneration
+        localCatchUpTasks[tool] = Task { [weak self] in
+            guard let self else { return }
+            await Task.yield()
+            if !Task.isCancelled, self.localWorkGeneration == generation, !self.states[tool].isRefreshing {
+                let parseLocalFiles = self.pendingLocalRefreshTools.remove(tool) != nil
+                let readBridge = tool == .claudeCode && self.pendingBridgeQuotaRefresh
+                let readCodexQuota = tool == .codex && self.pendingCodexLocalQuotaRefresh
+                if readBridge { self.pendingBridgeQuotaRefresh = false }
+                if readCodexQuota { self.pendingCodexLocalQuotaRefresh = false }
+                if parseLocalFiles { await self.refreshLocalFiles(for: tool) }
+                if readBridge { await self.refreshClaudeQuotaFromBridge() }
+                if readCodexQuota { await self.refreshCodexLocalQuotaFromFile() }
+            }
+            guard self.localWorkGeneration == generation else { return }
+            self.localCatchUpTasks[tool] = nil
+            if !Task.isCancelled { self.scheduleLocalCatchUp(for: tool) }
+        }
+    }
+
+    private func clearPendingLocalRefreshes() {
+        localWorkGeneration &+= 1
+        localCatchUpTasks.values.forEach { $0.cancel() }
+        localCatchUpTasks.removeAll()
+        pendingFSPaths.removeAll()
+        pendingLocalRefreshTools.removeAll()
+        pendingBridgeQuotaRefresh = false
+        pendingCodexLocalQuotaRefresh = false
+    }
+
+    /// Await the already scheduled, bounded local work without starting a poll.
+    func awaitLocalCatchUps() async {
+        let tasks = Array(localCatchUpTasks.values)
+        for task in tasks { await task.value }
     }
 
     // MARK: - Helpers: Codex local rate limits
@@ -610,9 +765,12 @@ final class DataSyncService {
 
     // MARK: - Helpers: determine affected tools from FSEvent paths
 
-    private func toolsAffectedByPaths(_ paths: [String]) -> Set<Tool> {
+    func toolsAffectedByPaths(_ paths: [String]) -> Set<Tool> {
         var tools = Set<Tool>()
         for path in paths {
+            if path == Self.claudeDesktopRoot || path.hasPrefix(Self.claudeDesktopRoot + "/") {
+                tools.insert(.claudeCode)
+            }
             for (root, tool) in Self.fsWatchRoots where path.hasPrefix(root) {
                 tools.insert(tool)
             }
@@ -751,13 +909,15 @@ final class DataSyncService {
             existing.remaining    = quota.remaining
             existing.total        = quota.total
             existing.resetAt      = quota.resetAt
-            existing.updatedAt    = Date()
+            existing.updatedAt    = quota.updatedAt
         } else {
-            context.insert(QuotaRecord(
+            let record = QuotaRecord(
                 tool: quota.tool, accountKey: quota.accountKey,
                 accountLabel: quota.accountLabel, remaining: quota.remaining,
                 total: quota.total, unit: quota.unit, resetAt: quota.resetAt
-            ))
+            )
+            record.updatedAt = quota.updatedAt
+            context.insert(record)
         }
     }
 
@@ -790,15 +950,7 @@ final class DataSyncService {
         return emails
     }
 
-    private func orderedAntigravityAccounts(
-        refreshed: [AGAccountQuota],
-        orderedEmails: [String]
-    ) -> [AGAccountQuota] {
-        let refreshedByEmail = Dictionary(uniqueKeysWithValues: refreshed.map { ($0.email, $0) })
-        return orderedEmails.compactMap { refreshedByEmail[$0] }
-    }
-
-    private func antigravityAggregateQuota(from accounts: [AGAccountQuota]) -> ToolQuota {
+    private func antigravityAggregateQuota(from accounts: [AGAccountQuota], observedAt: Date = Date()) -> ToolQuota {
         let minFraction = accounts.compactMap(\.geminiRemainingFraction).min()
         let resetAt = accounts.compactMap(\.geminiEarliestReset).min()
         let remainingPct = minFraction.map { Int(($0 * 100).rounded()) }
@@ -806,7 +958,7 @@ final class DataSyncService {
             id: Tool.antigravity.rawValue, tool: .antigravity,
             accountKey: nil, accountLabel: nil,
             remaining: remainingPct, total: remainingPct == nil ? nil : 100,
-            unit: .requests, resetAt: resetAt, updatedAt: Date(),
+            unit: .requests, resetAt: resetAt, updatedAt: observedAt,
             raw: accounts as (any Sendable)
         )
     }
@@ -852,31 +1004,32 @@ final class DataSyncService {
 
     // MARK: - Claude usage cache helpers
 
-    static func restoredClaudeUsageCache() -> ClaudeUsageResponse? {
-        guard let data = UserDefaults.standard.data(forKey: "cached.claudeUsageData") else { return nil }
+    static func restoredClaudeUsageCache(defaults: UserDefaults = .standard) -> ClaudeUsageResponse? {
+        guard let data = defaults.data(forKey: "cached.claudeUsageData") else { return nil }
         return try? JSONDecoder().decode(ClaudeUsageResponse.self, from: data)
     }
 
-    private func persistClaudeUsageCache(_ usage: ClaudeUsageResponse) {
+    private func persistClaudeUsageCache(_ usage: ClaudeUsageResponse, observedAt: Date) {
         if let data = try? JSONEncoder().encode(usage) {
-            UserDefaults.standard.set(data, forKey: "cached.claudeUsageData")
+            cacheDefaults.set(data, forKey: "cached.claudeUsageData")
+            cacheDefaults.set(observedAt, forKey: "cached.claudeQuotaObservedAt")
         }
     }
 
     // MARK: - Antigravity accounts cache helpers
 
-    private static func restoredAntigravityAccountsCache() -> [AGAccountQuota]? {
-        guard let data = UserDefaults.standard.data(forKey: "cached.antigravityAccountsData") else { return nil }
+    private static func restoredAntigravityAccountsCache(defaults: UserDefaults = .standard) -> [AGAccountQuota]? {
+        guard let data = defaults.data(forKey: "cached.antigravityAccountsData") else { return nil }
         return try? JSONDecoder().decode([AGAccountQuota].self, from: data)
     }
 
-    private static func persistAntigravityAccountsCache(_ accounts: [AGAccountQuota]) {
+    private static func persistAntigravityAccountsCache(_ accounts: [AGAccountQuota], defaults: UserDefaults = .standard) {
         if let data = try? JSONEncoder().encode(accounts) {
-            UserDefaults.standard.set(data, forKey: "cached.antigravityAccountsData")
+            defaults.set(data, forKey: "cached.antigravityAccountsData")
         }
     }
     private func restoredCodexLimitsCache() -> CodexRateLimits? {
-        guard let data = UserDefaults.standard.data(forKey: "cached.codexLimitsData") else { return nil }
+        guard let data = cacheDefaults.data(forKey: "cached.codexLimitsData") else { return nil }
         return try? JSONDecoder().decode(CodexRateLimits.self, from: data)
     }
 
@@ -915,7 +1068,7 @@ final class DataSyncService {
             id: Tool.claudeCode.rawValue, tool: .claudeCode,
             accountKey: nil, accountLabel: nil,
             remaining: remaining, total: 100, unit: .messages,
-            resetAt: resetAt, updatedAt: Date(), raw: usage
+            resetAt: resetAt, updatedAt: latestClaudeQuotaObservedAt ?? .distantPast, raw: usage
         )
     }
 
@@ -999,11 +1152,12 @@ final class DataSyncService {
         let desc = FetchDescriptor<QuotaRecord>(predicate: #Predicate { $0.toolRaw == codexRaw || $0.toolRaw == claudeRaw })
         let fallbackQuotas = (try? readContext.fetch(desc)) ?? []
         let snapshotCodexAccounts = deskSnapshotCodexAccounts()
-        let snapshotClaudeUsage = latestClaudeUsage ?? Self.restoredClaudeUsageCache()
+        let snapshotClaudeUsage = latestClaudeUsage ?? Self.restoredClaudeUsageCache(defaults: cacheDefaults)
         guard let snapshot = DeskSnapshotBuilder.build(
             now: Date(),
             codexAccounts: snapshotCodexAccounts,
             claudeUsage: snapshotClaudeUsage,
+            claudeObservedAt: latestClaudeQuotaObservedAt,
             fallbackQuotas: fallbackQuotas
         ) else {
             return
@@ -1016,6 +1170,20 @@ final class DataSyncService {
             return
         }
         await deskSnapshotPublishDebouncer?.schedule()
+    }
+
+    /// Polls, local file imports, and quota-only updates share successful propagation.
+    /// refreshAll coalesces its child updates and calls this once after they finish.
+    private func publishAfterSuccessfulRefresh(for tool: Tool? = nil) async {
+        if let postRefreshOverride {
+            await postRefreshOverride(tool)
+            return
+        }
+        await scheduleDeskSnapshotPublishIfNeeded(for: tool)
+        if tool == nil || tool == .codex || tool == .claudeCode {
+            scheduleDotTextPush(force: tool == nil)
+        }
+        checkQuotaNotifications()
     }
 
     // MARK: - Quota notifications

@@ -35,20 +35,38 @@ actor CodexAccountService {
         static let sessionWeight = 0.3
         static let minimumScoreGain = 15.0
         static let cooldown: TimeInterval = 10 * 60
+        static let maximumObservationAge: TimeInterval = 10 * 60
 
-        static func score(for account: CodexAccountSnapshot) -> Double {
-            let weeklyRemaining = max(0, 100 - (account.limits?.oneWeekWindow?.usedPercent ?? 100))
-            let sessionRemaining = max(0, 100 - (account.limits?.fiveHourWindow?.usedPercent ?? 100))
+        static func score(for account: CodexAccountSnapshot, at now: Date) -> Double {
+            guard reliableWindows(for: account, at: now) != nil else { return 0 }
+            let weeklyRemaining = account.limits?.oneWeekWindow?.remainingPercent ?? 0
+            let sessionRemaining = account.limits?.fiveHourWindow?.remainingPercent ?? 0
             return weeklyRemaining * weeklyWeight + sessionRemaining * sessionWeight
         }
 
-        static func isExhausted(_ account: CodexAccountSnapshot) -> Bool {
-            isWindowExhausted(account.limits?.fiveHourWindow) || isWindowExhausted(account.limits?.oneWeekWindow)
+        static func isExhausted(_ account: CodexAccountSnapshot, at now: Date) -> Bool {
+            guard let windows = reliableWindows(for: account, at: now) else { return false }
+            return windows.contains { ($0.usedPercent ?? 0) >= 100 }
         }
 
-        static func isWindowExhausted(_ window: CodexWindow?) -> Bool {
-            guard let used = window?.usedPercent else { return false }
-            return used >= 100
+        static func canSwitchTo(_ account: CodexAccountSnapshot, at now: Date) -> Bool {
+            guard let windows = reliableWindows(for: account, at: now) else { return false }
+            return windows.allSatisfy { ($0.usedPercent ?? 100) < 100 }
+        }
+
+        private static func reliableWindows(for account: CodexAccountSnapshot, at now: Date) -> [CodexWindow]? {
+            guard account.usageError == nil,
+                  let limits = account.limits,
+                  let observedAt = limits.observedAt,
+                  (0...maximumObservationAge).contains(now.timeIntervalSince(observedAt)),
+                  limits.hasUsableGeneralWindow(at: now) else { return nil }
+            let windows = [limits.fiveHourWindow, limits.oneWeekWindow].compactMap { $0 }
+            guard !windows.isEmpty, windows.allSatisfy({ window in
+                guard let used = window.usedPercent, used.isFinite, (0...100).contains(used),
+                      let reset = window.resetsAt, reset.isFinite else { return false }
+                return reset > now.timeIntervalSince1970
+            }) else { return nil }
+            return windows
         }
     }
 
@@ -58,6 +76,12 @@ actor CodexAccountService {
         case callbackOpenFailed
         case callbackFailed(String)
         case accountNotFound
+        case invalidAccountStore
+        case missingCredential
+        case credentialVerificationFailed
+        case credentialRestoreFailed
+        case currentAccountCannotBeDeleted
+        case authRestoreFailed
 
         var errorDescription: String? {
             switch self {
@@ -66,7 +90,27 @@ actor CodexAccountService {
             case .callbackOpenFailed: "无法打开浏览器完成 OpenAI 登录。"
             case .callbackFailed(let message): message
             case .accountNotFound: "未找到对应的 Codex 账号。"
+            case .invalidAccountStore: String(localized: "Codex 账号文件无效，原文件已保留。")
+            case .missingCredential: String(localized: "Codex 账号凭证不可用，请重新导入或登录。")
+            case .credentialVerificationFailed: String(localized: "无法确认 Codex 账号凭证已安全保存，原账号文件已保留。")
+            case .credentialRestoreFailed: String(localized: "Codex 账号保存失败，凭证恢复也未完成，请重新导入或登录。")
+            case .currentAccountCannotBeDeleted: String(localized: "请先切换到其他 Codex 账号，再删除当前账号。")
+            case .authRestoreFailed: String(localized: "Codex 账号状态保存失败，当前认证文件恢复也未完成。")
             }
+        }
+    }
+
+    struct CredentialOperations: Sendable {
+        let retrieve: @Sendable (String) throws -> String?
+        let store: @Sendable (String, String) throws -> Void
+        let delete: @Sendable (String) throws -> Void
+
+        static var keychain: Self {
+            Self(
+                retrieve: { try KeychainService.retrieve(key: $0) },
+                store: { try KeychainService.store(key: $0, value: $1) },
+                delete: { try KeychainService.deleteChecked(key: $0) }
+            )
         }
     }
 
@@ -105,20 +149,43 @@ actor CodexAccountService {
     private let codexAuthURL: URL
     private let codexConfigURL: URL
     private let userDefaults: UserDefaults
+    private let credentialOperations: CredentialOperations
+    private let writeStoreData: @Sendable (Data, URL) throws -> Void
+    private let writeAuthData: @Sendable (Data, URL) throws -> Void
+    private let relaunchOperation: (@Sendable () async throws -> Bool)?
     private let autoSwitchTimestampKey = "codex.smartSwitch.lastAt"
+    private var isAutoSwitching = false
 
-    init(fileManager: FileManager = .default, session: URLSession = .shared, userDefaults: UserDefaults = .standard) {
+    init(
+        fileManager: FileManager = .default,
+        session: URLSession = .shared,
+        userDefaults: UserDefaults = .standard,
+        storeURL: URL? = nil,
+        codexAuthURL: URL? = nil,
+        codexConfigURL: URL? = nil,
+        credentialOperations: CredentialOperations = .keychain,
+        writeStoreData: @escaping @Sendable (Data, URL) throws -> Void = { try $0.write(to: $1, options: .atomic) },
+        writeAuthData: @escaping @Sendable (Data, URL) throws -> Void = { try $0.write(to: $1, options: .atomic) },
+        relaunchOperation: (@Sendable () async throws -> Bool)? = nil
+    ) {
         self.fileManager = fileManager
         self.session = session
         self.userDefaults = userDefaults
-        supportDir = URL.homeDirectory.appending(path: ".openpulse")
-        storeURL = supportDir.appending(path: "codex-accounts.json")
-        codexAuthURL = URL.homeDirectory.appending(path: ".codex/auth.json")
-        codexConfigURL = URL.homeDirectory.appending(path: ".codex/config.toml")
+        let resolvedStoreURL = storeURL ?? URL.homeDirectory.appending(path: ".openpulse/codex-accounts.json")
+        self.storeURL = resolvedStoreURL
+        supportDir = resolvedStoreURL.deletingLastPathComponent()
+        self.codexAuthURL = codexAuthURL ?? URL.homeDirectory.appending(path: ".codex/auth.json")
+        self.codexConfigURL = codexConfigURL ?? URL.homeDirectory.appending(path: ".codex/config.toml")
+        self.credentialOperations = credentialOperations
+        self.writeStoreData = writeStoreData
+        self.writeAuthData = writeAuthData
+        self.relaunchOperation = relaunchOperation
     }
 
-    func listAccounts() async -> [CodexAccountSnapshot] {
-        let store = loadStore()
+    static func keychainKey(recordID: String) -> String { "codex_account_auth_\(recordID)" }
+
+    func listAccounts() async throws -> [CodexAccountSnapshot] {
+        let store = try loadStore()
         let currentAccountID = currentAccountID(from: store)
         return store.accounts.map {
             CodexAccountSnapshot(
@@ -155,15 +222,34 @@ actor CodexAccountService {
     }
 
     func switchAccount(id: String, relaunchCodex: Bool = true) async throws -> Bool {
-        var store = loadStore()
+        var store = try loadStore()
         guard let account = store.accounts.first(where: { $0.id == id }) else {
             throw ServiceError.accountNotFound
         }
+        let previousAuth = fileManager.fileExists(atPath: codexAuthURL.path) ? try Data(contentsOf: codexAuthURL) : nil
         try writeCurrentAuthString(account.authJSONString)
         store.currentAccountID = account.accountID
-        saveStore(store)
+        do {
+            try saveStore(store)
+        } catch {
+            do {
+                if let previousAuth {
+                    try writeAuthData(previousAuth, codexAuthURL)
+                } else {
+                    try fileManager.removeItem(at: codexAuthURL)
+                }
+            } catch {
+                throw ServiceError.authRestoreFailed
+            }
+            throw error
+        }
         if relaunchCodex {
-            return try await relaunchCodexApp()
+            do {
+                if let relaunchOperation { return try await relaunchOperation() }
+                return try await relaunchCodexApp()
+            } catch {
+                throw ServiceError.callbackFailed(String(localized: "账号已切换，但 Codex 重新启动失败：\(error.localizedDescription)"))
+            }
         }
         return false
     }
@@ -173,7 +259,7 @@ actor CodexAccountService {
     }
 
     func smartSwitch() async throws -> SmartSwitchDecision? {
-        let accounts = await listAccounts()
+        let accounts = try await listAccounts()
         guard let target = bestAccountToSwitch(from: accounts, requireCurrentExhausted: false, enforceMinimumGain: false) else {
             return nil
         }
@@ -183,10 +269,13 @@ actor CodexAccountService {
     }
 
     func autoSmartSwitchIfNeeded(accounts: [CodexAccountSnapshot]? = nil) async throws -> SmartSwitchDecision? {
+        guard !isAutoSwitching else { return nil }
+        isAutoSwitching = true
+        defer { isAutoSwitching = false }
         let candidates = if let accounts {
             accounts
         } else {
-            await listAccounts()
+            try await listAccounts()
         }
         guard let target = bestAccountToSwitch(from: candidates, requireCurrentExhausted: true, enforceMinimumGain: true) else {
             return nil
@@ -203,18 +292,19 @@ actor CodexAccountService {
         return SmartSwitchDecision(account: target, usedCLIFallback: usedCLIFallback, isAutomatic: true)
     }
 
-    func deleteAccount(id: String) {
-        var store = loadStore()
-        if let removed = store.accounts.first(where: { $0.id == id }), store.currentAccountID == removed.accountID {
-            store.currentAccountID = currentAuthAccountID()
-        }
+    func deleteAccount(id: String) async throws {
+        var store = try loadStore()
+        guard let removed = store.accounts.first(where: { $0.id == id }) else { return }
+        guard currentAccountID(from: store) != removed.accountID else { throw ServiceError.currentAccountCannotBeDeleted }
         store.accounts.removeAll { $0.id == id }
-        saveStore(store)
+        // Commit the list first; failed metadata writes must retain the credential.
+        try saveStore(store)
+        try credentialOperations.delete(Self.keychainKey(recordID: removed.id))
     }
 
-    func refreshAllUsage(force: Bool = false) async -> [CodexAccountSnapshot] {
+    func refreshAllUsage(force: Bool = false) async throws -> [CodexAccountSnapshot] {
         let now = Date()
-        var store = reconcileCurrentAuthIntoStore()
+        let store = try reconcileCurrentAuthIntoStore()
         let usageURLs = resolveUsageURLs()
         let accounts = store.accounts
 
@@ -239,16 +329,13 @@ actor CodexAccountService {
             return refreshed
         }
 
-        let refreshedByAccountID = Dictionary(uniqueKeysWithValues: refreshedAccounts.map { ($0.accountID, $0) })
-        store.accounts = store.accounts.map { refreshedByAccountID[$0.accountID] ?? $0 }
-        store.currentAccountID = currentAccountID(from: store)
-        saveStore(store)
-        return await listAccounts()
+        try mergeRefreshedAccounts(refreshedAccounts)
+        return try await listAccounts()
     }
 
-    func applyLocalRateLimitsToCurrentAccount(_ limits: CodexRateLimits) async -> [CodexAccountSnapshot] {
+    func applyLocalRateLimitsToCurrentAccount(_ limits: CodexRateLimits) async throws -> [CodexAccountSnapshot] {
         let now = Date()
-        var store = reconcileCurrentAuthIntoStore()
+        var store = try reconcileCurrentAuthIntoStore()
         let currentAccountID = currentAccountID(from: store)
 
         if let currentAccountID,
@@ -259,19 +346,18 @@ actor CodexAccountService {
             store.accounts[index].lastFetchedAt = now
             store.accounts[index].updatedAt = now
             store.accounts[index].usageError = nil
-            saveStore(store)
+            try saveStore(store)
         }
 
-        return await listAccounts()
+        return try await listAccounts()
     }
 
-    func refreshCurrentUsage(force: Bool = true) async -> [CodexAccountSnapshot] {
+    func refreshCurrentUsage(force: Bool = true) async throws -> [CodexAccountSnapshot] {
         let now = Date()
-        var store = reconcileCurrentAuthIntoStore()
+        let store = try reconcileCurrentAuthIntoStore()
         guard let activeAccountID = currentAccountID(from: store),
               let account = store.accounts.first(where: { $0.accountID == activeAccountID }) else {
-            saveStore(store)
-            return await listAccounts()
+            return try await listAccounts()
         }
 
         let refreshed = await Self.refreshAccount(
@@ -282,16 +368,12 @@ actor CodexAccountService {
             usageURLs: resolveUsageURLs()
         )
 
-        if let index = store.accounts.firstIndex(where: { $0.accountID == activeAccountID }) {
-            store.accounts[index] = refreshed
-        }
-        store.currentAccountID = currentAccountID(from: store)
-        saveStore(store)
-        return await listAccounts()
+        try mergeRefreshedAccounts([refreshed])
+        return try await listAccounts()
     }
 
-    func currentAccountHasResetCreditDetails() async -> Bool {
-        let store = reconcileCurrentAuthIntoStore()
+    func currentAccountHasResetCreditDetails() async throws -> Bool {
+        let store = try reconcileCurrentAuthIntoStore()
         guard let currentAccountID = currentAccountID(from: store),
               let account = store.accounts.first(where: { $0.accountID == currentAccountID }) else {
             return false
@@ -299,9 +381,9 @@ actor CodexAccountService {
         return account.lastUsage?.resetCredits?.credits?.isEmpty == false
     }
 
-    func refreshStaleUsage(excludingCurrentAccount: Bool) async -> [CodexAccountSnapshot] {
+    func refreshStaleUsage(excludingCurrentAccount: Bool) async throws -> [CodexAccountSnapshot] {
         let now = Date()
-        var store = reconcileCurrentAuthIntoStore()
+        let store = try reconcileCurrentAuthIntoStore()
         let activeAccountID = currentAccountID(from: store)
         let usageURLs = resolveUsageURLs()
         let accountsToRefresh = store.accounts.filter { account in
@@ -312,8 +394,7 @@ actor CodexAccountService {
         }
 
         guard !accountsToRefresh.isEmpty else {
-            saveStore(store)
-            return await listAccounts()
+            return try await listAccounts()
         }
 
         let refreshedAccounts = await withTaskGroup(of: CodexStoredAccount.self, returning: [CodexStoredAccount].self) { group in
@@ -337,16 +418,37 @@ actor CodexAccountService {
             return refreshed
         }
 
-        let refreshedByAccountID = Dictionary(uniqueKeysWithValues: refreshedAccounts.map { ($0.accountID, $0) })
-        store.accounts = store.accounts.map { refreshedByAccountID[$0.accountID] ?? $0 }
-        store.currentAccountID = currentAccountID(from: store)
-        saveStore(store)
-        return await listAccounts()
+        try mergeRefreshedAccounts(refreshedAccounts)
+        return try await listAccounts()
     }
 
-    func syncCurrentSelectionFromAuthFile() async {
-        let store = reconcileCurrentAuthIntoStore()
-        saveStore(store)
+    func syncCurrentSelectionFromAuthFile() async throws {
+        _ = try reconcileCurrentAuthIntoStore()
+    }
+
+    /// Actor reentrancy permits account edits while requests await their responses.
+    /// Rebase onto durable state, retaining edits and ignoring deleted/rotated records.
+    private func mergeRefreshedAccounts(_ refreshedAccounts: [CodexStoredAccount]) throws {
+        var store = try reconcileCurrentAuthIntoStore()
+        var changed = false
+        for refreshed in refreshedAccounts {
+            guard let index = store.accounts.firstIndex(where: { $0.id == refreshed.id }),
+                  store.accounts[index].accountID == refreshed.accountID,
+                  store.accounts[index].authJSONString == refreshed.authJSONString,
+                  let fetchedAt = refreshed.lastFetchedAt,
+                  fetchedAt >= (store.accounts[index].lastFetchedAt ?? .distantPast) else { continue }
+            if let incoming = refreshed.lastUsage {
+                store.accounts[index].lastUsage = store.accounts[index].lastUsage?.merging(incoming) ?? incoming
+            }
+            store.accounts[index].lastFetchedAt = fetchedAt
+            store.accounts[index].usageError = refreshed.usageError
+            if refreshed.usageError == nil {
+                store.accounts[index].planType = refreshed.planType ?? store.accounts[index].planType
+                store.accounts[index].updatedAt = max(store.accounts[index].updatedAt, refreshed.updatedAt)
+            }
+            changed = true
+        }
+        if changed { try saveStore(store) }
     }
 
     private func shouldRefreshStaleUsage(for account: CodexStoredAccount, now: Date) -> Bool {
@@ -362,22 +464,34 @@ actor CodexAccountService {
         return store.currentAccountID
     }
 
-    private func reconcileCurrentAuthIntoStore() -> CodexAccountsStore {
-        var store = loadStore()
-        guard let authJSONString = try? readCurrentAuthString(),
-              let extracted = try? extractAuth(from: authJSONString) else {
+    private func reconcileCurrentAuthIntoStore() throws -> CodexAccountsStore {
+        let currentAuth = try? readCurrentAuthString()
+        let currentExtracted = currentAuth.flatMap { try? extractAuth(from: $0) }
+        var store = try loadStore(replacingCredentialFor: currentExtracted?.accountID)
+        guard let authJSONString = currentAuth, let extracted = currentExtracted else {
             store.currentAccountID = currentAuthAccountID()
             return store
         }
 
         let now = Date()
         if let index = store.accounts.firstIndex(where: { $0.accountID == extracted.accountID }) {
+            let original = store.accounts[index]
             store.accounts[index].migrateLegacyUsageObservation()
             store.accounts[index].email = extracted.email
             store.accounts[index].planType = extracted.planType
             store.accounts[index].teamName = extracted.teamName
             store.accounts[index].authJSONString = authJSONString
-            store.accounts[index].updatedAt = now
+            let credentialChanged = original.authJSONString != authJSONString
+            let metadataChanged = original.email != extracted.email || original.planType != extracted.planType
+                || original.teamName != extracted.teamName || original.lastUsage?.observedAt != store.accounts[index].lastUsage?.observedAt
+            if credentialChanged || metadataChanged { store.accounts[index].updatedAt = now }
+            let selectionChanged = store.currentAccountID != extracted.accountID
+            store.currentAccountID = extracted.accountID
+            if credentialChanged {
+                try persistCredential(authJSONString, recordID: original.id, store: store)
+            } else if metadataChanged || selectionChanged {
+                try saveStore(store)
+            }
         } else {
             store.accounts.append(
                 CodexStoredAccount(
@@ -395,15 +509,18 @@ actor CodexAccountService {
                     usageError: nil
                 )
             )
+            store.currentAccountID = extracted.accountID
+            try persistCredential(authJSONString, recordID: store.accounts[store.accounts.count - 1].id, store: store)
         }
 
         store.currentAccountID = extracted.accountID
         return store
     }
 
-    private func upsertAccount(authJSONString: String, customLabel: String?, setAsCurrent: Bool) throws -> CodexStoredAccount {
+    // Also used by fixture tests; OAuth and import share this single transaction.
+    func upsertAccount(authJSONString: String, customLabel: String?, setAsCurrent: Bool) throws -> CodexStoredAccount {
         let extracted = try extractAuth(from: authJSONString)
-        var store = loadStore()
+        var store = try loadStore(replacingCredentialFor: extracted.accountID)
         let now = Date()
         let label = normalizedLabel(customLabel, email: extracted.email, teamName: extracted.teamName, accountID: extracted.accountID)
 
@@ -436,12 +553,38 @@ actor CodexAccountService {
         }
 
         if setAsCurrent {
-            try writeCurrentAuthString(authJSONString)
             store.currentAccountID = extracted.accountID
         }
 
-        saveStore(store)
+        try persistCredential(authJSONString, recordID: account.id, store: store)
         return account
+    }
+
+    private func persistCredential(_ authJSONString: String, recordID: String, store: CodexAccountsStore) throws {
+        let key = Self.keychainKey(recordID: recordID)
+        let previousCredential = try credentialOperations.retrieve(key)
+        var cleanupWarning: KeychainError?
+        do {
+            try credentialOperations.store(key, authJSONString)
+        } catch KeychainError.legacyCleanupFailed(let status) {
+            cleanupWarning = .legacyCleanupFailed(status)
+        }
+        do {
+            guard try credentialOperations.retrieve(key) == authJSONString else { throw ServiceError.credentialVerificationFailed }
+            try saveStore(store)
+        } catch {
+            do {
+                if let previousCredential {
+                    try credentialOperations.store(key, previousCredential)
+                } else {
+                    try credentialOperations.delete(key)
+                }
+            } catch {
+                throw ServiceError.credentialRestoreFailed
+            }
+            throw error
+        }
+        if let cleanupWarning { throw cleanupWarning }
     }
 
     private func normalizedLabel(_ customLabel: String?, email: String?, teamName: String?, accountID: String) -> String {
@@ -459,54 +602,86 @@ actor CodexAccountService {
         requireCurrentExhausted: Bool,
         enforceMinimumGain: Bool
     ) -> CodexAccountSnapshot? {
+        let now = Date()
         guard let current = accounts.first(where: \.isCurrent) else {
-            return rankedAccounts(accounts).first
+            return requireCurrentExhausted ? nil : rankedAccounts(accounts, at: now).first
         }
-        if requireCurrentExhausted && !SmartSwitchPolicy.isExhausted(current) {
+        if requireCurrentExhausted && !SmartSwitchPolicy.isExhausted(current, at: now) {
             return nil
         }
 
-        let rankedAlternatives = rankedAccounts(accounts.filter { $0.id != current.id })
+        let rankedAlternatives = rankedAccounts(accounts.filter { $0.id != current.id }, at: now)
         guard let best = rankedAlternatives.first else { return nil }
 
         if enforceMinimumGain {
-            let gain = SmartSwitchPolicy.score(for: best) - SmartSwitchPolicy.score(for: current)
+            let gain = SmartSwitchPolicy.score(for: best, at: now) - SmartSwitchPolicy.score(for: current, at: now)
             guard gain >= SmartSwitchPolicy.minimumScoreGain else { return nil }
         }
 
         return best
     }
 
-    private func rankedAccounts(_ accounts: [CodexAccountSnapshot]) -> [CodexAccountSnapshot] {
-        accounts.sorted { lhs, rhs in
-            let leftScore = SmartSwitchPolicy.score(for: lhs)
-            let rightScore = SmartSwitchPolicy.score(for: rhs)
+    private func rankedAccounts(_ accounts: [CodexAccountSnapshot], at now: Date) -> [CodexAccountSnapshot] {
+        accounts.filter { SmartSwitchPolicy.canSwitchTo($0, at: now) }.sorted { lhs, rhs in
+            let leftScore = SmartSwitchPolicy.score(for: lhs, at: now)
+            let rightScore = SmartSwitchPolicy.score(for: rhs, at: now)
             if leftScore != rightScore { return leftScore > rightScore }
             if lhs.isCurrent != rhs.isCurrent { return lhs.isCurrent && !rhs.isCurrent }
             return lhs.updatedAt > rhs.updatedAt
         }
     }
 
-    private func loadStore() -> CodexAccountsStore {
-        guard fileManager.fileExists(atPath: storeURL.path),
-              let data = try? Data(contentsOf: storeURL),
-              let store = try? JSONDecoder().decode(CodexAccountsStore.self, from: data) else {
-            return CodexAccountsStore()
+    private func loadStore(replacingCredentialFor replacementAccountID: String? = nil) throws -> CodexAccountsStore {
+        guard fileManager.fileExists(atPath: storeURL.path) else { return CodexAccountsStore() }
+        let data = try Data(contentsOf: storeURL)
+        var store = try JSONDecoder().decode(CodexAccountsStore.self, from: data)
+        guard (1...2).contains(store.version),
+              store.accounts.allSatisfy({ !$0.id.isEmpty && !$0.accountID.isEmpty }),
+              Set(store.accounts.map(\.id)).count == store.accounts.count,
+              Set(store.accounts.map(\.accountID)).count == store.accounts.count else { throw ServiceError.invalidAccountStore }
+
+        let requiresMigration = store.version < 2 || store.accounts.contains { !$0.authJSONString.isEmpty }
+        for index in store.accounts.indices {
+            let key = Self.keychainKey(recordID: store.accounts[index].id)
+            let legacyAuth = store.accounts[index].authJSONString
+            if !legacyAuth.isEmpty {
+                guard try Self.extractAuth(from: legacyAuth).accountID == store.accounts[index].accountID else {
+                    throw ServiceError.invalidAccountStore
+                }
+                // All credentials must be secured and verified before the original
+                // legacy file is replaced. Any failure keeps its bytes untouched.
+                try credentialOperations.store(key, legacyAuth)
+                guard try credentialOperations.retrieve(key) == legacyAuth else { throw ServiceError.credentialVerificationFailed }
+            } else {
+                let credential = try credentialOperations.retrieve(key)
+                if !requiresMigration, credential?.isEmpty != false, store.accounts[index].accountID == replacementAccountID {
+                    // A validated re-import may restore this credential. All other
+                    // reads still reject incomplete v2 metadata explicitly.
+                    continue
+                }
+                guard let auth = credential, !auth.isEmpty,
+                      try Self.extractAuth(from: auth).accountID == store.accounts[index].accountID else {
+                    throw ServiceError.missingCredential
+                }
+                store.accounts[index].authJSONString = auth
+            }
+        }
+        if requiresMigration {
+            store.version = 2
+            try saveStore(store)
         }
         return store
     }
 
-    private func saveStore(_ store: CodexAccountsStore) {
-        do {
-            try fileManager.createDirectory(at: supportDir, withIntermediateDirectories: true)
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            let data = try encoder.encode(store)
-            try data.write(to: storeURL, options: .atomic)
-            chmod(storeURL.path, S_IRUSR | S_IWUSR)
-        } catch {
-            print("[OpenPulse] Codex account store save failed: \(error.localizedDescription)")
-        }
+    private func saveStore(_ store: CodexAccountsStore) throws {
+        try fileManager.createDirectory(at: supportDir, withIntermediateDirectories: true)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        var metadata = store
+        metadata.version = 2
+        let data = try encoder.encode(metadata)
+        try writeStoreData(data, storeURL)
+        chmod(storeURL.path, S_IRUSR | S_IWUSR)
     }
 
     private func readCurrentAuthString() throws -> String {
@@ -519,7 +694,7 @@ actor CodexAccountService {
     private func writeCurrentAuthString(_ jsonString: String) throws {
         let parent = codexAuthURL.deletingLastPathComponent()
         try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
-        try Data(jsonString.utf8).write(to: codexAuthURL, options: .atomic)
+        try writeAuthData(Data(jsonString.utf8), codexAuthURL)
         chmod(codexAuthURL.path, S_IRUSR | S_IWUSR)
     }
 
@@ -672,7 +847,7 @@ actor CodexAccountService {
     }
 
     @discardableResult
-    private func runProcess(_ launchPath: String, arguments: [String]) throws -> ProcessResult {
+    func runProcess(_ launchPath: String, arguments: [String]) throws -> CodexAccountProcessResult {
         let process = Process()
         let pipe = Pipe()
         process.executableURL = URL(fileURLWithPath: launchPath)
@@ -680,9 +855,11 @@ actor CodexAccountService {
         process.standardOutput = pipe
         process.standardError = pipe
         try process.run()
-        process.waitUntilExit()
+        // Drain while the child runs: a full stdout/stderr pipe otherwise blocks
+        // the child before it can exit and satisfy waitUntilExit().
         let output = pipe.fileHandleForReading.readDataToEndOfFile()
-        return ProcessResult(terminationStatus: process.terminationStatus, output: output)
+        process.waitUntilExit()
+        return CodexAccountProcessResult(terminationStatus: process.terminationStatus, output: output)
     }
 
     private func currentAuthAccountID() -> String? {
@@ -1237,7 +1414,7 @@ actor CodexAccountService {
 
 }
 
-private struct ProcessResult {
+struct CodexAccountProcessResult: Sendable {
     let terminationStatus: Int32
     let output: Data
 }
