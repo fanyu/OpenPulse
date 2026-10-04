@@ -1,344 +1,149 @@
 # OpenPulse
 
-A native macOS menu bar app that unifies token consumption and quota tracking across AI coding assistants: Claude Code, Codex, GitHub Copilot, and Gemini Code Assist.
+[English](#openpulse) · [简体中文](#openpulse-中文)
+
+A native macOS menu bar app for AI coding usage and quotas. Keep Claude Code, Codex, GitHub Copilot, and Antigravity in one place, with local session history and a dashboard built for everyday monitoring.
+
+**OpenPulse 2.0** redesigns all eight dashboard pages and the menu bar popover, improves usage import and refresh reliability, and moves saved Codex authorization into Keychain. See the [2.0 release notes](docs/releases/v2.0.0.md).
+
+![OpenPulse 2.0 Overview](docs/screenshot-dashboard-overview.png)
+
+| Quota | Activity |
+|:---:|:---:|
+| ![Quota dashboard](docs/screenshot-dashboard-quota.png) | ![Activity and session details](docs/screenshot-dashboard-activity.png) |
+| **Menu bar settings** | **Menu bar popover** |
+| ![Menu bar settings](docs/screenshot-menubar-settings.png) | ![Menu bar popover](docs/screenshot-menubar.png) |
+
+The macOS screenshots use fictional demo data.
+
+## What you can do
+
+- See today's tokens, usage trends, cache usage, activity patterns, and model/project breakdowns in **Overview**.
+- Monitor account quotas, reset times, and unknown or stale observations in **Quota**.
+- Search local sessions and inspect token counts, models, working directories, and Git context in **Activity**. Search covers the full history while rows load in batches.
+- Choose menu bar styles, tool visibility/order, quota summaries, and a global shortcut in **Menu Bar**.
+- Manage Codex and Antigravity accounts, Copilot authorization, and Codex providers/model routing in **Providers**.
+- Edit supported local configuration and rule files with Markdown preview, diffs, backups, and external-change checks in **Configs**.
+- Configure refresh intervals, launch at login, low-quota notifications, and optional Dot Text API quota pushes in **Settings**; inspect refresh and error messages in **Logs**.
+
+Codex supports importing the current account, OpenAI OAuth login, per-account 5h/7d quotas, and manual switching with a Codex restart. Optional smart switching requires recent, successful quota observations and confirmed exhaustion. Inactive accounts do not yet automatically renew expired authorization; reauthenticate or import fresh authorization when needed.
+
+## Supported tools and setup
+
+| Tool | Data and setup | Available information |
+|---|---|---|
+| **Claude Code** | Reads `~/.claude/projects/` and `~/.config/claude/projects/`; quota sources include the local Claude bridge, Claude Desktop, and Claude OAuth | Sessions, input/output/cache tokens, model, Git context, quota windows |
+| **Codex** | Reads `~/.codex/state_5.sqlite`; import `~/.codex/auth.json` or add an OpenAI login in Providers | Local sessions and tokens, per-account quota windows, account switching |
+| **GitHub Copilot** | Import `~/.cli-proxy-api/github-copilot-*.json` or save and validate an OAuth token in Providers | API quota snapshots and reset time |
+| **Antigravity** (Gemini Code Assist) | Reads `~/.gemini/antigravity/brain/`; add a Google login in Providers or use `~/.cli-proxy-api/antigravity-*.json` | Local tasks and per-account quota groups |
+
+Available fields depend on the tool's local records and API response. Codex local history comes from this Mac's state; it is not a separate history import for every saved account.
 
 ## Installation
 
-### Option 1: Download Release (Recommended)
+Requires **macOS 26 or later**.
 
-Download the latest **OpenPulse DMG** from [GitHub Releases](https://github.com/fanyu/OpenPulse/releases):
+1. Download `OpenPulse-2.0.0.zip` from [GitHub Releases](https://github.com/fanyu/OpenPulse/releases).
+2. Extract the ZIP and move **OpenPulse.app** to **Applications**.
+3. Open the app and configure the tools you use in **Providers**.
 
-1. Download the latest `OpenPulse-<version>.dmg`
-2. Open the DMG and drag **OpenPulse.app** to Applications
-3. On first launch, right-click → **Open** to bypass Gatekeeper
+Read the release's signing and notarization status before installing. If macOS blocks the app and you trust the download, follow [Apple's instructions](https://support.apple.com/102445) to use **System Settings → Privacy & Security → Open Anyway** after attempting to open it. The iPhone companion is a separate source target and is not included in the macOS ZIP.
 
-**Requirements**: macOS 26 (Tahoe) or later
+## Data and credentials
 
-### Option 2: Build from Source
+Session history and usage aggregates are stored locally on the Mac. Credentials saved by OpenPulse use Keychain under `com.fanyu.openpulse`. The Codex account file at `~/.openpulse/codex-accounts.json` stores account metadata and cached quota observations; version 2 no longer encodes authorization secrets. Legacy migration verifies credential read-back before replacing the old file and preserves that file if migration fails.
+
+OpenPulse can also read credentials managed by installed tools. Account switching writes the selected authorization to Codex's own `auth.json`. Quota API calls contact the relevant provider. Codex/Claude quota summaries can be shared with the iPhone companion through iCloud, and Dot Text API pushes are configured separately in Settings.
+
+## iPhone Desk Mode
+
+The repository includes a landscape **iOS 26+** companion that displays the Mac's latest Codex and Claude 5h/7d quota snapshots, reset times, and animated pets. It requires the same iCloud account and builds signed with access to the same iCloud container. It displays snapshots; account management and local session collection remain on the Mac. Live iCloud transfer still requires runtime validation for the chosen signing setup.
+
+## Build from source
+
+Requires Xcode with Swift 6.2 and the macOS/iOS 26 SDKs, plus [XcodeGen](https://github.com/yonaskolb/XcodeGen).
 
 ```bash
 git clone https://github.com/fanyu/OpenPulse.git
 cd OpenPulse
+brew install xcodegen
 xcodegen generate
-xcodebuild -project OpenPulse.xcodeproj -scheme OpenPulse -configuration Release build
-```
-
----
-
-| Menu Bar Popover | Dashboard — Trends |
-|:---:|:---:|
-| ![Menubar](docs/screenshot-menubar.png) | ![Trends](docs/screenshot-dashboard-trends.png) |
-| **In Context** | **Dashboard — Quota** |
-| ![Menubar context](docs/screenshot-menubar-context.png) | ![Quota](docs/screenshot-dashboard-quota.png) |
-
-## iPhone Desk Mode
-
-OpenPulse also includes a landscape iPhone companion display for a desk-mounted phone. It mirrors the current Codex and Claude 5h / 7d quotas from the Mac through the same iCloud account, including reset times, progress bars, animated pets, and an animated countdown when a 5h quota is exhausted.
-
-![OpenPulse iPhone Desk Mode](docs/phone_usage.png)
-
-## Highlights
-
-- Track sessions, token usage, and quota across multiple AI coding assistants in one native macOS app.
-- Codex supports multi-account import, OpenAI OAuth login, per-account quota monitoring, and menu bar account switching.
-- Optional Codex smart switching can automatically move to a better account when the current 5h or 7d window is exhausted, then relaunch Codex.
-- Native `NSStatusItem` menu bar integration with a compact popover, custom status icon, and optional two-line Codex / Claude remaining quota summary.
-- Granular menu bar settings for tool visibility, ordering, refresh intervals, direct title quota display, global hotkey, and launch at login.
-- Built-in provider management, local config file browser/editor, runtime log viewer, low-quota notifications, and Dot Text API quota sync.
-- Landscape iPhone Desk Mode mirrors Codex and Claude quota data from the Mac over iCloud for an always-on desk display.
-
-## Supported Tools
-
-| Tool | Integration | What It Tracks |
-|------|-------------|----------------|
-| **Claude Code** | Local JSONL files (`~/.claude/projects/`) | Sessions, tokens (input/output/cache), model, git context |
-| **Codex** | Local SQLite + OpenAI OAuth + local multi-account store | Sessions, token usage, per-account 5h / 7d quota, account switching |
-| **GitHub Copilot** | GitHub internal API | Quota remaining, reset time |
-| **Gemini Code Assist** (Antigravity) | Local markdown + Google OAuth API | Sessions, quota |
-
-## Requirements
-
-- macOS 26 (Tahoe) or later
-- Xcode 26 or later
-- [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`)
-
-## Build & Run
-
-```bash
-# Clone the repo
-git clone https://github.com/your-username/OpenPulse.git
-cd OpenPulse
-
-# Generate the Xcode project
-xcodegen generate
-
-# Open in Xcode and run
 open OpenPulse.xcodeproj
 ```
 
-Before building, set your own Apple Developer Team ID in `project.yml`:
+`project.yml` is the source of truth. Set your own `DEVELOPMENT_TEAM` there, regenerate the project, and choose the **OpenPulse** scheme for Mac or **OpenPulseiPhone** for the companion. iCloud capabilities require a container available to your team. Do not edit the generated project to change target settings.
 
-```yaml
-DEVELOPMENT_TEAM: "YOUR_TEAM_ID"
-```
+Changing the team alone does not provision iCloud access. The current container identifier is `iCloud.com.fanyu.openpulse`; when using your own container, keep the identifier consistent in `project.yml`, `DeskSnapshotPublisher`, and `DeskSnapshotCloudKitClient`.
 
-Find your Team ID at [developer.apple.com/account](https://developer.apple.com/account) under Membership.
-
-## Tool Setup
-
-### Claude Code
-No setup required. OpenPulse reads `~/.claude/projects/` automatically.
-
-### Codex
-OpenPulse reads `~/.codex/state_5.sqlite` automatically for local session history, and also supports Codex multi-account management.
-
-Features:
-
-- Import the current `~/.codex/auth.json`
-- Add additional Codex accounts via OpenAI OAuth login
-- Monitor each account's 5h and 7d quota windows
-- Switch the current Codex account from the dashboard or menu bar
-- Relaunch Codex automatically after account switching
-- Enable optional smart switching from Settings so OpenPulse can automatically switch to a better account when the current one is exhausted
-
-Notes:
-
-- Multi-account credentials are stored locally on the Mac in `~/.openpulse/codex-accounts.json`
-- Codex session history still comes from the currently active local Codex state, so quota monitoring is multi-account but local session history is still tied to the current account
-- In multi-account setups, OpenPulse now prefers per-account API quota refresh results and will not use ambiguous local session JSONL quota snapshots to overwrite the selected account
-
-### GitHub Copilot
-OpenPulse reads your existing Copilot credentials from `~/.config/github-copilot/`. Sign in to Copilot in VS Code or the GitHub CLI first.
-
-### Gemini Code Assist (Antigravity)
-OpenPulse reads session data from `~/.gemini/antigravity/brain/` and uses Google OAuth (via the Antigravity CLI credentials) to fetch quota. Install and authenticate the [Antigravity CLI](https://github.com/nguyenphutrong/quotio) first.
-
-## App Features
-
-### Menu Bar
-
-- Native status bar item powered by `NSStatusItem`, with a custom-drawn icon + text layout
-- Optional direct menu bar quota display for Codex and Claude Code
-- Two-line compact summary mode for 5h / 7d remaining quota
-- Manual refresh, open main window, open Settings, and quit shortcuts from the popover
-- Global keyboard shortcut to toggle the menu bar popover
-
-### Dashboard
-
-- Seven main sections: Quota, Activity, Trends, Providers, Configs, Settings, and Logs
-- Quota cards for all supported tools, including Codex multi-account and Antigravity multi-account layouts
-- Token trends, daily aggregates, tool comparisons, and session activity history
-- Provider-specific setup surfaces for Codex account management and Copilot credential import
-- Local config file editor with diff view and preview modes for supported tool config files
-- In-app runtime log viewer backed by a persistent rolling log store
-
-### Settings
-
-- Launch at login
-- Menu bar tool ordering and visibility
-- Per-tool sync interval or global sync interval
-- Direct menu bar quota display selection for Codex / Claude
-- Global hotkey recording
-- Codex smart switch toggle
-- Dot Text API device ID / task key / API key configuration
-- Low-quota notifications with configurable threshold
-
-## Architecture
-
-```text
-NSStatusItem + NSPopover          MainWindow (dashboard)
-            │                               │
-            └──────────── AppStore ─────────┘
-                              │
-                       DataSyncService
-                       ┌──────┼──────────────┐
-                 Parsers (actors, one per tool)
-                       │
-         SessionRecord / QuotaRecord / DailyStatsRecord
-                       │
-                  SwiftData → @Query views
-```
-
-- **Parsers** are Swift `actor`s — thread-safe, no locks needed.
-- **DataSyncService** manages FSEvents watchers (local files), polling timers (APIs), Codex multi-account quota refresh, notifications, and Dot Text API quota pushes.
-- **KeychainService** is the only place credentials are stored (`com.fanyu.openpulse`).
-- No ViewModels — views query SwiftData directly via `@Query`.
-
-See [`CLAUDE.md`](CLAUDE.md) for detailed architecture docs.
-
-## Contributing
-
-1. Fork and clone the repo.
-2. Run `xcodegen generate` to create the Xcode project.
-3. Set your `DEVELOPMENT_TEAM` in `project.yml`.
-4. Make your change in a focused branch.
-5. Open a pull request.
-
-To add support for a new tool, see the "Adding a New Tool" section in [`CLAUDE.md`](CLAUDE.md).
+The [project rules](AGENTS.md) describe the architecture and contribution workflow. The [initial review](docs/review/2026-10-03-openpulse-2.0-review.md) and [follow-up review](docs/review/2026-10-03-openpulse-2.0-follow-up.md) record source, fixture, native preview, and synthetic performance evidence, together with remaining live-integration limitations.
 
 ## License
 
-MIT
+[MIT](LICENSE)
 
 ---
 
 # OpenPulse 中文
 
-[English](#openpulse) | 中文
+[English](#openpulse) · 简体中文
 
-一款原生 macOS 菜单栏应用，统一追踪多款 AI 编程助手的 Token 消耗与配额。
+原生 macOS 菜单栏应用，集中查看 Claude Code、Codex、GitHub Copilot 和 Antigravity 的用量与配额。本地会话历史与主面板，方便日常掌握 AI 编程工具的使用情况。
 
-| 菜单栏弹窗 | 主面板 · 趋势 |
-|:---:|:---:|
-| ![菜单栏弹窗](docs/screenshot-menubar.png) | ![趋势](docs/screenshot-dashboard-trends.png) |
-| **桌面环境** | **主面板 · 配额** |
-| ![环境截图](docs/screenshot-menubar-context.png) | ![配额](docs/screenshot-dashboard-quota.png) |
+**OpenPulse 2.0** 重新设计了全部八个主面板页面和菜单栏弹窗，修复用量导入与刷新问题，并将已保存的 Codex 授权迁移至 Keychain。详见 [2.0 发布说明](docs/releases/v2.0.0.md#中文)。上方 macOS 截图使用虚构演示数据。
+
+## 主要功能
+
+- **总览**：查看今日 Token、用量趋势、缓存使用、活动规律，以及模型和项目分布。
+- **配额**：查看各账号额度、重置时间，以及未知或过期的数据状态。
+- **活动**：搜索本机会话，查看 Token、模型、工作目录和 Git 信息。搜索覆盖全部历史，列表按批次加载。
+- **菜单栏**：调整显示样式、工具顺序与显隐、额度摘要和全局快捷键。
+- **接入**：管理 Codex / Antigravity 账号、Copilot 授权，以及 Codex Provider 和模型路由。
+- **配置**：编辑支持的本地配置与规则文件，提供 Markdown 预览、差异对比、备份和外部修改检查。
+- **设置**：配置刷新频率、开机启动、低额度通知和可选的 Dot Text API 推送；在 **日志** 中查看刷新与错误信息。
+
+Codex 支持导入当前账号、OpenAI OAuth 登录、按账号查看 5h/7d 配额，以及手动切换并重新启动 Codex。可选的智能切换仅在近期成功获取配额且确认当前账号额度耗尽后执行。非当前账号暂不自动续期过期授权，需要时请重新登录或导入最新授权。
+
+## 支持的工具与配置
+
+| 工具 | 数据来源与配置 | 可查看内容 |
+|---|---|---|
+| **Claude Code** | 读取 `~/.claude/projects/` 和 `~/.config/claude/projects/`；额度来源包括本地 Claude bridge、Claude Desktop 和 Claude OAuth | 会话、输入/输出/缓存 Token、模型、Git 信息、额度窗口 |
+| **Codex** | 读取 `~/.codex/state_5.sqlite`；在接入页导入 `~/.codex/auth.json` 或新增 OpenAI 登录 | 本机会话与 Token、按账号额度窗口、账号切换 |
+| **GitHub Copilot** | 导入 `~/.cli-proxy-api/github-copilot-*.json`，或在接入页保存并验证 OAuth Token | API 配额快照与重置时间 |
+| **Antigravity**（Gemini Code Assist）| 读取 `~/.gemini/antigravity/brain/`；在接入页新增 Google 登录，或使用 `~/.cli-proxy-api/antigravity-*.json` | 本地任务与按账号额度分组 |
+
+实际可用字段取决于工具的本地记录和 API 返回。Codex 会话历史来自当前 Mac 的本地状态，不会为每个已保存账号分别导入历史。
+
+## 安装
+
+需要 **macOS 26 或更高版本**。
+
+1. 从 [GitHub Releases](https://github.com/fanyu/OpenPulse/releases) 下载 `OpenPulse-2.0.0.zip`。
+2. 解压 ZIP，将 **OpenPulse.app** 移至 **应用程序**。
+3. 打开应用，在 **接入** 页面配置使用的工具。
+
+安装前请阅读对应版本的签名与公证状态。若 macOS 阻止打开，且你信任下载来源，可在尝试打开后按 [Apple 官方说明](https://support.apple.com/102445)，前往 **系统设置 → 隐私与安全性 → 仍要打开**。iPhone 伴侣是独立的源码目标，不包含在 macOS ZIP 中。
+
+## 数据与凭据
+
+会话历史和用量汇总保存在本机。OpenPulse 保存的凭据使用 Keychain，服务名为 `com.fanyu.openpulse`。`~/.openpulse/codex-accounts.json` 保存账号元数据和额度缓存；第 2 版存储格式不再写入授权密钥。旧格式迁移会先验证凭据回读，成功后再替换旧文件；迁移失败会保留旧文件。
+
+应用也会读取已安装工具自行管理的凭据。切换账号时会将所选授权写入 Codex 自身的 `auth.json`。配额请求会访问对应服务商；Codex / Claude 额度摘要可通过 iCloud 共享给 iPhone，Dot Text API 推送在设置中单独配置。
 
 ## iPhone 桌面模式
 
-OpenPulse 还提供横屏 iPhone 伴侣显示，适合将手机长期横放在桌面。Mac 与 iPhone 登录同一 iCloud 账号后，iPhone 会同步展示 Codex 和 Claude 当前的 5h / 7d 剩余额度、重置时间、进度条和宠物动画；当 5h 额度耗尽但尚未重置时，会显示动态倒计时。
+仓库包含横屏 **iOS 26+** 伴侣，用于展示 Mac 最新的 Codex / Claude 5h/7d 额度快照、重置时间和宠物动画。两端需登录同一 iCloud 账号，并使用能访问相同 iCloud 容器的签名配置。账号管理和本地会话采集在 Mac 上完成；所选签名配置下的实际 iCloud 传输仍需运行验证。
 
-![OpenPulse iPhone 桌面模式](docs/phone_usage.png)
+## 从源码构建
 
-## 功能亮点
+需要支持 Swift 6.2 和 macOS / iOS 26 SDK 的 Xcode，以及 [XcodeGen](https://github.com/yonaskolb/XcodeGen)。执行上方克隆与生成命令后，在 Xcode 中打开项目。
 
-- 用一款原生 macOS 应用统一查看多种 AI 编程助手的会话、Token 用量和配额。
-- Codex 支持多账户导入、OpenAI OAuth 登录、按账户额度监测，以及菜单栏内直接切换账号。
-- 可选开启 Codex 智能切换：当当前账号的 5h 或 7d 配额耗尽时，自动切到更优账号并重启 Codex。
-- 基于原生 `NSStatusItem` 的菜单栏体验，支持自定义状态图标和可选的 Codex / Claude 两行额度摘要。
-- 提供完整的菜单栏设置：工具显示顺序、显隐、刷新频率、直接显示额度、全局快捷键、开机启动。
-- 内置接入管理、配置文件浏览/编辑、运行日志查看、低额度通知，以及 Dot Text API 配额同步。
-- 支持横屏 iPhone 桌面模式，通过 iCloud 同步展示 Mac 上的 Codex / Claude 配额。
+`project.yml` 是项目设置的权威来源。在其中填写自己的 `DEVELOPMENT_TEAM` 并重新生成项目，Mac 选择 **OpenPulse** scheme，iPhone 选择 **OpenPulseiPhone**。iCloud 功能需要团队可用的容器；请勿直接修改生成的项目设置。
 
-## 支持的工具
+仅更改团队不会配置 iCloud 访问权限。当前容器标识为 `iCloud.com.fanyu.openpulse`；使用自己的容器时，需同步修改 `project.yml`、`DeskSnapshotPublisher` 和 `DeskSnapshotCloudKitClient` 中的标识。
 
-| 工具 | 接入方式 | 追踪内容 |
-|------|----------|----------|
-| **Claude Code** | 本地 JSONL 文件（`~/.claude/projects/`）| 会话、Token（输入/输出/缓存）、模型、Git 信息 |
-| **Codex** | 本地 SQLite + OpenAI OAuth + 本地多账户仓库 | 会话、Token 用量、按账户 5h / 7d 配额、账号切换 |
-| **GitHub Copilot** | GitHub 内部 API | 剩余配额、重置时间 |
-| **Gemini Code Assist**（Antigravity）| 本地 markdown + Google OAuth API | 会话、配额 |
-
-## 环境要求
-
-- macOS 26（Tahoe）或更高版本
-- Xcode 26 或更高版本
-- [XcodeGen](https://github.com/yonaskolb/XcodeGen)（`brew install xcodegen`）
-
-## 构建与运行
-
-```bash
-# 克隆仓库
-git clone https://github.com/your-username/OpenPulse.git
-cd OpenPulse
-
-# 生成 Xcode 项目
-xcodegen generate
-
-# 用 Xcode 打开并运行
-open OpenPulse.xcodeproj
-```
-
-构建前，在 `project.yml` 中填写你自己的 Apple Developer Team ID：
-
-```yaml
-DEVELOPMENT_TEAM: "YOUR_TEAM_ID"
-```
-
-Team ID 可在 [developer.apple.com/account](https://developer.apple.com/account) 的 Membership 页面查到。
-
-## 各工具配置
-
-### Claude Code
-无需额外配置，OpenPulse 自动读取 `~/.claude/projects/`。
-
-### Codex
-OpenPulse 会自动读取 `~/.codex/state_5.sqlite` 获取本地会话历史，同时支持 Codex 多账户管理。
-
-支持内容：
-
-- 导入当前 `~/.codex/auth.json`
-- 通过 OpenAI OAuth 新增多个 Codex 账号
-- 监测每个账号的 5h 与 7d 配额窗口
-- 在主面板或菜单栏中切换当前 Codex 账号
-- 切换账号后自动重启 Codex
-- 可在设置中开启智能切换，在当前账号额度耗尽时自动切到更优账号
-
-说明：
-
-- 多账户认证信息只保存在本机的 `~/.openpulse/codex-accounts.json`
-- Codex 会话历史仍来自当前本机正在使用的本地状态，因此多账户完整覆盖的是额度监测与账号切换；本地会话历史仍对应当前账号
-- 在多账户场景下，OpenPulse 现在优先信任按账户拉取的 API 配额结果，不再用无法确认账号归属的本地 JSONL 配额快照覆盖当前账号
-
-### GitHub Copilot
-OpenPulse 从 `~/.config/github-copilot/` 读取已有的 Copilot 凭据。请先在 VS Code 或 GitHub CLI 中登录 Copilot。
-
-### Gemini Code Assist（Antigravity）
-OpenPulse 从 `~/.gemini/antigravity/brain/` 读取会话数据，并通过 Google OAuth（使用 Antigravity CLI 的应用凭据）拉取配额。请先安装并登录 [Antigravity CLI](https://github.com/nguyenphutrong/quotio)。
-
-## 应用功能
-
-### 菜单栏
-
-- 基于 `NSStatusItem` 的原生状态栏入口，使用自定义 icon + 文本布局
-- 支持将 Codex / Claude 的剩余额度直接显示在菜单栏
-- 支持两行紧凑模式展示 5h / 7d 剩余额度
-- 菜单栏弹窗内可直接刷新、打开主窗口、打开设置、退出应用
-- 支持全局快捷键呼出菜单栏弹窗
-
-### 主面板
-
-- 提供 7 个主模块：配额、活动、趋势、接入、配置、设置、日志
-- 覆盖所有支持工具的配额卡片，包括 Codex 多账户和 Antigravity 多账户展示
-- 支持 Token 趋势、每日聚合、工具对比和会话历史
-- 提供 Codex 账户管理、Copilot 凭据导入等接入管理能力
-- 内置本地配置文件浏览/编辑器，支持 diff 和预览模式
-- 内置运行日志查看器，使用持久化滚动日志存储
-
-### 设置
-
-- 开机自动启动
-- 菜单栏工具排序与显隐
-- 全局或按工具设置同步频率
-- 选择菜单栏直接显示额度的 Agent
-- 全局快捷键录制
-- Codex 智能切换开关
-- Dot Text API 的 Device ID / Task Key / API Key 配置
-- 低额度通知与阈值设置
-
-## 架构简介
-
-```text
-NSStatusItem + NSPopover          MainWindow（主面板）
-            │                               │
-            └──────────── AppStore ─────────┘
-                              │
-                       DataSyncService
-                       ┌──────┼──────────────┐
-                 Parsers（actor，每个工具一个）
-                       │
-         SessionRecord / QuotaRecord / DailyStatsRecord
-                       │
-                  SwiftData → @Query 视图
-```
-
-- **Parsers** 使用 Swift `actor`，天然线程安全，无需加锁。
-- **DataSyncService** 同时管理本地文件 FSEvents 监听、API 轮询、Codex 多账户额度刷新、通知以及 Dot Text API 推送。
-- **KeychainService** 是唯一存储凭据的地方（`com.fanyu.openpulse`）。
-- 无 ViewModel，视图直接通过 `@Query` 查询 SwiftData。
-
-详细架构文档见 [`CLAUDE.md`](CLAUDE.md)。
-
-## 参与贡献
-
-1. Fork 并克隆仓库。
-2. 执行 `xcodegen generate` 生成 Xcode 项目。
-3. 在 `project.yml` 中设置你的 `DEVELOPMENT_TEAM`。
-4. 在独立分支上完成修改。
-5. 提交 Pull Request。
-
-如需新增工具支持，参见 [`CLAUDE.md`](CLAUDE.md) 中的「Adding a New Tool」章节。
+[项目规则](AGENTS.md) 介绍架构与贡献约定。[首轮检查](docs/review/2026-10-03-openpulse-2.0-review.md) 和 [后续检查](docs/review/2026-10-03-openpulse-2.0-follow-up.md) 记录源码、测试夹具、原生预览和合成性能数据，同时列明尚待验证的实际接入行为。
 
 ## 许可证
 
-MIT
+[MIT](LICENSE)
