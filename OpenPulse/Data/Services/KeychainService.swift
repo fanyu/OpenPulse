@@ -17,10 +17,37 @@ enum KeychainService {
         let deleteLegacy: ([CFString: Any]) -> OSStatus
 
         static var security: Self {
-            Self(
-                update: { SecItemUpdate($0 as CFDictionary, $1 as CFDictionary) },
-                add: { SecItemAdd($0 as CFDictionary, nil) },
-                deleteLegacy: { SecItemDelete($0 as CFDictionary) }
+            final class State: @unchecked Sendable {
+                var storedInLegacy = false
+            }
+            let state = State()
+            return Self(
+                update: { query, changes in
+                    let status = SecItemUpdate(query as CFDictionary, changes as CFDictionary)
+                    if (status == errSecMissingEntitlement || status == errSecNotAvailable) && (query[kSecUseDataProtectionKeychain] as? Bool == true) {
+                        state.storedInLegacy = true
+                        var fallbackQuery = query
+                        fallbackQuery.removeValue(forKey: kSecUseDataProtectionKeychain)
+                        return SecItemUpdate(fallbackQuery as CFDictionary, changes as CFDictionary)
+                    }
+                    return status
+                },
+                add: { query in
+                    let status = SecItemAdd(query as CFDictionary, nil)
+                    if (status == errSecMissingEntitlement || status == errSecNotAvailable) && (query[kSecUseDataProtectionKeychain] as? Bool == true) {
+                        state.storedInLegacy = true
+                        var fallbackQuery = query
+                        fallbackQuery.removeValue(forKey: kSecUseDataProtectionKeychain)
+                        return SecItemAdd(fallbackQuery as CFDictionary, nil)
+                    }
+                    return status
+                },
+                deleteLegacy: { query in
+                    if state.storedInLegacy {
+                        return errSecSuccess
+                    }
+                    return SecItemDelete(query as CFDictionary)
+                }
             )
         }
     }
@@ -50,10 +77,10 @@ enum KeychainService {
                 status = operations.update(dpQuery, changes)
             }
         }
+
         guard status == errSecSuccess else {
             throw KeychainError.storeFailed(status)
         }
-
         // The Data Protection item is saved before the legacy credential is removed.
         let cleanupStatus = operations.deleteLegacy(legacyQuery)
         guard cleanupStatus == errSecSuccess || cleanupStatus == errSecItemNotFound else {
@@ -140,7 +167,7 @@ enum KeychainService {
         let legacyStatus = operation(base)
         let dataProtectionStatus = operation(base.merging([kSecUseDataProtectionKeychain: true]) { $1 })
         for status in [legacyStatus, dataProtectionStatus] {
-            guard status == errSecSuccess || status == errSecItemNotFound else {
+            guard status == errSecSuccess || status == errSecItemNotFound || status == errSecMissingEntitlement || status == errSecNotAvailable else {
                 throw KeychainError.deleteFailed(status)
             }
         }

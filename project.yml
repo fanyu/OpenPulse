@@ -121,7 +121,7 @@ targets:
           - CloudKit
         com.apple.developer.ubiquity-kvstore-identifier: $(TeamIdentifierPrefix)com.fanyu.openpulse
         keychain-access-groups:
-          - $(AppIdentifierPrefix)com.fanyu.openpulse
+          - $(TeamIdentifierPrefix)com.fanyu.openpulse
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.fanyu.openpulse
