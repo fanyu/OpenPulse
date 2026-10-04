@@ -1,6 +1,6 @@
 # OpenPulse Project Rules
 
-OpenPulse is a native macOS menu bar app (SwiftUI, Swift 6.2, macOS 26+) that unifies token consumption and quota tracking across AI coding assistants: Claude Code, Codex, GitHub Copilot, and Gemini Code Assist (Antigravity).
+OpenPulse is a native macOS menu bar app with an iOS companion target (SwiftUI, Swift 6.2, macOS 26+) that unifies token consumption and quota tracking across AI coding assistants: Claude Code, Codex, GitHub Copilot, and Gemini Code Assist (Antigravity).
 
 ## Source Of Truth
 
@@ -21,7 +21,7 @@ OpenPulse is a native macOS menu bar app (SwiftUI, Swift 6.2, macOS 26+) that un
 
 ## Build Commands
 
-This is a pure Xcode project — no Makefile, npm, or scripts.
+This is an XcodeGen project; there is no Makefile or npm. `scripts/` holds helper tooling (e.g. `compose_showcase.py`), not build steps.
 
 ```bash
 # Regenerate Xcode project from project.yml (XcodeGen)
@@ -34,7 +34,7 @@ xcodebuild -project OpenPulse.xcodeproj -scheme OpenPulse -configuration Debug b
 open OpenPulse.xcodeproj
 ```
 
-There are no automated tests or linters configured. The project enforces Swift 6 strict concurrency via `SWIFT_STRICT_CONCURRENCY = complete` in `project.yml`.
+Unit tests live in the `OpenPulseTests` and `OpenPulseiPhoneTests` targets (see `project.yml`); no linter is configured. The project enforces Swift 6 strict concurrency via `SWIFT_STRICT_CONCURRENCY = complete` in `project.yml`.
 
 ## Architecture
 
