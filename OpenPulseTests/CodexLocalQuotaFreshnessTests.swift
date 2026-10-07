@@ -567,7 +567,7 @@ struct CodexLocalQuotaFreshnessTests {
     }
 
     @Test
-    func menuBarRowsShortenSparkName() {
+    func menuBarRowsExcludeSparkRateLimit() {
         let observedAt = Date(timeIntervalSince1970: 80_000)
         let spark = CodexNamedRateLimit(
             id: "codex_bengalfox",
@@ -583,30 +583,27 @@ struct CodexLocalQuotaFreshnessTests {
 
         let rows = codexMenuBarQuotaRows(for: limits)
 
-        #expect(rows.map(\.id) == ["codex", "codex_bengalfox"])
-        #expect(rows.last?.title == "Spark")
-        #expect(rows.last?.observedAt == observedAt)
+        #expect(rows.map(\.id) == ["codex"])
     }
 
     @Test
     func menuBarRowsKeepOnlyWeeklyWindowForWeeklyNamedLimit() {
-        let spark = CodexNamedRateLimit(
-            id: "codex_bengalfox",
-            name: "GPT-5.3-Codex-Spark",
+        let named = CodexNamedRateLimit(
+            id: "codex_custom",
+            name: "Custom",
             primary: menuBarWindow(minutes: 10_080),
             secondary: nil,
             observedAt: Date(timeIntervalSince1970: 81_000)
         )
         let rows = codexMenuBarQuotaRows(for: makeMenuBarLimits(
             primary: menuBarWindow(minutes: 300),
-            additionalLimits: [spark]
+            additionalLimits: [named]
         ))
 
-        let sparkRow = rows.last
-        #expect(sparkRow?.fiveHourWindow == nil)
-        #expect(sparkRow?.oneWeekWindow?.windowMinutes == 10_080)
+        let namedRow = rows.last
+        #expect(namedRow?.fiveHourWindow == nil)
+        #expect(namedRow?.oneWeekWindow?.windowMinutes == 10_080)
     }
-
     @Test
     func menuBarRowsKeepGeneralFirstAndSortNamedRowsByNameThenID() {
         let named = [

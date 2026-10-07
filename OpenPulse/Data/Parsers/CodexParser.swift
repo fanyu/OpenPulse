@@ -667,6 +667,18 @@ struct CodexRateLimits: Codable, Sendable {
         )
     }
 
+    func withoutSpark() -> CodexRateLimits {
+        let filtered = (additionalLimits ?? []).filter {
+            let id = $0.id.trimmingCharacters(in: .whitespacesAndNewlines)
+            if id.caseInsensitiveCompare("codex_bengalfox") == .orderedSame { return false }
+            if let name = $0.name?.trimmingCharacters(in: .whitespacesAndNewlines),
+               name.caseInsensitiveCompare("GPT-5.3-Codex-Spark") == .orderedSame || name.caseInsensitiveCompare("Spark") == .orderedSame {
+                return false
+            }
+            return true
+        }
+        return replacingAdditionalLimits(filtered.isEmpty ? nil : filtered)
+    }
     func merging(_ incoming: CodexRateLimits) -> CodexRateLimits {
         let incomingHasGeneralObservation = [incoming.primary, incoming.secondary]
             .compactMap { $0 }

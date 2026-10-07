@@ -646,9 +646,9 @@ func codexMenuBarQuotaRows(for limits: CodexRateLimits?) -> [CodexMenuBarQuotaRo
     }
 
     let namedRows = (limits.additionalLimits ?? []).compactMap { named -> CodexMenuBarQuotaRow? in
+        guard !isSparkNamedLimit(named) else { return nil }
         let id = named.id.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !id.isEmpty else { return nil }
-
         let windows = codexMenuBarNamedWindows(for: named)
         guard windows.fiveHour != nil || windows.oneWeek != nil else { return nil }
 
@@ -694,12 +694,20 @@ private func codexMenuBarNamedWindows(
     return (fiveHour, oneWeek)
 }
 
+private func isSparkNamedLimit(_ named: CodexNamedRateLimit) -> Bool {
+    let id = named.id.trimmingCharacters(in: .whitespacesAndNewlines)
+    if id.caseInsensitiveCompare("codex_bengalfox") == .orderedSame { return true }
+    if let name = named.name?.trimmingCharacters(in: .whitespacesAndNewlines) {
+        if name.caseInsensitiveCompare("GPT-5.3-Codex-Spark") == .orderedSame || name.caseInsensitiveCompare("Spark") == .orderedSame {
+            return true
+        }
+    }
+    return false
+}
+
 private func codexMenuBarNamedTitle(for named: CodexNamedRateLimit, fallbackID: String) -> String {
     let name = named.name?.trimmingCharacters(in: .whitespacesAndNewlines)
     guard let name, !name.isEmpty else { return fallbackID }
-    if name.caseInsensitiveCompare("GPT-5.3-Codex-Spark") == .orderedSame {
-        return "Spark"
-    }
     return name
 }
 

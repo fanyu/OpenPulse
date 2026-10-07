@@ -678,11 +678,10 @@ final class DataSyncService {
         await performQuotaOnlyRefresh(for: .codex, onBusy: { self.pendingCodexLocalQuotaRefresh = true }) {
             guard !UserDefaults.standard.bool(forKey: "codex.smartSwitch.enabled") else { return false }
             guard let snapshot = await codexParser.parseLatestRateLimitsSnapshot() else { return false }
-            let accountCount = try await codexAccountService.listAccounts().count
-            guard shouldPreferLocalCodexLimits(snapshot, accountCount: accountCount) else { return false }
-
             try await codexAccountService.syncCurrentSelectionFromAuthFile()
             try Task.checkCancellation()
+            let accountCount = try await codexAccountService.listAccounts().count
+            guard shouldPreferLocalCodexLimits(snapshot, accountCount: accountCount) else { return false }
             let accounts = try await codexAccountService.applyLocalRateLimitsToCurrentAccount(snapshot.limits)
             try Task.checkCancellation()
             let context = makeWriteContext()

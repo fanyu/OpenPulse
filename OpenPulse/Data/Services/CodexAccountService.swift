@@ -340,8 +340,7 @@ actor CodexAccountService {
 
         if let currentAccountID,
            let index = store.accounts.firstIndex(where: { $0.accountID == currentAccountID }) {
-            let mergedLimits = store.accounts[index].lastUsage?.merging(limits) ?? limits
-            store.accounts[index].lastUsage = mergedLimits
+            let mergedLimits = (store.accounts[index].lastUsage?.merging(limits) ?? limits).withoutSpark()
             store.accounts[index].planType = mergedLimits.planType ?? store.accounts[index].planType
             store.accounts[index].lastFetchedAt = now
             store.accounts[index].updatedAt = now
@@ -438,7 +437,7 @@ actor CodexAccountService {
                   let fetchedAt = refreshed.lastFetchedAt,
                   fetchedAt >= (store.accounts[index].lastFetchedAt ?? .distantPast) else { continue }
             if let incoming = refreshed.lastUsage {
-                store.accounts[index].lastUsage = store.accounts[index].lastUsage?.merging(incoming) ?? incoming
+                store.accounts[index].lastUsage = (store.accounts[index].lastUsage?.merging(incoming) ?? incoming).withoutSpark()
             }
             store.accounts[index].lastFetchedAt = fetchedAt
             store.accounts[index].usageError = refreshed.usageError
@@ -477,7 +476,7 @@ actor CodexAccountService {
         if let index = store.accounts.firstIndex(where: { $0.accountID == extracted.accountID }) {
             let original = store.accounts[index]
             store.accounts[index].migrateLegacyUsageObservation()
-            store.accounts[index].email = extracted.email
+            store.accounts[index].lastUsage = store.accounts[index].lastUsage?.withoutSpark()
             store.accounts[index].planType = extracted.planType
             store.accounts[index].teamName = extracted.teamName
             store.accounts[index].authJSONString = authJSONString
