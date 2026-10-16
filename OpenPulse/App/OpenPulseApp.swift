@@ -453,8 +453,12 @@ private struct StatusBarCompactItem: Equatable {
             let percent = appStore.syncService?.latestClaudeUsage?.effectiveRemainingPercent
             return StatusBarCompactItem(logoImageName: tool.menuBarIconName, fiveHourPercent: format(percent))
         case .antigravity:
-            let accounts = appStore.syncService?.latestAntigravityAccounts ?? []
-            let percent = AGAccountQuota.averageFiveHourGeminiPercent(across: accounts)
+            let hiddenEmails = Set((UserDefaults.standard.string(forKey: "ag.hiddenAccountEmails") ?? "")
+                .components(separatedBy: ",")
+                .filter { !$0.isEmpty })
+            let accounts = (appStore.syncService?.latestAntigravityAccounts ?? [])
+                .filter { !hiddenEmails.contains($0.email) }
+            let percent = AGAccountQuota.effectiveMenuBarFiveHourPercent(across: accounts)
             return StatusBarCompactItem(logoImageName: tool.menuBarIconName, fiveHourPercent: format(percent))
         case .copilot:
             return StatusBarCompactItem(logoImageName: tool.menuBarIconName, fiveHourPercent: " --%")
@@ -486,9 +490,14 @@ private struct StatusBarClassicItem: Equatable {
             let sevenDay = appStore.syncService?.latestClaudeUsage?.sevenDay?.utilization.map { max(0, 100 - Int($0.rounded())) }
             return StatusBarClassicItem(shortLabel: "CC", fiveHourText: format(fiveHour), sevenDayText: format(sevenDay))
         case .antigravity:
-            let accounts = appStore.syncService?.latestAntigravityAccounts ?? []
-            let fiveHour = AGAccountQuota.averageFiveHourGeminiPercent(across: accounts)
+            let hiddenEmails = Set((UserDefaults.standard.string(forKey: "ag.hiddenAccountEmails") ?? "")
+                .components(separatedBy: ",")
+                .filter { !$0.isEmpty })
+            let accounts = (appStore.syncService?.latestAntigravityAccounts ?? [])
+                .filter { !hiddenEmails.contains($0.email) }
+            let fiveHour = AGAccountQuota.effectiveMenuBarFiveHourPercent(across: accounts)
             let sevenDay = AGAccountQuota.averageWeeklyGeminiPercent(across: accounts)
+                ?? AGAccountQuota.averageWeekly3PPercent(across: accounts)
             return StatusBarClassicItem(shortLabel: "AG", fiveHourText: format(fiveHour), sevenDayText: format(sevenDay))
         case .copilot:
             return StatusBarClassicItem(shortLabel: tool.displayName.prefix(1).uppercased(), fiveHourText: "--", sevenDayText: "--")

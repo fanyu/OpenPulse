@@ -149,6 +149,62 @@ final class AntigravityProAggregatorTests: XCTestCase {
         )
         XCTAssertNil(AGAccountQuota.averageFiveHourGeminiPercent(across: [nonGeminiAccount]))
     }
+
+    func testEffectiveMenuBarFiveHourPercentFallbacks() {
+        // 1. Prioritizes Gemini 5h when present
+        let geminiAnd3P = AGAccountQuota(
+            email: "both@gmail.com",
+            tier: nil,
+            groups: [
+                AGQuotaGroup(
+                    id: "gemini",
+                    displayName: "Gemini",
+                    fiveHour: AGWindow(kind: .fiveHour, remainingFraction: 0.85, resetTime: nil, description: nil),
+                    weekly: AGWindow(kind: .weekly, remainingFraction: 0.6, resetTime: nil, description: nil)
+                ),
+                AGQuotaGroup(
+                    id: "3p",
+                    displayName: "Claude and GPT",
+                    fiveHour: AGWindow(kind: .fiveHour, remainingFraction: 1.0, resetTime: nil, description: nil),
+                    weekly: AGWindow(kind: .weekly, remainingFraction: 1.0, resetTime: nil, description: nil)
+                )
+            ]
+        )
+        XCTAssertEqual(AGAccountQuota.effectiveMenuBarFiveHourPercent(across: [geminiAnd3P]), 85)
+
+        // 2. Falls back to 3P 5h when Gemini is missing
+        let only3P = AGAccountQuota(
+            email: "only3p@gmail.com",
+            tier: nil,
+            groups: [
+                AGQuotaGroup(
+                    id: "3p",
+                    displayName: "Claude and GPT",
+                    fiveHour: AGWindow(kind: .fiveHour, remainingFraction: 0.92, resetTime: nil, description: nil),
+                    weekly: AGWindow(kind: .weekly, remainingFraction: 0.7, resetTime: nil, description: nil)
+                )
+            ]
+        )
+        XCTAssertEqual(AGAccountQuota.effectiveMenuBarFiveHourPercent(across: [only3P]), 92)
+
+        // 3. Falls back to Gemini weekly when 5h is missing
+        let weeklyOnlyGemini = AGAccountQuota(
+            email: "weekly@gmail.com",
+            tier: nil,
+            groups: [
+                AGQuotaGroup(
+                    id: "gemini",
+                    displayName: "Gemini",
+                    fiveHour: nil,
+                    weekly: AGWindow(kind: .weekly, remainingFraction: 0.74, resetTime: nil, description: nil)
+                )
+            ]
+        )
+        XCTAssertEqual(AGAccountQuota.effectiveMenuBarFiveHourPercent(across: [weeklyOnlyGemini]), 74)
+
+        // 4. Primary remaining fraction falls back to 3p when Gemini missing
+        XCTAssertEqual(only3P.primaryRemainingFraction, 0.7)
+    }
 }
 
 @MainActor

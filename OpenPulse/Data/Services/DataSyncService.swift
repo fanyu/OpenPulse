@@ -950,8 +950,8 @@ final class DataSyncService {
     }
 
     private func antigravityAggregateQuota(from accounts: [AGAccountQuota], observedAt: Date = Date()) -> ToolQuota {
-        let minFraction = accounts.compactMap(\.geminiRemainingFraction).min()
-        let resetAt = accounts.compactMap(\.geminiEarliestReset).min()
+        let minFraction = accounts.compactMap(\.primaryRemainingFraction).min()
+        let resetAt = accounts.compactMap(\.primaryEarliestReset).min()
         let remainingPct = minFraction.map { Int(($0 * 100).rounded()) }
         return ToolQuota(
             id: Tool.antigravity.rawValue, tool: .antigravity,

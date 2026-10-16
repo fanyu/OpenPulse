@@ -20,13 +20,13 @@ actor AntigravityParser {
     private let accountService: AntigravityAccountService?
 
     private let loadCodeAssistEndpoints = [
-        "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
-        "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist"
+        "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
+        "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist"
     ]
     private let retrieveUserQuotaSummaryEndpoints = [
+        "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
         "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
-        "https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:retrieveUserQuotaSummary",
-        "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary"
+        "https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:retrieveUserQuotaSummary"
     ]
     private let userAgent = "antigravity/cli/1.0.13 (aidev_client; os_type=darwin; arch=arm64)"
 
@@ -508,6 +508,18 @@ struct AGAccountQuota: Codable, Sendable, Identifiable {
         return [g.fiveHour?.validatedResetDate, g.weekly?.validatedResetDate].compactMap { $0 }.min()
     }
 
+    /// Primary group's worst remaining fraction: falls back to 3p/first group if gemini is not present.
+    var primaryRemainingFraction: Double? {
+        if let geminiRemainingFraction { return geminiRemainingFraction }
+        guard let g = groups.first else { return nil }
+        return [g.fiveHour?.remainingFraction, g.weekly?.remainingFraction].compactMap { $0 }.min()
+    }
+    var primaryEarliestReset: Date? {
+        if let geminiEarliestReset { return geminiEarliestReset }
+        guard let g = groups.first else { return nil }
+        return [g.fiveHour?.validatedResetDate, g.weekly?.validatedResetDate].compactMap { $0 }.min()
+    }
+
     /// Calculates the average 5-hour Gemini remaining fraction across all accounts.
     static func averageFiveHourGeminiFraction(across accounts: [AGAccountQuota]) -> Double? {
         let fractions = accounts.compactMap { account in
@@ -536,6 +548,45 @@ struct AGAccountQuota: Codable, Sendable, Identifiable {
     static func averageWeeklyGeminiPercent(across accounts: [AGAccountQuota]) -> Int? {
         guard let avg = averageWeeklyGeminiFraction(across: accounts) else { return nil }
         return max(0, min(100, Int((avg * 100.0).rounded())))
+    }
+
+    /// Calculates the average 5-hour 3P remaining fraction across all accounts.
+    static func averageFiveHour3PFraction(across accounts: [AGAccountQuota]) -> Double? {
+        let fractions = accounts.compactMap { account in
+            account.groups.first(where: { $0.id.caseInsensitiveCompare("3p") == .orderedSame })?.fiveHour?.remainingFraction
+        }
+        guard !fractions.isEmpty else { return nil }
+        return fractions.reduce(0.0, +) / Double(fractions.count)
+    }
+
+    /// Calculates the average 5-hour 3P remaining percent (0-100) across all accounts.
+    static func averageFiveHour3PPercent(across accounts: [AGAccountQuota]) -> Int? {
+        guard let avg = averageFiveHour3PFraction(across: accounts) else { return nil }
+        return max(0, min(100, Int((avg * 100.0).rounded())))
+    }
+
+    /// Calculates the average weekly 3P remaining fraction across all accounts.
+    static func averageWeekly3PFraction(across accounts: [AGAccountQuota]) -> Double? {
+        let fractions = accounts.compactMap { account in
+            account.groups.first(where: { $0.id.caseInsensitiveCompare("3p") == .orderedSame })?.weekly?.remainingFraction
+        }
+        guard !fractions.isEmpty else { return nil }
+        return fractions.reduce(0.0, +) / Double(fractions.count)
+    }
+
+    /// Calculates the average weekly 3P remaining percent (0-100) across all accounts.
+    static func averageWeekly3PPercent(across accounts: [AGAccountQuota]) -> Int? {
+        guard let avg = averageWeekly3PFraction(across: accounts) else { return nil }
+        return max(0, min(100, Int((avg * 100.0).rounded())))
+    }
+
+    /// Effective 5-hour percentage to display in the menu bar:
+    /// prioritizes Gemini 5h window, then falls back to 3P 5h window, then Gemini weekly, then 3P weekly.
+    static func effectiveMenuBarFiveHourPercent(across accounts: [AGAccountQuota]) -> Int? {
+        averageFiveHourGeminiPercent(across: accounts)
+            ?? averageFiveHour3PPercent(across: accounts)
+            ?? averageWeeklyGeminiPercent(across: accounts)
+            ?? averageWeekly3PPercent(across: accounts)
     }
 }
 struct AGProAggregateSummary: Sendable {
