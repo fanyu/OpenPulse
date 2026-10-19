@@ -142,7 +142,7 @@ private final class KeychainStoreMock {
             },
             deleteLegacy: { [self] query in
                 events.append("cleanup")
-                cleanedLegacyOnly = cleanedLegacyOnly && query[kSecUseDataProtectionKeychain] == nil
+                cleanedLegacyOnly = cleanedLegacyOnly && (query[kSecUseDataProtectionKeychain] as? Bool == false)
                 if cleanupStatus == errSecSuccess { legacyValue = nil }
                 return cleanupStatus
             }

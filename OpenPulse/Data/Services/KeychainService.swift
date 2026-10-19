@@ -27,7 +27,7 @@ enum KeychainService {
                     if (status == errSecMissingEntitlement || status == errSecNotAvailable) && (query[kSecUseDataProtectionKeychain] as? Bool == true) {
                         state.storedInLegacy = true
                         var fallbackQuery = query
-                        fallbackQuery.removeValue(forKey: kSecUseDataProtectionKeychain)
+                        fallbackQuery[kSecUseDataProtectionKeychain] = false
                         return SecItemUpdate(fallbackQuery as CFDictionary, changes as CFDictionary)
                     }
                     return status
@@ -37,7 +37,7 @@ enum KeychainService {
                     if (status == errSecMissingEntitlement || status == errSecNotAvailable) && (query[kSecUseDataProtectionKeychain] as? Bool == true) {
                         state.storedInLegacy = true
                         var fallbackQuery = query
-                        fallbackQuery.removeValue(forKey: kSecUseDataProtectionKeychain)
+                        fallbackQuery[kSecUseDataProtectionKeychain] = false
                         return SecItemAdd(fallbackQuery as CFDictionary, nil)
                     }
                     return status
@@ -62,6 +62,9 @@ enum KeychainService {
             kSecClass: kSecClassGenericPassword,
             kSecAttrService: service,
             kSecAttrAccount: key,
+            // Omission can route to the data protection keychain in a signed app,
+            // causing legacy cleanup to delete the replacement just saved there.
+            kSecUseDataProtectionKeychain: false,
         ]
         let dpQuery = legacyQuery.merging([kSecUseDataProtectionKeychain: true]) { $1 }
         let changes: [CFString: Any] = [
@@ -108,6 +111,7 @@ enum KeychainService {
             kSecClass: kSecClassGenericPassword,
             kSecAttrService: service,
             kSecAttrAccount: key,
+            kSecUseDataProtectionKeychain: false,
             kSecReturnData: true,
             kSecMatchLimit: kSecMatchLimitOne,
         ]
@@ -163,6 +167,7 @@ enum KeychainService {
             kSecClass: kSecClassGenericPassword,
             kSecAttrService: service,
             kSecAttrAccount: key,
+            kSecUseDataProtectionKeychain: false,
         ]
         let legacyStatus = operation(base)
         let dataProtectionStatus = operation(base.merging([kSecUseDataProtectionKeychain: true]) { $1 })
