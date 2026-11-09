@@ -942,6 +942,9 @@ struct CodexAccountQuotaCard: View {
                                 .font(.system(size: 11, weight: .medium))
                                 .foregroundStyle(.secondary)
                         }
+                        if let displaySubscriptionName = account.displaySubscriptionName {
+                            SubscriptionTag(text: displaySubscriptionName)
+                        }
                     }
                     if let subtitleText = account.subtitleText {
                         Text(subtitleText)
@@ -1524,10 +1527,7 @@ private struct AGMenuBarAccountQuotaBody: View {
                     .font(.system(size: 11, weight: .semibold))
                     .lineLimit(1)
                     .truncationMode(.middle)
-                Text(account.badgeLabel)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .fixedSize()
+                AGTierBadge(account: account)
                 Spacer()
             }
             if account.groups.isEmpty {

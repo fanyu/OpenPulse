@@ -496,8 +496,10 @@ private struct StatusBarClassicItem: Equatable {
             let accounts = (appStore.syncService?.latestAntigravityAccounts ?? [])
                 .filter { !hiddenEmails.contains($0.email) }
             let fiveHour = AGAccountQuota.effectiveMenuBarFiveHourPercent(across: accounts)
-            let sevenDay = AGAccountQuota.averageWeeklyGeminiPercent(across: accounts)
-                ?? AGAccountQuota.averageWeekly3PPercent(across: accounts)
+            let proAccounts = accounts.filter(\.isPaid)
+            let target = proAccounts.isEmpty ? accounts : proAccounts
+            let sevenDay = AGAccountQuota.averageWeeklyGeminiPercent(across: target)
+                ?? AGAccountQuota.averageWeekly3PPercent(across: target)
             return StatusBarClassicItem(shortLabel: "AG", fiveHourText: format(fiveHour), sevenDayText: format(sevenDay))
         case .copilot:
             return StatusBarClassicItem(shortLabel: tool.displayName.prefix(1).uppercased(), fiveHourText: "--", sevenDayText: "--")

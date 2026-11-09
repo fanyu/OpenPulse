@@ -472,7 +472,13 @@ struct AGTier: Codable, Sendable {
     let id: String
     let name: String
     var isPaid: Bool { id != "free-tier" }
-    var badgeLabel: String { isPaid ? "Google AI Pro" : "Free" }
+    var badgeLabel: String {
+        guard isPaid else { return "Free" }
+        if name.localizedCaseInsensitiveContains("Ultra") {
+            return "Google AI Ultra"
+        }
+        return "Google AI Pro"
+    }
 }
 
 /// Quota data for one Antigravity account, grouped by provider (Gemini / third-party) and time window.
@@ -484,9 +490,8 @@ struct AGAccountQuota: Codable, Sendable, Identifiable {
     var id: String { email }
 
     private var hasConsumerProQuotaWindows: Bool {
-        ["gemini", "3p"].allSatisfy { id in
-            guard let group = groups.first(where: { $0.id == id }) else { return false }
-            return group.fiveHour != nil && group.weekly != nil
+        groups.contains { group in
+            group.fiveHour != nil && group.weekly != nil
         }
     }
 
@@ -495,7 +500,11 @@ struct AGAccountQuota: Codable, Sendable, Identifiable {
     }
 
     var badgeLabel: String {
-        isPaid ? "Google AI Pro" : "Free"
+        guard isPaid else { return "Free" }
+        if let tier, tier.isPaid {
+            return tier.badgeLabel
+        }
+        return "Google AI Pro"
     }
 
     /// Gemini group's worst remaining fraction (drives menu-bar aggregate).
@@ -583,10 +592,12 @@ struct AGAccountQuota: Codable, Sendable, Identifiable {
     /// Effective 5-hour percentage to display in the menu bar:
     /// prioritizes Gemini 5h window, then falls back to 3P 5h window, then Gemini weekly, then 3P weekly.
     static func effectiveMenuBarFiveHourPercent(across accounts: [AGAccountQuota]) -> Int? {
-        averageFiveHourGeminiPercent(across: accounts)
-            ?? averageFiveHour3PPercent(across: accounts)
-            ?? averageWeeklyGeminiPercent(across: accounts)
-            ?? averageWeekly3PPercent(across: accounts)
+        let proAccounts = accounts.filter(\.isPaid)
+        let target = proAccounts.isEmpty ? accounts : proAccounts
+        return averageFiveHourGeminiPercent(across: target)
+            ?? averageFiveHour3PPercent(across: target)
+            ?? averageWeeklyGeminiPercent(across: target)
+            ?? averageWeekly3PPercent(across: target)
     }
 }
 struct AGProAggregateSummary: Sendable {
@@ -599,7 +610,19 @@ enum AntigravityProAggregator {
         let proAccounts = accounts.filter(\.isPaid)
         let targetAccounts = proAccounts.isEmpty ? accounts : proAccounts
         
-        let groupIds = ["gemini", "3p"]
+        var groupIds: [String] = []
+        for acc in targetAccounts {
+            for g in acc.groups {
+                if !groupIds.contains(g.id) {
+                    groupIds.append(g.id)
+                }
+            }
+        }
+        groupIds.sort { a, b in
+            if a == "gemini" { return true }
+            if b == "gemini" { return false }
+            return a < b
+        }
         var aggregatedGroups: [AGQuotaGroup] = []
         
         for groupId in groupIds {
@@ -678,9 +701,14 @@ extension AntigravityParser {
     }
 
     static func decodeTier(from data: Data) -> AGTier? {
-        guard let info = try? JSONDecoder().decode(AGLoadCodeAssistResponse.self, from: data),
-              let tier = info.currentTier else { return nil }
-        return AGTier(id: tier.id, name: tier.name)
+        guard let info = try? JSONDecoder().decode(AGLoadCodeAssistResponse.self, from: data) else { return nil }
+        if let paidTier = info.paidTier {
+            return AGTier(id: paidTier.id, name: paidTier.name)
+        }
+        if let currentTier = info.currentTier {
+            return AGTier(id: currentTier.id, name: currentTier.name)
+        }
+        return nil
     }
 }
 
@@ -697,8 +725,13 @@ private struct AGQuotaSummaryResponse: Decodable {
 }
 
 private struct AGLoadCodeAssistResponse: Decodable {
-    struct Tier: Decodable { let id: String; let name: String }
+    struct Tier: Decodable {
+        let id: String
+        let name: String
+        let description: String?
+    }
     let currentTier: Tier?
+    let paidTier: Tier?
     let cloudaicompanionProject: String?
 }
 

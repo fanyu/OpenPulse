@@ -757,14 +757,26 @@ struct TodayTokenBadge: View {
 
 struct SubscriptionTag: View {
     let text: String
+    var isPaid: Bool? = nil
+
+    private var effectiveIsPaid: Bool {
+        if let isPaid { return isPaid }
+        let lower = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return lower != "free" && !lower.contains("starter")
+    }
 
     var body: some View {
         Text(text)
-            .font(.system(size: 10, weight: .medium))
-            .foregroundStyle(.secondary)
+            .font(.system(size: 10, weight: effectiveIsPaid ? .semibold : .medium))
+            .foregroundStyle(effectiveIsPaid ? Color.primary : Color.secondary)
             .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            .background(Color.primary.opacity(0.05), in: Capsule())
+            .padding(.vertical, 2.5)
+            .background(
+                effectiveIsPaid
+                    ? Color.primary.opacity(0.08)
+                    : Color.primary.opacity(0.04),
+                in: Capsule()
+            )
     }
 }
 

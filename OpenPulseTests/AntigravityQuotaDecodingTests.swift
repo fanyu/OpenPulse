@@ -45,6 +45,48 @@ struct AntigravityQuotaDecodingTests {
         let paid = AntigravityParser.decodeTier(from: #"{"currentTier":{"id":"legacy-tier","name":"Google AI Pro"}}"#.data(using: .utf8)!)
         #expect(paid?.isPaid == true)
         #expect(paid?.badgeLabel == "Google AI Pro")
+        let paidFromPaidTier = AntigravityParser.decodeTier(from: #"{"currentTier":{"id":"free-tier","name":"Antigravity"},"paidTier":{"id":"g1-pro-tier","name":"Google AI Pro"}}"#.data(using: .utf8)!)
+        #expect(paidFromPaidTier?.isPaid == true)
+        #expect(paidFromPaidTier?.badgeLabel == "Google AI Pro")
+        let starterFromPaidTier = AntigravityParser.decodeTier(from: #"{"currentTier":{"id":"free-tier","name":"Antigravity"},"paidTier":{"id":"free-tier","name":"Antigravity Starter Quota"}}"#.data(using: .utf8)!)
+        #expect(starterFromPaidTier?.isPaid == false)
+        #expect(starterFromPaidTier?.badgeLabel == "Free")
+    }
+
+    @Test func single3PGroupWithBothWindowsIsGoogleAIPro() {
+        let single3P = [
+            AGQuotaGroup(
+                id: "3p",
+                displayName: "Claude and GPT models",
+                fiveHour: AGWindow(kind: .fiveHour, remainingFraction: 1.0, resetTime: nil, description: nil),
+                weekly: AGWindow(kind: .weekly, remainingFraction: 0.8, resetTime: nil, description: nil)
+            )
+        ]
+        let account = AGAccountQuota(
+            email: "pro@example.com",
+            tier: AGTier(id: "free-tier", name: "Antigravity"),
+            groups: single3P
+        )
+        #expect(account.isPaid)
+        #expect(account.badgeLabel == "Google AI Pro")
+    }
+
+    @Test func single3PGroupWithWeeklyOnlyRemainsFree() {
+        let weeklyOnly3P = [
+            AGQuotaGroup(
+                id: "3p",
+                displayName: "Claude and GPT models",
+                fiveHour: nil,
+                weekly: AGWindow(kind: .weekly, remainingFraction: 0.8, resetTime: nil, description: nil)
+            )
+        ]
+        let account = AGAccountQuota(
+            email: "free@example.com",
+            tier: AGTier(id: "free-tier", name: "Antigravity"),
+            groups: weeklyOnly3P
+        )
+        #expect(!account.isPaid)
+        #expect(account.badgeLabel == "Free")
     }
 
     @Test func completeConsumerQuotaWindowsAreGoogleAIPro() throws {

@@ -1179,7 +1179,7 @@ actor CodexAccountService {
                 urls: usageURLs
             )
             account.email = extracted.email
-            account.planType = extracted.planType ?? limits.planType ?? account.planType
+            account.planType = limits.planType ?? extracted.planType ?? account.planType
             account.teamName = extracted.teamName ?? account.teamName
             account.lastUsage = account.lastUsage?.merging(limits) ?? limits
             account.planType = account.planType ?? account.lastUsage?.planType

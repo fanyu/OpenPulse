@@ -121,7 +121,7 @@ struct CodexAccountSnapshot: Identifiable, Sendable {
     }
 
     var displaySubscriptionName: String? {
-        normalizedSubscriptionDisplayName(planType ?? limits?.planType)
+        normalizedSubscriptionDisplayName(limits?.planType ?? planType)
     }
 
     var displayName: String {

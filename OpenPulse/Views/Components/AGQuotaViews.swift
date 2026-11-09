@@ -10,9 +10,7 @@ struct AGTierBadge: View {
     let account: AGAccountQuota
 
     var body: some View {
-        Text(account.badgeLabel)
-            .font(.system(size: 11))
-            .foregroundStyle(.secondary)
+        SubscriptionTag(text: account.badgeLabel, isPaid: account.isPaid)
     }
 }
 
