@@ -162,4 +162,37 @@ struct AntigravityQuotaDecodingTests {
         // MM/dd HH:mm format — must contain slash
         #expect(weekly.resetCountdown?.contains("/") == true)
     }
+
+    @Test func decodesGeminiArgonWithoutExplicitWindowField() throws {
+        let payload = """
+        {"groups":[
+          {"displayName":"Gemini Models","buckets":[
+            {"bucketId":"gemini-weekly","window":"weekly","resetTime":"2999-07-16T02:49:09Z","remainingFraction":0.7},
+            {"bucketId":"gemini-5h","window":"5h","resetTime":"2999-07-10T06:42:14Z","remainingFraction":0.9}]},
+          {"displayName":"Gemini 4 Argon","buckets":[
+            {"bucketId":"gemini-argon-wtu-weekly","resetTime":"2999-07-16T02:49:09Z","remainingFraction":0.42}]},
+          {"displayName":"Claude and GPT models","buckets":[
+            {"bucketId":"3p-weekly","window":"weekly","resetTime":"2999-07-16T05:52:06Z","remainingFraction":1},
+            {"bucketId":"3p-5h","window":"5h","resetTime":"2999-07-10T07:40:22Z","remainingFraction":1}]}]}
+        """.data(using: .utf8)!
+
+        let groups = try AntigravityParser.decodeQuotaGroups(from: payload)
+        #expect(groups.map(\.id) == ["gemini", "gemini-argon", "3p"])
+        let argon = try #require(groups.first { $0.id == "gemini-argon" })
+        #expect(argon.displayName == "Gemini 4 Argon")
+        #expect(argon.fiveHour == nil)
+        #expect(argon.weekly?.remainingFraction == 0.42)
+    }
+
+    @Test func apiUserAgentMeetsCliMinimumVersion() {
+        #expect(AntigravityParser.apiUserAgent.hasPrefix("antigravity/cli/"))
+        let versionPart = AntigravityParser.apiUserAgent
+            .dropFirst("antigravity/cli/".count)
+            .split(separator: " ")
+            .first ?? ""
+        let parts = versionPart.split(separator: ".").compactMap { Int($0) }
+        #expect(parts.count >= 2)
+        let isAtLeast1_3 = parts[0] > 1 || (parts[0] == 1 && parts[1] >= 3)
+        #expect(isAtLeast1_3)
+    }
 }

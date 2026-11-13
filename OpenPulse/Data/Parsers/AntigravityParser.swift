@@ -20,15 +20,15 @@ actor AntigravityParser {
     private let accountService: AntigravityAccountService?
 
     private let loadCodeAssistEndpoints = [
-        "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
-        "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist"
+        "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
+        "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist"
     ]
     private let retrieveUserQuotaSummaryEndpoints = [
-        "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
         "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+        "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
         "https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:retrieveUserQuotaSummary"
     ]
-    private let userAgent = "antigravity/cli/1.0.13 (aidev_client; os_type=darwin; arch=arm64)"
+    static let apiUserAgent = "antigravity/cli/1.5.8 (aidev_client; os_type=darwin; arch=arm64)"
 
     init(
         brainDir: URL = .homeDirectory.appending(path: ".gemini/antigravity/brain"),
@@ -276,7 +276,7 @@ actor AntigravityParser {
             request.httpMethod = "POST"
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+            request.setValue(Self.apiUserAgent, forHTTPHeaderField: "User-Agent")
             request.httpBody = try? JSONSerialization.data(withJSONObject: ["metadata": ["ideType": "ANTIGRAVITY"]])
             request.timeoutInterval = 10
 
@@ -311,7 +311,7 @@ actor AntigravityParser {
             request.httpMethod = "POST"
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+            request.setValue(Self.apiUserAgent, forHTTPHeaderField: "User-Agent")
             request.httpBody = httpBody
             request.timeoutInterval = 10
 
@@ -619,8 +619,14 @@ enum AntigravityProAggregator {
             }
         }
         groupIds.sort { a, b in
-            if a == "gemini" { return true }
-            if b == "gemini" { return false }
+            func rank(_ id: String) -> Int {
+                if id == "gemini" { return 0 }
+                if id.hasPrefix("gemini-") { return 1 }
+                if id == "3p" { return 2 }
+                return 3
+            }
+            let ra = rank(a), rb = rank(b)
+            if ra != rb { return ra < rb }
             return a < b
         }
         var aggregatedGroups: [AGQuotaGroup] = []
@@ -631,7 +637,7 @@ enum AntigravityProAggregator {
             }
             guard !matchingGroups.isEmpty else { continue }
             
-            let displayName = matchingGroups.first?.displayName ?? (groupId == "gemini" ? "Gemini Models" : "3P Models")
+            let displayName = matchingGroups.first?.displayName ?? (groupId == "gemini" ? "Gemini Models" : (groupId == "gemini-argon" ? "Gemini 4 Argon" : "3P Models"))
             
             // 5-hour window
             let fiveHourWindows = matchingGroups.compactMap(\.fiveHour)
@@ -676,12 +682,12 @@ enum AntigravityProAggregator {
 }
 
 extension AntigravityParser {
-    /// `retrieveUserQuotaSummary` returns explicit `5h` / `weekly` buckets per model group,
-    /// so no window inference is needed — take them as given.
+    /// `retrieveUserQuotaSummary` returns explicit `5h` / `weekly` buckets per model group
+    /// (and newer buckets like `gemini-argon-wtu-weekly` may encode the window in `bucketId`).
     static func decodeQuotaGroups(from data: Data) throws -> [AGQuotaGroup] {
         let resp = try JSONDecoder().decode(AGQuotaSummaryResponse.self, from: data)
         return resp.groups.map { group in
-            let byWindow = Dictionary(grouping: group.buckets, by: \.window)
+            let byWindow = Dictionary(grouping: group.buckets, by: \.resolvedWindowKey)
             func window(_ key: String, _ kind: AGWindow.Kind) -> AGWindow? {
                 guard let b = byWindow[key]?.first else { return nil }
                 return AGWindow(
@@ -692,12 +698,23 @@ extension AntigravityParser {
                 )
             }
             return AGQuotaGroup(
-                id: group.buckets.first?.bucketId.components(separatedBy: "-").first ?? group.displayName,
+                id: quotaGroupID(for: group),
                 displayName: group.displayName,
                 fiveHour: window("5h", .fiveHour),
                 weekly: window("weekly", .weekly)
             )
         }
+    }
+
+    private static func quotaGroupID(for group: AGQuotaSummaryResponse.Group) -> String {
+        guard let bucketId = group.buckets.first?.bucketId, !bucketId.isEmpty else {
+            return group.displayName
+        }
+        for suffix in ["-wtu-weekly", "-wtu-5h", "-weekly", "-5h"] where bucketId.hasSuffix(suffix) {
+            let prefix = String(bucketId.dropLast(suffix.count))
+            if !prefix.isEmpty { return prefix }
+        }
+        return bucketId.components(separatedBy: "-").first ?? group.displayName
     }
 
     static func decodeTier(from data: Data) -> AGTier? {
@@ -716,10 +733,17 @@ private struct AGQuotaSummaryResponse: Decodable {
     struct Group: Decodable { let displayName: String; let buckets: [Bucket] }
     struct Bucket: Decodable {
         let bucketId: String
-        let window: String
+        let window: String?
         let resetTime: String?
         let remainingFraction: Double?
         let description: String?
+
+        var resolvedWindowKey: String {
+            if let window, !window.isEmpty { return window }
+            if bucketId.hasSuffix("-5h") { return "5h" }
+            if bucketId.hasSuffix("-weekly") { return "weekly" }
+            return ""
+        }
     }
     let groups: [Group]
 }
