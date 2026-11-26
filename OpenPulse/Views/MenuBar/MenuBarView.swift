@@ -1140,7 +1140,7 @@ private struct CodexMenuBarQuotaRowView: View {
     }
 }
 
-private func codexMenuBarDisplayState(for window: CodexWindow?, isFiveHour: Bool, now: Date) -> CodexMenuBarWindowDisplayState {
+private func codexMenuBarDisplayState(for window: CodexWindow?, isFiveHour: Bool, compactSevenDay: Bool = false, now: Date) -> CodexMenuBarWindowDisplayState {
     guard let window else {
         return CodexMenuBarWindowDisplayState(
             fraction: nil,
@@ -1159,7 +1159,10 @@ private func codexMenuBarDisplayState(for window: CodexWindow?, isFiveHour: Bool
         now: now
     )
     let countdown = resetDate.map {
-        isFiveHour ? menuBarCompactClockString(for: $0) : menuBarShortResetString(for: $0)
+        if isFiveHour {
+            return menuBarCompactClockString(for: $0)
+        }
+        return compactSevenDay ? menuBarCompactDateString(for: $0) : menuBarShortResetString(for: $0)
     }
     return CodexMenuBarWindowDisplayState(
         fraction: fraction,
@@ -1468,7 +1471,7 @@ struct CodexAccountQuotaCard: View {
 
     @ViewBuilder
     private func codexGauge(label: String, shortBadge: String, isFiveHour: Bool, window: CodexWindow?) -> some View {
-        let state = codexMenuBarDisplayState(for: window, isFiveHour: isFiveHour, now: now)
+        let state = codexMenuBarDisplayState(for: window, isFiveHour: isFiveHour, compactSevenDay: true, now: now)
         MenuBarQuotaPanel(
             tool: .codex,
             title: label,

@@ -4,9 +4,9 @@
 
 A native macOS menu bar app for AI coding usage and quotas. Keep Claude Code, Codex, GitHub Copilot, and Antigravity in one place, with local session history and a dashboard built for everyday monitoring.
 
-**OpenPulse 2.0** redesigns all eight dashboard pages and the menu bar popover, improves usage import and refresh reliability, and moves saved Codex authorization into Keychain. See the [2.0 release notes](docs/releases/v2.0.0.md).
+**OpenPulse 3.0** introduces a refreshed macOS 26 visual design and brand icon, consolidates the dashboard into six focused workspaces, adds Copilot to the menu bar, tracks Claude Full/Fable limit resets and Codex reset credits, and upgrades background syncing with staggered per-tool polling. See the [3.0 release notes](docs/releases/v3.0.0.md).
 
-![OpenPulse 2.0 Overview](docs/screenshot-dashboard-overview.png)
+![OpenPulse 3.0 Overview](docs/screenshot-dashboard-overview.png)
 
 | Quota | Activity |
 |:---:|:---:|
@@ -42,7 +42,7 @@ Available fields depend on the tool's local records and API response. Codex loca
 
 Requires **macOS 26 or later**.
 
-1. Download `OpenPulse-2.0.0.zip` from [GitHub Releases](https://github.com/fanyu/OpenPulse/releases).
+1. Download `OpenPulse-3.0.0.zip` from [GitHub Releases](https://github.com/fanyu/OpenPulse/releases).
 2. Extract the ZIP and move **OpenPulse.app** to **Applications**.
 3. Open the app and configure the tools you use in **Providers**.
 
@@ -88,7 +88,7 @@ The [project rules](AGENTS.md) describe the architecture and contribution workfl
 
 原生 macOS 菜单栏应用，集中查看 Claude Code、Codex、GitHub Copilot 和 Antigravity 的用量与配额。本地会话历史与主面板，方便日常掌握 AI 编程工具的使用情况。
 
-**OpenPulse 2.0** 重新设计了全部八个主面板页面和菜单栏弹窗，修复用量导入与刷新问题，并将已保存的 Codex 授权迁移至 Keychain。详见 [2.0 发布说明](docs/releases/v2.0.0.md#中文)。上方 macOS 截图使用虚构演示数据。
+**OpenPulse 3.0** 带来全新 macOS 26 视觉语言与品牌图标，将主界面精简为六大核心工作区，菜单栏新增 Copilot 支持，完整追踪 Claude Full/Fable 重置券与 Codex 重置券，并升级为按工具可配置的交错后台同步引擎。详见 [3.0 发布说明](docs/releases/v3.0.0.md#中文)。上方 macOS 截图使用虚构演示数据。
 
 ## 主要功能
 
@@ -116,7 +116,7 @@ Codex 支持导入当前账号、OpenAI OAuth 登录、按账号查看 5h/7d 配
 
 需要 **macOS 26 或更高版本**。
 
-1. 从 [GitHub Releases](https://github.com/fanyu/OpenPulse/releases) 下载 `OpenPulse-2.0.0.zip`。
+1. 从 [GitHub Releases](https://github.com/fanyu/OpenPulse/releases) 下载 `OpenPulse-3.0.0.zip`。
 2. 解压 ZIP，将 **OpenPulse.app** 移至 **应用程序**。
 3. 打开应用，在 **接入** 页面配置使用的工具。
 

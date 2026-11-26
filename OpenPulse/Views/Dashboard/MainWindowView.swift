@@ -192,12 +192,12 @@ private struct SidebarNavRow: View {
                     }
 
                     Image(systemName: isSelected ? tab.activeIcon : tab.icon)
-                        .font(.system(size: 12.5, weight: isSelected ? .semibold : .regular))
-                        .symbolRenderingMode(.hierarchical)
+                        .font(.system(size: 12.5, weight: isSelected ? .semibold : .medium))
+                        .symbolRenderingMode(isSelected ? .hierarchical : .monochrome)
                         .foregroundStyle(
                             isSelected
                                 ? accent
-                                : (isHovered ? Color.primary.opacity(0.88) : Color.secondary)
+                                : (isHovered ? Color.primary.opacity(0.88) : Color.primary.opacity(0.56))
                         )
                         .contentTransition(.symbolEffect(.replace.offUp))
                 }
@@ -361,7 +361,7 @@ private struct SidebarSyncStatus: View {
                 } label: {
                     Image(systemName: "arrow.clockwise")
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(isSyncing ? .quaternary : (isRefreshHovered ? .primary : .tertiary))
+                        .foregroundStyle(isSyncing ? Color.primary.opacity(0.22) : (isRefreshHovered ? Color.primary : Color.primary.opacity(0.45)))
                         .frame(width: 24, height: 24)
                         .background(
                             isRefreshHovered
