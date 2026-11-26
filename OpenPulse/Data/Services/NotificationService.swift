@@ -46,8 +46,34 @@ final class NotificationService {
 
     // MARK: - Permission
 
+    private static var hasAppBundle: Bool {
+        Bundle.main.bundleURL.pathExtension == "app"
+    }
+
     func requestPermission() {
+        guard Self.hasAppBundle else { return }
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+    }
+
+    func authorizationStatus() async -> UNAuthorizationStatus {
+        guard Self.hasAppBundle else { return .notDetermined }
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        return settings.authorizationStatus
+    }
+
+    @discardableResult
+    func requestAuthorization() async -> UNAuthorizationStatus {
+        guard Self.hasAppBundle else { return .notDetermined }
+        _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
+        return await authorizationStatus()
+    }
+
+    func sendTestNotification() async throws {
+        try await deliver(
+            "openpulse-test-\(UUID().uuidString)",
+            String(localized: "OpenPulse 通知测试"),
+            String(localized: "配额不足提醒已生效，低于设定阈值时将在此通知。")
+        )
     }
 
     // MARK: - Check & fire

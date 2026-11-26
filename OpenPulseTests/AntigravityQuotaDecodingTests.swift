@@ -41,16 +41,85 @@ struct AntigravityQuotaDecodingTests {
     @Test func tierFreeVsPaid() {
         let free = AntigravityParser.decodeTier(from: #"{"currentTier":{"id":"free-tier","name":"Antigravity"}}"#.data(using: .utf8)!)
         #expect(free?.isPaid == false)
+        #expect(free?.source == .currentTier)
         #expect(free?.badgeLabel == "Free")
         let paid = AntigravityParser.decodeTier(from: #"{"currentTier":{"id":"legacy-tier","name":"Google AI Pro"}}"#.data(using: .utf8)!)
         #expect(paid?.isPaid == true)
+        #expect(paid?.source == .currentTier)
         #expect(paid?.badgeLabel == "Google AI Pro")
         let paidFromPaidTier = AntigravityParser.decodeTier(from: #"{"currentTier":{"id":"free-tier","name":"Antigravity"},"paidTier":{"id":"g1-pro-tier","name":"Google AI Pro"}}"#.data(using: .utf8)!)
         #expect(paidFromPaidTier?.isPaid == true)
+        #expect(paidFromPaidTier?.source == .paidTier)
         #expect(paidFromPaidTier?.badgeLabel == "Google AI Pro")
         let starterFromPaidTier = AntigravityParser.decodeTier(from: #"{"currentTier":{"id":"free-tier","name":"Antigravity"},"paidTier":{"id":"free-tier","name":"Antigravity Starter Quota"}}"#.data(using: .utf8)!)
         #expect(starterFromPaidTier?.isPaid == false)
+        #expect(starterFromPaidTier?.source == .paidTier)
         #expect(starterFromPaidTier?.badgeLabel == "Free")
+    }
+
+    @Test func authoritativeFreePaidTierRemainsFreeDespite3PFiveHourWindow() {
+        let starterTier = AntigravityParser.decodeTier(
+            from: #"{"currentTier":{"id":"free-tier","name":"Antigravity"},"paidTier":{"id":"free-tier","name":"Antigravity Starter Quota"}}"#.data(using: .utf8)!
+        )
+        let groups = [
+            AGQuotaGroup(
+                id: "gemini",
+                displayName: "Gemini Models",
+                fiveHour: nil,
+                weekly: AGWindow(kind: .weekly, remainingFraction: 1.0, resetTime: nil, description: nil)
+            ),
+            AGQuotaGroup(
+                id: "3p",
+                displayName: "Claude and GPT models",
+                fiveHour: AGWindow(kind: .fiveHour, remainingFraction: 1.0, resetTime: nil, description: nil),
+                weekly: AGWindow(kind: .weekly, remainingFraction: 1.0, resetTime: nil, description: nil)
+            )
+        ]
+        let account = AGAccountQuota(email: "starter@example.com", tier: starterTier, groups: groups)
+        #expect(!account.isPaid)
+        #expect(account.badgeLabel == "Free")
+    }
+
+    @Test func authoritativeFreePaidTierIsNotOverriddenByAnyQuotaWindows() {
+        let starterTier = AGTier(id: "free-tier", name: "Antigravity Starter Quota", source: .paidTier)
+        let groups = [
+            AGQuotaGroup(
+                id: "3p",
+                displayName: "Claude and GPT models",
+                fiveHour: AGWindow(kind: .fiveHour, remainingFraction: 1.0, resetTime: nil, description: nil),
+                weekly: AGWindow(kind: .weekly, remainingFraction: 1.0, resetTime: nil, description: nil)
+            )
+        ]
+        let account = AGAccountQuota(email: "starter@example.com", tier: starterTier, groups: groups)
+        #expect(!account.isPaid)
+        #expect(account.badgeLabel == "Free")
+    }
+
+    @Test func legacyCachedStarterAccountWithWeeklyOnlyGeminiAnd3P5hRemainsFree() throws {
+        // Simulates a cached AGAccountQuota saved before AGTier.source existed.
+        let cachedJSON = """
+        {
+          "email": "starter@example.com",
+          "tier": {"id": "free-tier", "name": "Antigravity Starter Quota"},
+          "groups": [
+            {
+              "id": "gemini",
+              "displayName": "Gemini Models",
+              "weekly": {"kind": "weekly", "remainingFraction": 1.0}
+            },
+            {
+              "id": "3p",
+              "displayName": "Claude and GPT models",
+              "fiveHour": {"kind": "fiveHour", "remainingFraction": 1.0},
+              "weekly": {"kind": "weekly", "remainingFraction": 1.0}
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+        let account = try JSONDecoder().decode(AGAccountQuota.self, from: cachedJSON)
+        #expect(account.tier?.source == nil)
+        #expect(!account.isPaid)
+        #expect(account.badgeLabel == "Free")
     }
 
     @Test func single3PGroupWithBothWindowsIsGoogleAIPro() {

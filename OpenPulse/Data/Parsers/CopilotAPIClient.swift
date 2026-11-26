@@ -145,6 +145,35 @@ public struct CopilotSnapshot: Decodable, Sendable {
         guard let id = quotaId else { return "—" }
         return id.replacing("_", with: " ").capitalized
     }
+
+    /// Effective remaining percentage (0...100) for menu bar display.
+    static func menuBarRemainingPercent(
+        from snapshots: [String: CopilotSnapshot]?,
+        resetAt: Date?,
+        now: Date = Date()
+    ) -> Int? {
+        guard let snapshots, !snapshots.isEmpty else { return nil }
+        if let resetAt, resetAt <= now { return nil }
+
+        let preferred = snapshots["premium_interactions"]
+            ?? snapshots
+                .filter { $0.key != "chat" && $0.key != "completions" && !($0.value.unlimited ?? false) }
+                .values
+                .min(by: { ($0.percentRemaining ?? 100) < ($1.percentRemaining ?? 100) })
+            ?? snapshots.values
+                .filter { !($0.unlimited ?? false) }
+                .min(by: { ($0.percentRemaining ?? 100) < ($1.percentRemaining ?? 100) })
+
+        guard let snap = preferred else { return 100 }
+        if snap.unlimited == true { return 100 }
+        if let pct = snap.percentRemaining, pct.isFinite {
+            return max(0, min(100, Int(pct.rounded())))
+        }
+        if let remaining = snap.remaining, let entitlement = snap.entitlement, entitlement > 0 {
+            return max(0, min(100, Int((Double(remaining) / Double(entitlement) * 100).rounded())))
+        }
+        return nil
+    }
 }
 
 // MARK: - Errors

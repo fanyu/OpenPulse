@@ -24,9 +24,22 @@ actor CodexAccountService {
     private enum UsageRefreshPolicy {
         static let minimumRefreshInterval: TimeInterval = 25
 
-        static func shouldRefresh(lastFetchedAt: Date?, now: Date) -> Bool {
-            guard let lastFetchedAt else { return true }
+        static func shouldRefresh(account: CodexStoredAccount, now: Date) -> Bool {
+            guard let lastFetchedAt = account.lastFetchedAt else { return true }
+            if hasWindowResetSinceLastFetch(account: account, lastFetchedAt: lastFetchedAt, now: now) {
+                return true
+            }
             return now.timeIntervalSince(lastFetchedAt) >= minimumRefreshInterval
+        }
+
+        private static func hasWindowResetSinceLastFetch(
+            account: CodexStoredAccount,
+            lastFetchedAt: Date,
+            now: Date
+        ) -> Bool {
+            [account.lastUsage?.fiveHourWindow, account.lastUsage?.oneWeekWindow]
+                .compactMap { $0?.resetDate }
+                .contains { $0 > lastFetchedAt && $0 <= now }
         }
     }
 
@@ -341,6 +354,7 @@ actor CodexAccountService {
         if let currentAccountID,
            let index = store.accounts.firstIndex(where: { $0.accountID == currentAccountID }) {
             let mergedLimits = (store.accounts[index].lastUsage?.merging(limits) ?? limits).withoutSpark()
+            store.accounts[index].lastUsage = mergedLimits
             store.accounts[index].planType = mergedLimits.planType ?? store.accounts[index].planType
             store.accounts[index].lastFetchedAt = now
             store.accounts[index].updatedAt = now
@@ -451,11 +465,12 @@ actor CodexAccountService {
     }
 
     private func shouldRefreshStaleUsage(for account: CodexStoredAccount, now: Date) -> Bool {
-        guard let window = account.lastUsage?.fiveHourWindow,
-              let resetDate = window.resetDate else {
-            return true
+        let windows = [account.lastUsage?.fiveHourWindow, account.lastUsage?.oneWeekWindow].compactMap { $0 }
+        guard !windows.isEmpty else { return true }
+        return windows.contains { window in
+            guard let resetDate = window.resetDate else { return true }
+            return resetDate <= now
         }
-        return resetDate <= now
     }
 
     private func currentAccountID(from store: CodexAccountsStore) -> String? {
@@ -476,6 +491,7 @@ actor CodexAccountService {
         if let index = store.accounts.firstIndex(where: { $0.accountID == extracted.accountID }) {
             let original = store.accounts[index]
             store.accounts[index].migrateLegacyUsageObservation()
+            store.accounts[index].email = extracted.email
             store.accounts[index].lastUsage = store.accounts[index].lastUsage?.withoutSpark()
             store.accounts[index].planType = extracted.planType
             store.accounts[index].teamName = extracted.teamName
@@ -1166,7 +1182,7 @@ actor CodexAccountService {
         usageURLs: [String]
     ) async -> CodexStoredAccount {
         var account = account
-        guard forceRefresh || UsageRefreshPolicy.shouldRefresh(lastFetchedAt: account.lastFetchedAt, now: now) else {
+        guard forceRefresh || UsageRefreshPolicy.shouldRefresh(account: account, now: now) else {
             return account
         }
 

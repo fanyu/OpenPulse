@@ -1,12 +1,18 @@
 import Foundation
 import Observation
 
+enum SyncRefreshKind: Sendable {
+    case full
+    case local
+}
+
 /// Per-tool synchronization state. Replaces the single global `isSyncing` flag so
 /// individual tools can refresh concurrently without blocking each other.
 @MainActor
 @Observable
 final class ToolSyncState {
     private(set) var isRefreshing: Bool = false
+    private(set) var isUserVisibleRefreshing: Bool = false
     private(set) var lastSyncDate: Date?
     private(set) var lastError: String?          // surfaced error message (nil = OK)
     private(set) var lastErrorDate: Date?
@@ -20,18 +26,22 @@ final class ToolSyncState {
         return Date().timeIntervalSince(start) > Self.staleThreshold
     }
 
-    /// Attempt to begin a refresh. Returns `false` when one is already running and not stale.
-    func beginRefresh() -> Bool {
+    /// Attempt to begin a refresh. Returns `false` when one is already running.
+    /// Background `.local` file-watcher parses hold the exclusivity lock without
+    /// flashing global "Syncing" spinners across the UI.
+    func beginRefresh(kind: SyncRefreshKind = .full) -> Bool {
         // A slow parser still owns its refresh. Starting another after 60 seconds
         // lets the older task clear the newer task's flag and overwrite its data.
         guard !isRefreshing else { return false }
         isRefreshing = true
+        isUserVisibleRefreshing = (kind == .full)
         refreshStartedAt = Date()
         return true
     }
 
     func endRefresh() {
         isRefreshing = false
+        isUserVisibleRefreshing = false
         refreshStartedAt = nil
     }
 

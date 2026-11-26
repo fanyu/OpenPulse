@@ -14,12 +14,15 @@ final class AppStore {
     }
 
     var selectedTab: AppTab = .trends
+    var selectedSettingsSection: SettingsSection = .general
     var lastSyncDate: Date?
     let codexAccountService = CodexAccountService()
-    let codexProviderConfigService = CodexProviderConfigService()
-    let codexRouterCoordinator = CodexRouterCoordinator()
     let antigravityAccountService = AntigravityAccountService()
-    let configsViewModel = ConfigsViewModel()
+
+    func openDiagnosticsLogs() {
+        selectedSettingsSection = .diagnostics
+        selectedTab = .settings
+    }
 
     let modelContainer: ModelContainer
     private(set) var syncService: DataSyncService?
@@ -52,14 +55,15 @@ final class AppStore {
         let service = DataSyncService(
             modelContainer: modelContainer,
             codexAccountService: codexAccountService,
-            deskSnapshotPublisher: DeskSnapshotPublisher.makeIfAvailable()
+            deskSnapshotPublisher: DeskSnapshotPublisher.makeIfAvailable(),
+            sessionScanningActive: WindowCoordinator.shared.isMainWindowVisible
         )
         syncService = service
         service.start()
     }
 
     func clearUsageCache() throws {
-        guard syncService?.isSyncingActive != true,
+        guard syncService?.hasAnyRefreshInFlight != true,
               syncService?.refreshingAntigravityAccountEmails.isEmpty != false else {
             throw NSError(domain: "OpenPulse.Cache", code: 1, userInfo: [
                 NSLocalizedDescriptionKey: String(localized: "同步完成后再清除缓存。")
@@ -80,22 +84,80 @@ enum AppTab: String, CaseIterable {
     case trends    = "总览"
     case quota     = "配额"
     case activity  = "活动"
-    case menuBar   = "菜单栏"
     case providers = "接入"
-    case configs   = "配置"
+    case menuBar   = "菜单栏"
     case settings  = "设置"
-    case logs      = "日志"
 
     var icon: String {
         switch self {
-        case .trends:    "chart.line.uptrend.xyaxis"
-        case .quota:     "chart.pie.fill"
-        case .activity:  "terminal.fill"
-        case .menuBar:   "menubar.dock.rectangle"
-        case .providers: "cable.connector"
-        case .configs:   "doc.badge.gearshape.fill"
+        case .trends:    "square.grid.2x2"
+        case .quota:     "gauge.with.needle"
+        case .activity:  "bubble.left.and.text.bubble.right"
+        case .providers: "puzzlepiece.extension"
+        case .menuBar:   "menubar.rectangle"
+        case .settings:  "gearshape"
+        }
+    }
+
+    var activeIcon: String {
+        switch self {
+        case .trends:    "square.grid.2x2.fill"
+        case .quota:     "gauge.with.needle.fill"
+        case .activity:  "bubble.left.and.text.bubble.right.fill"
+        case .providers: "puzzlepiece.extension.fill"
+        case .menuBar:   "menubar.rectangle"
         case .settings:  "gearshape.fill"
-        case .logs:      "scroll"
+        }
+    }
+
+    func sidebarAccentColor(for colorScheme: ColorScheme) -> Color {
+        switch self {
+        case .trends:
+            colorScheme == .dark
+                ? Color(red: 0.16, green: 0.80, blue: 0.80)
+                : Color(red: 0.05, green: 0.56, blue: 0.60)
+        case .quota:
+            colorScheme == .dark
+                ? Color(red: 0.24, green: 0.82, blue: 0.54)
+                : Color(red: 0.12, green: 0.64, blue: 0.40)
+        case .activity:
+            colorScheme == .dark
+                ? Color(red: 0.38, green: 0.66, blue: 1.00)
+                : Color(red: 0.16, green: 0.46, blue: 0.90)
+        case .providers:
+            colorScheme == .dark
+                ? Color(red: 0.72, green: 0.52, blue: 0.98)
+                : Color(red: 0.52, green: 0.32, blue: 0.84)
+        case .menuBar:
+            colorScheme == .dark
+                ? Color(red: 0.96, green: 0.68, blue: 0.26)
+                : Color(red: 0.80, green: 0.48, blue: 0.08)
+        case .settings:
+            colorScheme == .dark
+                ? Color(red: 0.66, green: 0.70, blue: 0.78)
+                : Color(red: 0.38, green: 0.42, blue: 0.50)
+        }
+    }
+
+    var shortcutDigit: KeyEquivalent {
+        switch self {
+        case .trends:    "1"
+        case .quota:     "2"
+        case .activity:  "3"
+        case .providers: "4"
+        case .menuBar:   "5"
+        case .settings:  "6"
+        }
+    }
+
+    var shortcutLabel: String {
+        switch self {
+        case .trends:    "⌘1"
+        case .quota:     "⌘2"
+        case .activity:  "⌘3"
+        case .providers: "⌘4"
+        case .menuBar:   "⌘5"
+        case .settings:  "⌘6"
         }
     }
 
@@ -104,11 +166,25 @@ enum AppTab: String, CaseIterable {
         case .trends:    "总览"
         case .quota:     "配额"
         case .activity:  "活动"
-        case .menuBar:   "菜单栏"
         case .providers: "接入"
-        case .configs:   "配置"
+        case .menuBar:   "菜单栏"
         case .settings:  "设置"
-        case .logs:      "日志"
+        }
+    }
+}
+
+enum SettingsSection: String, CaseIterable, Identifiable {
+    case general     = "general"
+    case sync        = "sync"
+    case diagnostics = "diagnostics"
+
+    var id: String { rawValue }
+
+    var localizedTitle: LocalizedStringKey {
+        switch self {
+        case .general:     "通用"
+        case .sync:        "同步与集成"
+        case .diagnostics: "数据与诊断"
         }
     }
 }

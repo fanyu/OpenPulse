@@ -205,6 +205,51 @@ final class AntigravityProAggregatorTests: XCTestCase {
         // 4. Primary remaining fraction falls back to 3p when Gemini missing
         XCTAssertEqual(only3P.primaryRemainingFraction, 0.7)
     }
+
+    func testStarterAccountWith3PFiveHourWindowIsExcludedFromProAggregate() {
+        let proAccount = AGAccountQuota(
+            email: "pro@gmail.com",
+            tier: AGTier(id: "g1-pro-tier", name: "Google AI Pro", source: .paidTier),
+            groups: [
+                AGQuotaGroup(
+                    id: "gemini",
+                    displayName: "Gemini Models",
+                    fiveHour: AGWindow(kind: .fiveHour, remainingFraction: 0.6, resetTime: nil, description: nil),
+                    weekly: AGWindow(kind: .weekly, remainingFraction: 0.5, resetTime: nil, description: nil)
+                ),
+                AGQuotaGroup(
+                    id: "3p",
+                    displayName: "Claude and GPT models",
+                    fiveHour: AGWindow(kind: .fiveHour, remainingFraction: 0.4, resetTime: nil, description: nil),
+                    weekly: AGWindow(kind: .weekly, remainingFraction: 0.3, resetTime: nil, description: nil)
+                )
+            ]
+        )
+        let starterAccount = AGAccountQuota(
+            email: "starter@gmail.com",
+            tier: AGTier(id: "free-tier", name: "Antigravity Starter Quota", source: .paidTier),
+            groups: [
+                AGQuotaGroup(
+                    id: "gemini",
+                    displayName: "Gemini Models",
+                    fiveHour: nil,
+                    weekly: AGWindow(kind: .weekly, remainingFraction: 1.0, resetTime: nil, description: nil)
+                ),
+                AGQuotaGroup(
+                    id: "3p",
+                    displayName: "Claude and GPT models",
+                    fiveHour: AGWindow(kind: .fiveHour, remainingFraction: 1.0, resetTime: nil, description: nil),
+                    weekly: AGWindow(kind: .weekly, remainingFraction: 1.0, resetTime: nil, description: nil)
+                )
+            ]
+        )
+
+        let summary = AntigravityProAggregator.aggregate(accounts: [proAccount, starterAccount])
+        XCTAssertEqual(summary.proAccountCount, 1)
+        XCTAssertEqual(summary.groups.first(where: { $0.id == "gemini" })?.weekly?.remainingFraction ?? 0, 0.5, accuracy: 0.001)
+        XCTAssertEqual(summary.groups.first(where: { $0.id == "3p" })?.fiveHour?.remainingFraction ?? 0, 0.4, accuracy: 0.001)
+        XCTAssertEqual(AGAccountQuota.effectiveMenuBarFiveHourPercent(across: [proAccount, starterAccount]), 60)
+    }
 }
 
 @MainActor
@@ -213,21 +258,23 @@ final class ActivityHistorySnapshotTests: XCTestCase {
         let fixture = try makeFixture()
         let snapshot = try await readSnapshot(from: fixture.container)
 
-        XCTAssertEqual(snapshot.sessions.map(\.id), [fixture.latest.id, fixture.claude.id, fixture.oldest.id])
+        XCTAssertEqual(snapshot.sessions.map(\.id), [fixture.antigravity.id, fixture.latest.id, fixture.claude.id, fixture.oldest.id])
         XCTAssertEqual(Set(snapshot.sessionsByID.keys), Set(snapshot.sessions.map(\.id)))
-        XCTAssertEqual(snapshot.allSummary.count, 3)
-        XCTAssertEqual(snapshot.allSummary.tokens, 200)
-        XCTAssertEqual(snapshot.allSummary.averageTokens, 66)
+        XCTAssertEqual(snapshot.allSummary.count, 4)
+        XCTAssertEqual(snapshot.allSummary.tokens, 1_000)
+        XCTAssertEqual(snapshot.allSummary.averageTokens, 250)
         XCTAssertEqual(snapshot.sessionsByTool[.codex]?.map(\.id), [fixture.latest.id, fixture.oldest.id])
         XCTAssertEqual(snapshot.sessionsByTool[.claudeCode]?.map(\.id), [fixture.claude.id])
+        XCTAssertEqual(snapshot.sessionsByTool[.antigravity]?.map(\.id), [fixture.antigravity.id])
         XCTAssertEqual(snapshot.allSummary.favoriteProject, "/Fixture/Alpha/shared")
         XCTAssertEqual(snapshot.summaries[.codex]?.count, 2)
         XCTAssertEqual(snapshot.summaries[.codex]?.tokens, 130)
         XCTAssertEqual(snapshot.summaries[.codex]?.averageTokens, 65)
         XCTAssertEqual(snapshot.summaries[.claudeCode]?.count, 1)
         XCTAssertEqual(snapshot.summaries[.claudeCode]?.tokens, 70)
+        XCTAssertEqual(snapshot.summaries[.antigravity]?.count, 1)
+        XCTAssertEqual(snapshot.summaries[.antigravity]?.tokens, 800)
         XCTAssertNil(snapshot.summaries[.copilot])
-        XCTAssertNil(snapshot.summaries[.antigravity])
     }
 
     func testFreshReaderSeesCommittedSameCountUpdatesToTokensAndSearchableFields() async throws {
@@ -259,7 +306,7 @@ final class ActivityHistorySnapshotTests: XCTestCase {
         XCTAssertEqual(row.projectPath, "/Fixture/Changed/façade")
         XCTAssertEqual(row.branch, "feature/résumé")
         XCTAssertEqual(row.endedAt, fixture.latest.endedAt)
-        XCTAssertEqual(refreshed.allSummary.tokens, 400)
+        XCTAssertEqual(refreshed.allSummary.tokens, 1_200)
         XCTAssertEqual(refreshed.summaries[.codex]?.tokens, 330)
         XCTAssertEqual(refreshed.summaries[.codex]?.favoriteProject, "/Fixture/Changed/façade")
         XCTAssertEqual(refreshed.allSummary.favoriteProject, "/Fixture/Changed/façade")
@@ -281,6 +328,41 @@ final class ActivityHistorySnapshotTests: XCTestCase {
         XCTAssertTrue(try snapshot.filtered(tool: .codex, search: "facade").sessions.isEmpty)
         XCTAssertEqual(try snapshot.filtered(tool: .codex, search: "").sessions.map(\.id), [taskMatch.id, branchMatch.id])
         XCTAssertEqual(try snapshot.filtered(tool: nil, search: "").visibleIDs, Set([taskMatch.id, pathMatch.id, branchMatch.id]))
+    }
+
+    func testProjectFilterAndDisambiguationAndDayGrouping() throws {
+        let now = Date(timeIntervalSince1970: 1_795_650_000)
+        let calendar = Calendar(identifier: .gregorian)
+        let todayStart = calendar.startOfDay(for: now)
+        let yesterday = calendar.date(byAdding: .day, value: -1, to: todayStart)!
+
+        let s1 = ActivitySessionSnapshot(tool: .claudeCode, startedAt: todayStart.addingTimeInterval(3600), inputTokens: 400, outputTokens: 100, task: "Task 1", projectPath: "/Fixture/Alpha/app")
+        let s2 = ActivitySessionSnapshot(tool: .codex, startedAt: todayStart.addingTimeInterval(1800), inputTokens: 200, outputTokens: 50, task: "Task 2", projectPath: "/Fixture/Beta/app")
+        let s3 = ActivitySessionSnapshot(tool: .antigravity, startedAt: yesterday.addingTimeInterval(7200), inputTokens: 900, outputTokens: 100, task: "Probe", projectPath: "/private/var/folders/tmp/agy-ask-123")
+
+        let snapshot = try ActivityHistorySnapshot(sessions: [s1, s2, s3])
+        // Real projects come before temporary probe workspaces, and duplicate basenames get parent hints.
+        XCTAssertEqual(snapshot.allProjects.count, 3)
+        XCTAssertFalse(snapshot.allProjects[0].isTemporary)
+        XCTAssertFalse(snapshot.allProjects[1].isTemporary)
+        XCTAssertTrue(snapshot.allProjects[2].isTemporary)
+        XCTAssertEqual(snapshot.allProjects.first(where: { $0.path == "/Fixture/Alpha/app" })?.displayLabel, "Alpha/app")
+        XCTAssertEqual(snapshot.allProjects.first(where: { $0.path == "/Fixture/Beta/app" })?.displayLabel, "Beta/app")
+
+        // Favorite project prefers real projects over temp probe directories.
+        XCTAssertEqual(snapshot.allSummary.favoriteProject, "/Fixture/Alpha/app")
+
+        // Project filter narrows results accurately.
+        let filtered = try snapshot.filtered(tool: nil, search: "", projectPath: "/Fixture/Beta/app")
+        XCTAssertEqual(filtered.sessions.map(\.id), [s2.id])
+
+        // Day grouping splits today and yesterday cleanly and sums tokens per day.
+        let groups = ActivitySessionDayGroup.group(snapshot.sessions[...], calendar: calendar, now: now)
+        XCTAssertEqual(groups.count, 2)
+        XCTAssertEqual(groups[0].sessions.map(\.id), [s1.id, s2.id])
+        XCTAssertEqual(groups[0].totalTokens, 750)
+        XCTAssertEqual(groups[1].sessions.map(\.id), [s3.id])
+        XCTAssertEqual(groups[1].totalTokens, 1000)
     }
 
     func testOlderUncooperativeReloadCannotReplaceNewerSnapshot() async throws {
@@ -403,14 +485,14 @@ final class ActivityHistorySnapshotTests: XCTestCase {
         let claude = SessionRecord(tool: .claudeCode, startedAt: Date(timeIntervalSince1970: 2_000_000_000), inputTokens: 60, outputTokens: 10, taskDescription: "Claude fixture", cwd: "/Fixture/Beta/shared")
         let latest = SessionRecord(tool: .codex, startedAt: Date(timeIntervalSince1970: 2_000_000_001), inputTokens: 20, outputTokens: 10, taskDescription: "Initial latest session", cwd: "/Fixture/Alpha/shared")
         let copilot = SessionRecord(tool: .copilot, startedAt: Date(timeIntervalSince1970: 2_000_000_002), inputTokens: 800, taskDescription: "Unsupported Copilot fixture")
-        let antigravity = SessionRecord(tool: .antigravity, startedAt: Date(timeIntervalSince1970: 2_000_000_003), inputTokens: 800, taskDescription: "Unsupported Antigravity fixture")
+        let antigravity = SessionRecord(tool: .antigravity, startedAt: Date(timeIntervalSince1970: 2_000_000_003), inputTokens: 800, taskDescription: "Antigravity fixture")
         let unknown = SessionRecord(tool: .codex, startedAt: Date(timeIntervalSince1970: 2_000_000_004), inputTokens: 800, taskDescription: "Unknown tool fixture")
         unknown.toolRaw = "future-tool"
         for record in [oldest, claude, latest, copilot, antigravity, unknown] {
             context.insert(record)
         }
         try context.save()
-        return ActivityHistoryFixture(container: container, context: context, oldest: oldest, claude: claude, latest: latest)
+        return ActivityHistoryFixture(container: container, context: context, oldest: oldest, claude: claude, latest: latest, antigravity: antigravity)
     }
 }
 
@@ -421,6 +503,7 @@ private struct ActivityHistoryFixture {
     let oldest: SessionRecord
     let claude: SessionRecord
     let latest: SessionRecord
+    let antigravity: SessionRecord
 }
 
 private actor ActivityHistoryFixtureGate {

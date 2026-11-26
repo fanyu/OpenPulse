@@ -1,45 +1,16 @@
 import SwiftUI
-import SwiftData
-import Charts
 
 // MARK: - Dashboard presentation
-
-struct DashboardMetric: View {
-    let title: String
-    let value: String
-    var subtitle: String? = nil
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(LocalizedStringKey(title))
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.secondary)
-            Text(value)
-                .font(.system(size: 28, weight: .semibold).monospacedDigit())
-                .tracking(-0.7)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .contentTransition(.numericText())
-            if let subtitle {
-                Text(LocalizedStringKey(subtitle))
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
-    }
-}
 
 struct DashboardSectionTitle: View {
     let title: String
     var subtitle: String? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: 4) {
             Text(LocalizedStringKey(title))
-                .font(.system(size: 16, weight: .semibold))
+                .font(.system(size: 15, weight: .semibold))
+                .tracking(-0.2)
             if let subtitle {
                 Text(LocalizedStringKey(subtitle))
                     .font(.system(size: 12))
@@ -49,13 +20,86 @@ struct DashboardSectionTitle: View {
     }
 }
 
-extension View {
-    func dashboardSurface(cornerRadius: CGFloat = 16) -> some View {
-        background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.065), lineWidth: 1)
+private struct DashboardSurfaceModifier: ViewModifier {
+    @Environment(\.colorScheme) private var colorScheme
+    let cornerRadius: CGFloat
+    let accent: Color?
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        content
+            .background {
+                ZStack(alignment: .topLeading) {
+                    shape
+                        .fill(
+                            Color(nsColor: .controlBackgroundColor)
+                                .opacity(colorScheme == .dark ? 0.78 : 0.94)
+                        )
+                    if let accent {
+                        RadialGradient(
+                            colors: [
+                                accent.opacity(colorScheme == .dark ? 0.14 : 0.08),
+                                accent.opacity(colorScheme == .dark ? 0.03 : 0.015),
+                                Color.clear
+                            ],
+                            center: UnitPoint(x: 0.06, y: 0.0),
+                            startRadius: 6,
+                            endRadius: 240
+                        )
+                    } else {
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(colorScheme == .dark ? 0.04 : 0.55),
+                                Color.clear
+                            ],
+                            startPoint: .top,
+                            endPoint: .center
+                        )
+                    }
+                }
             }
+            .clipShape(shape)
+            .overlay {
+                shape
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [
+                                colorScheme == .dark
+                                    ? Color.white.opacity(0.18)
+                                    : Color.white.opacity(0.94),
+                                accent?.opacity(colorScheme == .dark ? 0.16 : 0.11)
+                                    ?? Color.primary.opacity(colorScheme == .dark ? 0.08 : 0.055),
+                                Color.primary.opacity(colorScheme == .dark ? 0.12 : 0.08)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 0.75
+                    )
+            }
+            .shadow(
+                color: Color.black.opacity(colorScheme == .dark ? 0.22 : 0.045),
+                radius: 5,
+                x: 0,
+                y: 2
+            )
+    }
+}
+
+struct TelemetryHairline: View {
+    @Environment(\.colorScheme) private var colorScheme
+    var opacity: Double? = nil
+
+    var body: some View {
+        Rectangle()
+            .fill(Color.primary.opacity(opacity ?? (colorScheme == .dark ? 0.10 : 0.07)))
+            .frame(height: 0.5)
+    }
+}
+
+extension View {
+    func dashboardSurface(cornerRadius: CGFloat = 16, accent: Color? = nil) -> some View {
+        modifier(DashboardSurfaceModifier(cornerRadius: cornerRadius, accent: accent))
     }
 }
 
@@ -86,675 +130,7 @@ struct QuotaProgressBar: View {
     }
 }
 
-// MARK: - Shared Chips
-
-struct FilterChip: View {
-    let label: String
-    let isSelected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Text(label)
-                .font(.system(size: 12, weight: .medium))
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(isSelected ? Color.accentColor : Color.primary.opacity(0.05))
-                .foregroundStyle(isSelected ? .white : .primary)
-                .clipShape(Capsule())
-                .overlay(Capsule().stroke(isSelected ? Color.clear : Color.primary.opacity(0.08), lineWidth: 1))
-        }
-        .buttonStyle(.plain)
-        .animation(.spring(duration: 0.3, bounce: 0.15), value: isSelected)
-    }
-}
-
-struct ValueChip: View {
-    let label: String
-    let value: String
-    var icon: String? = nil
-
-    var body: some View {
-        HStack(spacing: 6) {
-            if let icon {
-                Image(systemName: icon)
-                    .font(.system(size: 10))
-            }
-            Text(label)
-                .font(.caption)
-                .bold()
-            Text(value)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 7)
-        .glassEffect(.regular, in: .capsule)
-    }
-}
-
-struct ProminentActionButtonStyle: ButtonStyle {
-    @Environment(\.controlSize) private var controlSize
-    var fillColor: Color = Color.primary.opacity(0.9)
-    var pressedOpacity: Double = 0.88
-    var fontSizeOverride: CGFloat? = nil
-    var horizontalPaddingOverride: CGFloat? = nil
-    var verticalPaddingOverride: CGFloat? = nil
-    var cornerRadius: CGFloat = 10
-
-    func makeBody(configuration: Configuration) -> some View {
-        let metrics = metricsForControlSize()
-        configuration.label
-            .font(.system(size: fontSizeOverride ?? metrics.fontSize, weight: .semibold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, horizontalPaddingOverride ?? metrics.horizontalPadding)
-            .padding(.vertical, verticalPaddingOverride ?? metrics.verticalPadding)
-            .background(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(fillColor.opacity(configuration.isPressed ? pressedOpacity : 1))
-            )
-            .scaleEffect(configuration.isPressed ? 0.98 : 1)
-            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
-    }
-
-    private func metricsForControlSize() -> (fontSize: CGFloat, horizontalPadding: CGFloat, verticalPadding: CGFloat) {
-        switch controlSize {
-        case .mini:
-            (10, 8, 3)
-        case .small:
-            (11, 10, 5)
-        case .large:
-            (14, 16, 9)
-        case .regular, .extraLarge:
-            (12, 12, 6)
-        @unknown default:
-            (12, 12, 6)
-        }
-    }
-}
-
-// MARK: - Shared Sections
-
-struct SectionHeader: View {
-    let title: String
-    var body: some View {
-        Text(title)
-            .font(.system(size: 14, weight: .bold))
-            .foregroundStyle(.secondary)
-            .padding(.leading, 4)
-    }
-}
-
-// MARK: - Shared Stats
-
-struct ModelLeaderboardRow: View {
-    let rank: Int
-    let model: String
-    let tokens: Int
-    let fraction: Double
-    let color: Color
-    var lastUsed: Date? = nil
-    var sessionCount: Int = 0
-    var favoriteProject: String = ""
-    var avgTokens: Int = 0
-
-    var body: some View {
-        VStack(spacing: 8) {
-            HStack(spacing: 12) {
-                Text("\(rank)")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 18, height: 18)
-                    .background(Color.primary.opacity(0.05), in: Circle())
-                
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(model)
-                        .font(.system(size: 12, weight: .bold))
-                        .lineLimit(1)
-                    
-                    HStack(spacing: 6) {
-                        if !favoriteProject.isEmpty && favoriteProject != "—" {
-                            Label(favoriteProject, systemImage: "folder")
-                                .font(.system(size: 9))
-                        }
-                        Text("·").opacity(0.5)
-                        Text("\(sessionCount) sess")
-                            .font(.system(size: 9))
-                        Text("·").opacity(0.5)
-                        Text("\(avgTokens.compactTokenString)/sess")
-                            .font(.system(size: 9))
-                    }
-                    .foregroundStyle(.tertiary)
-                }
-                
-                Spacer()
-                
-                VStack(alignment: .trailing, spacing: 1) {
-                    Text(tokens.compactTokenString)
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
-                    if let lastUsed {
-                        Text(lastUsed.formatted(.relative(presentation: .named)))
-                            .font(.system(size: 9))
-                            .foregroundStyle(.tertiary)
-                    }
-                }
-            }
-            
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(color.opacity(0.1)).frame(height: 4)
-                    Capsule().fill(color.gradient)
-                        .frame(width: geo.size.width * CGFloat(fraction), height: 4)
-                }
-            }
-            .frame(height: 4)
-        }
-        .padding(.vertical, 6)
-    }
-}
-
-struct DistributionBarChart: View {
-    struct Entry: Identifiable {
-        let id = UUID()
-        let label: String
-        let value: Int
-        let color: Color
-        var displayValue: String? = nil  // if nil, falls back to compactTokenString
-    }
-    let data: [Entry]
-    let total: Int
-
-    var body: some View {
-        VStack(spacing: 8) {
-            ForEach(data) { entry in
-                VStack(spacing: 4) {
-                    HStack {
-                        Text(entry.label)
-                            .font(.caption)
-                            .lineLimit(1)
-                        Spacer()
-                        Text(entry.displayValue ?? entry.value.compactTokenString)
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                    }
-                    
-                    GeometryReader { geo in
-                        ZStack(alignment: .leading) {
-                            Capsule().fill(entry.color.opacity(0.1)).frame(height: 4)
-                            Capsule().fill(entry.color.gradient)
-                                .frame(width: geo.size.width * CGFloat(Double(entry.value) / Double(max(1, total))), height: 4)
-                        }
-                    }
-                    .frame(height: 4)
-                }
-            }
-        }
-    }
-}
-
-struct TokenRatioChart: View {
-    let input: Int
-    let output: Int
-    var body: some View {
-        let total = Double(input + output)
-        let inputShare = total > 0 ? Double(input) / total : 0.5
-        let outputShare = total > 0 ? Double(output) / total : 0.5
-        
-        ZStack {
-            Chart {
-                SectorMark(
-                    angle: .value("Tokens", inputShare),
-                    innerRadius: .ratio(0.65),
-                    angularInset: 2
-                )
-                .foregroundStyle(Color.blue.gradient)
-                
-                SectorMark(
-                    angle: .value("Tokens", outputShare),
-                    innerRadius: .ratio(0.65),
-                    angularInset: 2
-                )
-                .foregroundStyle(Color.green.gradient)
-            }
-            
-            VStack(spacing: 0) {
-                Text("\(Int(inputShare * 100))%")
-                    .font(.system(size: 16, weight: .bold, design: .monospaced))
-                Text("Input")
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
-}
-
-struct WeeklyAreaChart: View {
-    @Environment(\.colorScheme) private var colorScheme
-
-    struct Point: Identifiable {
-        var id: Date { date }
-        let date: Date
-        let value: Int
-    }
-    let data: [Point]
-    let color: Color
-
-    private var axisLabelColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.72) : Color.black.opacity(0.55)
-    }
-
-    /// Number of days spanned by `data`, used to adapt the X-axis density and format.
-    private var spanDays: Int {
-        guard let first = data.first?.date, let last = data.last?.date else { return 7 }
-        return max(1, Calendar.current.dateComponents([.day], from: first, to: last).day ?? 7)
-    }
-
-    var body: some View {
-        Chart {
-            ForEach(data) { pt in
-                AreaMark(
-                    x: .value("Date", pt.date, unit: .day),
-                    y: .value("Tokens", pt.value)
-                )
-                .foregroundStyle(
-                    LinearGradient(
-                        colors: [color.opacity(0.14), color.opacity(0.01)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
-                .interpolationMethod(.linear)
-
-                LineMark(
-                    x: .value("Date", pt.date, unit: .day),
-                    y: .value("Tokens", pt.value)
-                )
-                .foregroundStyle(color)
-                .lineStyle(StrokeStyle(lineWidth: 2))
-                .interpolationMethod(.linear)
-            }
-        }
-        .chartXAxis {
-            if spanDays <= 7 {
-                // 7 天：每天一个刻度，显示星期缩写（周一…周日）
-                AxisMarks(values: .stride(by: .day, count: 1)) { _ in
-                    AxisValueLabel(format: .dateTime.weekday(.abbreviated))
-                        .foregroundStyle(axisLabelColor)
-                }
-            } else if spanDays <= 30 {
-                // 30 天：每 5 天一个刻度，显示月/日
-                AxisMarks(values: .stride(by: .day, count: 5)) { _ in
-                    AxisValueLabel(format: .dateTime.month(.defaultDigits).day())
-                        .foregroundStyle(axisLabelColor)
-                }
-            } else {
-                // 90 天：每 2 周一个刻度，显示月/日
-                AxisMarks(values: .stride(by: .day, count: 14)) { _ in
-                    AxisValueLabel(format: .dateTime.month(.defaultDigits).day())
-                        .foregroundStyle(axisLabelColor)
-                }
-            }
-        }
-        .chartYAxis {
-            AxisMarks { value in
-                AxisValueLabel {
-                    if let v = value.as(Int.self) {
-                        Text(v >= 1000 ? "\(v / 1000)k" : "\(v)")
-                            .foregroundStyle(axisLabelColor)
-                    }
-                }
-                AxisGridLine()
-            }
-        }
-    }
-}
-
-struct StatCard: View {
-
-    let title: String
-    let value: String
-    var subtitle: String? = nil
-    var unit: String? = nil
-    let icon: String
-    let color: Color
-    var delta: Int? = nil // Percentage change, nil to hide
-    var isGlass: Bool = false
-
-    var body: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 8) {
-                    Image(systemName: icon)
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(color)
-                    Text(title)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                    Spacer()
-                }
-                
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(alignment: .firstTextBaseline, spacing: 4) {
-                        Text(value)
-                            .font(.system(size: 28, weight: .bold, design: .monospaced))
-                            .foregroundStyle(.primary)
-                            .minimumScaleFactor(0.6)
-                            .lineLimit(1)
-                        if let unit {
-                            Text(unit)
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(.tertiary)
-                        }
-                    }
-                    if let subtitle {
-                        Text(subtitle)
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(1)
-                    }
-                }
-            }
-            
-            if let d = delta {
-                Spacer(minLength: 0)
-                deltaLabel(d)
-            }
-        }
-        .padding(20)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(NSColor.controlBackgroundColor), in: RoundedRectangle(cornerRadius: 16))
-        .shadow(color: Color.black.opacity(0.03), radius: 8, y: 4)
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(Color.primary.opacity(0.05), lineWidth: 1)
-        )
-    }
-
-    @ViewBuilder
-    private func deltaLabel(_ d: Int) -> some View {
-        let isPositive = d >= 0
-        let arrow = isPositive ? "arrow.up" : "arrow.down"
-        let clr: Color = isPositive ? .green : .red
-        Label("\(abs(d))%", systemImage: arrow)
-            .font(.caption2.bold())
-            .foregroundStyle(clr)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            .background(clr.opacity(0.1), in: .capsule)
-    }
-}
-
-// MARK: - Shared Rows
-
-enum QuotaRowStyle {
-    case compact // For MenuBar
-    case detailed // For Dashboard/Quota page
-}
-
-enum QuotaRowValuePlacement {
-    case trailing
-    case bottomLeading
-}
-
-struct UnifiedQuotaRow: View {
-    var style: QuotaRowStyle = .detailed
-    var showUsedAtTop: Bool = false
-    var valuePlacement: QuotaRowValuePlacement = .trailing
-    let title: String
-    let fraction: Double?
-    let primaryValue: String?
-    let secondaryValue: String?
-    let countdown: String?
-
-    private var titleFont: Font { style == .compact ? .system(size: 11, weight: .medium) : .system(size: 12, weight: .medium) }
-    private var valueFont: Font { style == .compact ? .system(size: 12, weight: .semibold).monospacedDigit() : .system(size: 20, weight: .semibold).monospacedDigit() }
-    private var secondaryFont: Font { .system(size: 11) }
-    private var barHeight: CGFloat { style == .compact ? 4 : 5 }
-    private var spacing: CGFloat { style == .compact ? 4 : 8 }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: spacing) {
-            if valuePlacement == .bottomLeading {
-                // Used for Antigravity grid cells: title → value row → progress bar
-                Text(title)
-                    .font(titleFont)
-                    .foregroundStyle(style == .compact ? .secondary : .primary)
-                    .lineLimit(1)
-
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    primaryValueView
-                    if let s = secondaryValue {
-                        Text(s).font(secondaryFont).foregroundStyle(.secondary).lineLimit(1)
-                    }
-                    if let c = countdown {
-                        ResetCountdownLabel(countdown: c)
-                    }
-                    Spacer(minLength: 0)
-                }
-
-                QuotaProgressBar(fraction: fraction, color: quotaBarColor(fraction: fraction), height: barHeight)
-            } else {
-                // Standard layout: title + primary value → progress bar → secondary + countdown
-                HStack(alignment: .firstTextBaseline) {
-                    Text(title)
-                        .font(titleFont)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-
-                    Spacer()
-                    primaryValueView
-                }
-
-                QuotaProgressBar(fraction: fraction, color: quotaBarColor(fraction: fraction), height: barHeight)
-
-                // Always show secondary (usage) and countdown below the bar on the same line
-                if secondaryValue != nil || countdown != nil {
-                    HStack(alignment: .firstTextBaseline) {
-                        if let s = secondaryValue {
-                            Text(s).font(secondaryFont).foregroundStyle(.secondary).lineLimit(1)
-                        }
-                        Spacer()
-                        if let c = countdown {
-                            ResetCountdownLabel(countdown: c)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var primaryValueView: some View {
-        if let p = primaryValue {
-            if p == "∞" {
-                Image(systemName: "infinity")
-                    .font(style == .compact ? .system(size: 10, weight: .bold) : .system(size: 14, weight: .black))
-                        .foregroundStyle(.secondary)
-            } else {
-                Text(p).font(valueFont)
-                    .foregroundStyle(fraction.map { $0 < 0.15 ? Color.red : (style == .compact ? .primary : .primary) } ?? .primary)
-            }
-        }
-    }
-}
-
-struct UnifiedSessionRow: View {
-    let session: SessionRecord
-    var showModel: Bool = true
-    var isExpanded: Bool = false
-    var onToggle: (() -> Void)? = nil
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 12) {
-                ToolLogoImage(tool: session.tool, size: 28)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(session.taskDescription.isEmpty ? "Untitled session" : session.taskDescription)
-                        .font(.callout)
-                        .lineLimit(isExpanded ? nil : 2)
-                    
-                    HStack(spacing: 6) {
-                        Text(session.tool.displayName)
-                            .font(.caption2)
-                        Text("·").foregroundStyle(.tertiary)
-                        Text(session.startedAt, style: .time)
-                            .font(.caption2)
-                        if isExpanded {
-                            Text("·").foregroundStyle(.tertiary)
-                            Text(session.startedAt, style: .date)
-                                .font(.caption2)
-                        }
-                    }
-                    .foregroundStyle(.secondary)
-                }
-
-                Spacer()
-
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text(session.totalTokens.compactTokenString)
-                        .font(.caption)
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                    
-                    if let branch = session.gitBranch, !branch.isEmpty {
-                        Label(branch, systemImage: "arrow.triangle.branch")
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(1)
-                    } else if showModel && !session.model.isEmpty {
-                        Text(session.model)
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(1)
-                    }
-                }
-            }
-
-            if isExpanded {
-                Divider().opacity(0.3)
-                VStack(alignment: .leading, spacing: 6) {
-                    tokenDetailRow("Input", value: session.inputTokens)
-                    tokenDetailRow("Output", value: session.outputTokens)
-                    if session.cacheReadTokens > 0 {
-                        tokenDetailRow("Cache Read", value: session.cacheReadTokens)
-                    }
-                    if !session.cwd.isEmpty {
-                        Label(session.cwd, systemImage: "folder")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                }
-                .padding(.leading, 40)
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .background(Color(NSColor.controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
-        .shadow(color: Color.black.opacity(0.03), radius: 6, y: 3)
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.primary.opacity(0.05), lineWidth: 1)
-        )
-        .contentShape(Rectangle())
-        .onTapGesture {
-            onToggle?()
-        }
-    }
-
-    private func tokenDetailRow(_ label: String, value: Int) -> some View {
-        HStack {
-            Text(label)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-            Spacer()
-            Text(value.formatted(.number))
-                .font(.caption2)
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
-        }
-    }
-}
-
-// MARK: - Card Container
-
-struct DetailCardContainer<Content: View>: View {
-    let tool: Tool
-    let todayTokens: Int
-    var title: String? = nil
-    var subtitle: String? = nil
-    var tagText: String? = nil
-    var isRefreshing: Bool = false
-    var onRefresh: (() -> Void)? = nil
-    @ViewBuilder let content: () -> Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .top, spacing: 12) {
-                ToolLogoImage(tool: tool, size: 28)
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 8) {
-                        Text(title ?? tool.displayName)
-                            .font(.system(size: 14, weight: .semibold))
-                        if let tagText {
-                            SubscriptionTag(text: tagText)
-                        }
-                    }
-                    if let subtitle {
-                        Text(subtitle)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                    if todayTokens > 0 {
-                        Text("今日 \(todayTokens.compactTokenString) tokens")
-                            .font(.system(size: 11).monospacedDigit())
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                Spacer()
-                if let onRefresh {
-                    Button(action: onRefresh) {
-                        Group {
-                            if isRefreshing {
-                                ProgressView()
-                                    .controlSize(.small)
-                            } else {
-                                Image(systemName: "arrow.clockwise")
-                                    .font(.system(size: 12, weight: .semibold))
-                            }
-                        }
-                        .frame(width: 28, height: 28)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(isRefreshing)
-                    .help(isRefreshing ? String(localized: "正在刷新") : String(localized: "刷新配额"))
-                    .accessibilityLabel("刷新配额")
-                }
-            }
-            
-            content()
-        }
-        .padding(20)
-        .dashboardSurface()
-    }
-}
-
-
-struct TodayTokenBadge: View {
-    let tokens: Int
-    var body: some View {
-        Text(tokens.compactTokenString)
-            .font(.system(size: 11).monospacedDigit())
-            .foregroundStyle(.secondary)
-            .help("今日用量")
-            .accessibilityLabel("今日 \(tokens.compactTokenString) tokens")
-    }
-}
+// MARK: - Shared Badges
 
 struct SubscriptionTag: View {
     let text: String
@@ -778,22 +154,6 @@ struct SubscriptionTag: View {
                     : Color.primary.opacity(0.04),
                 in: Capsule()
             )
-    }
-}
-
-// MARK: - Shared Labels
-
-struct ResetCountdownLabel: View {
-    let countdown: String
-
-    var body: some View {
-        HStack(spacing: 3) {
-            Image(systemName: "clock.arrow.2.circlepath")
-            Text("\(countdown) 重置")
-        }
-        .font(.system(size: 11))
-        .foregroundStyle(.secondary)
-        .lineLimit(1)
     }
 }
 

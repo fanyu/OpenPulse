@@ -1,24 +1,33 @@
 import SwiftUI
-import Charts
 import SwiftData
 
 // MARK: - Activity heatmap
 
 struct ActivityHeatmap: View {
-    let dailyStats: [DailyStatsRecord]
-    var dataRevision: UInt64 = 0
+    private let samples: [ActivityHeatmapSample]
+    private let dataRevision: UInt64
+
+    init(dailyStats: [DailyStatsRecord], dataRevision: UInt64 = 0) {
+        self.samples = dailyStats.map {
+            ActivityHeatmapSample(date: $0.date, tokens: $0.totalInputTokens + $0.totalOutputTokens)
+        }
+        self.dataRevision = dataRevision
+    }
+
+    init(samples: [ActivityHeatmapSample], dataRevision: UInt64 = 0) {
+        self.samples = samples
+        self.dataRevision = dataRevision
+    }
 
     var body: some View {
         ActivityHeatmapContent(
-            samples: dailyStats.map {
-                ActivityHeatmapSample(date: $0.date, tokens: $0.totalInputTokens + $0.totalOutputTokens)
-            },
+            samples: samples,
             dataRevision: dataRevision
         )
     }
 }
 
-struct ActivityHeatmapSample: Equatable {
+struct ActivityHeatmapSample: Equatable, Sendable {
     let date: Date
     let tokens: Int
 }
@@ -70,42 +79,90 @@ private struct ActivityHeatmapContent: View {
     let samples: [ActivityHeatmapSample]
     let dataRevision: UInt64
     @State private var selectedYear = Calendar.current.component(.year, from: Date())
+    @State private var currentYear = Calendar.current.component(.year, from: Date())
     @State private var weeks: [ActivityHeatmapWeek] = []
     @State private var months: [ActivityHeatmapMonth] = []
+    @State private var hoveredDay: ActivityHeatmapDay?
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 60)) { context in
-            let currentYear = Calendar.current.component(.year, from: context.date)
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                HStack(spacing: 4) {
                     Button { selectedYear -= 1 } label: {
                         Image(systemName: "chevron.left")
+                            .font(.system(size: 10, weight: .semibold))
+                            .frame(width: 22, height: 22)
+                            .contentShape(Circle())
                     }
                     .help("上一年")
+
                     Text(selectedYear.formatted(.number.grouping(.never)))
-                        .font(.system(size: 13, weight: .semibold).monospacedDigit())
+                        .font(.system(size: 12.5, weight: .semibold).monospacedDigit())
+                        .frame(minWidth: 40)
+
                     Button { selectedYear += 1 } label: {
                         Image(systemName: "chevron.right")
+                            .font(.system(size: 10, weight: .semibold))
+                            .frame(width: 22, height: 22)
+                            .contentShape(Circle())
                     }
                     .help("下一年")
                     .disabled(selectedYear >= currentYear)
-                    Spacer()
-                    HeatmapLegend()
                 }
                 .buttonStyle(.borderless)
-                .controlSize(.small)
-                ActivityYearGrid(weeks: weeks, months: months)
+                .foregroundStyle(.secondary)
+
+                if let hoveredDay {
+                    HStack(spacing: 5) {
+                        Text(hoveredDay.date, format: .dateTime.year().month().day())
+                            .foregroundStyle(.secondary)
+                        Text("·").foregroundStyle(.tertiary)
+                        Text("\(hoveredDay.tokens.compactTokenString) tokens")
+                            .fontWeight(.semibold)
+                            .monospacedDigit()
+                    }
+                    .font(.system(size: 11))
+                    .padding(.horizontal, 9)
+                    .frame(height: 22)
+                    .background(Color.primary.opacity(0.055), in: Capsule())
+                    .transition(.opacity)
+                } else {
+                    Text("悬停方块查看当日用量")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.tertiary)
+                        .transition(.opacity)
+                }
+
+                Spacer(minLength: 8)
+                HeatmapLegend()
             }
-            .onChange(of: samples, initial: true) { _, _ in rebuild(now: context.date) }
-            .onChange(of: dataRevision) { _, _ in rebuild(now: context.date) }
-            .onChange(of: selectedYear) { _, _ in rebuild(now: context.date) }
-            .onChange(of: Calendar.current.startOfDay(for: context.date)) { _, _ in rebuild(now: context.date) }
+            .frame(height: 24)
+            .animation(.easeOut(duration: 0.12), value: hoveredDay?.id)
+
+            ActivityYearGrid(weeks: weeks, months: months, hoveredDay: $hoveredDay)
+        }
+        .onChange(of: samples, initial: true) { _, _ in rebuild(now: Date()) }
+        .onChange(of: dataRevision) { _, _ in rebuild(now: Date()) }
+        .onChange(of: selectedYear) { _, _ in
+            hoveredDay = nil
+            rebuild(now: Date())
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
+            let now = Date()
+            currentYear = Calendar.current.component(.year, from: now)
+            rebuild(now: now)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange)) { _ in
+            let now = Date()
+            currentYear = Calendar.current.component(.year, from: now)
+            rebuild(now: now)
         }
     }
 
     private func rebuild(now: Date) {
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: now)
+        currentYear = calendar.component(.year, from: now)
         guard let yearStart = calendar.date(from: DateComponents(year: selectedYear, month: 1, day: 1)),
               let gridStart = calendar.date(byAdding: .day, value: -(calendar.component(.weekday, from: yearStart) - 1), to: yearStart) else { return }
         let tokensByDay = activityHeatmapDailyTotals(samples: samples, year: selectedYear, now: now, calendar: calendar)
@@ -135,10 +192,20 @@ private struct ActivityHeatmapContent: View {
 }
 
 private struct ActivityYearGrid: View {
+    @Environment(\.colorScheme) private var colorScheme
     let weeks: [ActivityHeatmapWeek]
     let months: [ActivityHeatmapMonth]
+    @Binding var hoveredDay: ActivityHeatmapDay?
     private let cellSize: CGFloat = 12
     private let spacing: CGFloat = 3
+
+    private var gridWidth: CGFloat {
+        max(0, CGFloat(weeks.count) * (cellSize + spacing) - spacing)
+    }
+
+    private var gridHeight: CGFloat {
+        7 * cellSize + 6 * spacing
+    }
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -155,49 +222,75 @@ private struct ActivityYearGrid: View {
                     ZStack(alignment: .leading) {
                         ForEach(months) { month in
                             Text(month.date, format: .dateTime.month(.abbreviated))
-                                .font(.system(size: 11))
+                                .font(.system(size: 10.5, weight: .medium))
                                 .foregroundStyle(.secondary)
                                 .offset(x: CGFloat(month.column) * (cellSize + spacing))
                         }
                     }
-                    .frame(width: max(0, CGFloat(weeks.count) * (cellSize + spacing) - spacing), height: 15, alignment: .leading)
-                    HStack(alignment: .top, spacing: spacing) {
-                        ForEach(weeks) { week in
-                            VStack(spacing: spacing) {
-                                ForEach(week.days) { day in
-                                    ActivityDayCell(day: day, size: cellSize)
+                    .frame(width: gridWidth, height: 15, alignment: .leading)
+
+                    Canvas { context, _ in
+                        let step = cellSize + spacing
+                        let hoveredID = hoveredDay?.id
+                        for (col, week) in weeks.enumerated() {
+                            let x = CGFloat(col) * step
+                            for (row, day) in week.days.enumerated() {
+                                guard day.isInYear else { continue }
+                                let rect = CGRect(x: x, y: CGFloat(row) * step, width: cellSize, height: cellSize)
+                                let path = Path(roundedRect: rect, cornerRadius: 3, style: .continuous)
+                                let fillColor: Color = day.isFuture
+                                    ? Color.primary.opacity(colorScheme == .dark ? 0.035 : 0.025)
+                                    : heatmapColor(fraction: day.fraction, colorScheme: colorScheme)
+                                context.fill(path, with: .color(fillColor))
+                                if hoveredID == day.id {
+                                    context.stroke(
+                                        path,
+                                        with: .color(Color.primary.opacity(colorScheme == .dark ? 0.72 : 0.55)),
+                                        lineWidth: 1.25
+                                    )
                                 }
                             }
                         }
                     }
+                    .frame(width: gridWidth, height: gridHeight)
+                    .contentShape(Rectangle())
+                    .onContinuousHover { phase in
+                        switch phase {
+                        case .active(let location):
+                            let step = cellSize + spacing
+                            let col = Int(location.x / step)
+                            let row = Int(location.y / step)
+                            if col >= 0, col < weeks.count, row >= 0, row < weeks[col].days.count {
+                                let candidate = weeks[col].days[row]
+                                if candidate.isInYear && !candidate.isFuture {
+                                    if hoveredDay?.id != candidate.id {
+                                        hoveredDay = candidate
+                                    }
+                                    return
+                                }
+                            }
+                            if hoveredDay != nil { hoveredDay = nil }
+                        case .ended:
+                            if hoveredDay != nil { hoveredDay = nil }
+                        }
+                    }
+                    .accessibilityLabel("年度活跃热力图")
                 }
             }
-            .padding(.trailing, 4)
+            .padding(.trailing, 18)
         }
     }
 }
 
-private struct ActivityDayCell: View {
-    let day: ActivityHeatmapDay
-    let size: CGFloat
-
-    var body: some View {
-        RoundedRectangle(cornerRadius: 2, style: .continuous)
-            .fill(!day.isInYear ? .clear : day.isFuture ? Color.primary.opacity(0.025) : heatmapColor(fraction: day.fraction))
-            .frame(width: size, height: size)
-            .help(day.isInYear && !day.isFuture ? "\(day.date.formatted(date: .abbreviated, time: .omitted))：\(day.tokens.compactTokenString) tokens" : "")
-            .accessibilityLabel(Text("\(day.date.formatted(date: .abbreviated, time: .omitted))：\(day.tokens.compactTokenString) tokens"))
-            .accessibilityHidden(!day.isInYear || day.isFuture)
-    }
-}
-
 private struct HeatmapLegend: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
-        HStack(spacing: 5) {
+        HStack(spacing: 4) {
             Text("少")
             ForEach([0.0, 0.25, 0.5, 0.75, 1.0], id: \.self) { level in
-                RoundedRectangle(cornerRadius: 2, style: .continuous)
-                    .fill(heatmapColor(fraction: level))
+                RoundedRectangle(cornerRadius: 2.5, style: .continuous)
+                    .fill(heatmapColor(fraction: level, colorScheme: colorScheme))
                     .frame(width: 10, height: 10)
             }
             Text("多")
@@ -209,337 +302,18 @@ private struct HeatmapLegend: View {
     }
 }
 
-private func heatmapColor(fraction: Double) -> Color {
-    fraction <= 0 ? Color.primary.opacity(0.055) : Color.accentColor.opacity(0.18 + min(1, max(0, fraction)) * 0.72)
+private func heatmapColor(fraction: Double, colorScheme: ColorScheme = .light) -> Color {
+    if fraction <= 0 {
+        return Color.primary.opacity(colorScheme == .dark ? 0.08 : 0.055)
+    }
+    let clamped = min(1, max(0, fraction))
+    let base = colorScheme == .dark
+        ? Color(red: 0.22, green: 0.80, blue: 0.52)
+        : Color(red: 0.12, green: 0.66, blue: 0.40)
+    return base.opacity(0.22 + clamped * 0.76)
 }
 
-// MARK: - Today hourly heatmap
-
-struct TodayHourlyHeatmap: View {
-    let sessions: [SessionRecord]
-
-    var body: some View {
-        TodayHourlyHeatmapContent(samples: sessions.map {
-            ActivityHeatmapSample(date: $0.startedAt, tokens: $0.totalTokens)
-        })
-    }
-}
-
-private struct TodayHourlyHeatmapContent: View {
-    let samples: [ActivityHeatmapSample]
-    @State private var tokensByHour: [Int: Int] = [:]
-    @State private var maximum = 1
-
-    var body: some View {
-        TimelineView(.periodic(from: .now, by: 60)) { context in
-            let calendar = Calendar.current
-            let today = calendar.startOfDay(for: context.date)
-            let currentHour = calendar.component(.hour, from: context.date)
-            VStack(alignment: .leading, spacing: 12) {
-                Text(today, format: .dateTime.month().day().weekday(.wide))
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                VStack(alignment: .leading, spacing: 5) {
-                    ForEach(0..<4, id: \.self) { row in
-                        HStack(spacing: 5) {
-                            Text(String(format: "%02d", row * 6))
-                                .font(.system(size: 10).monospacedDigit())
-                                .foregroundStyle(.secondary)
-                                .frame(width: 20, alignment: .trailing)
-                            ForEach(0..<6, id: \.self) { column in
-                                HourlyActivityCell(
-                                    hour: row * 6 + column,
-                                    tokens: tokensByHour[row * 6 + column] ?? 0,
-                                    maximum: maximum,
-                                    currentHour: currentHour
-                                )
-                            }
-                        }
-                    }
-                }
-                HStack { Spacer(); HeatmapLegend() }
-            }
-            .onChange(of: samples, initial: true) { _, _ in rebuild(today: today) }
-            .onChange(of: today) { _, _ in rebuild(today: today) }
-        }
-    }
-
-    private func rebuild(today: Date) {
-        let calendar = Calendar.current
-        guard let tomorrow = calendar.date(byAdding: .day, value: 1, to: today) else { return }
-        var totals: [Int: Int] = [:]
-        for sample in samples where sample.date >= today && sample.date < tomorrow {
-            totals[calendar.component(.hour, from: sample.date), default: 0] += sample.tokens
-        }
-        tokensByHour = totals
-        maximum = max(1, totals.values.max() ?? 0)
-    }
-}
-
-private struct HourlyActivityCell: View {
-    let hour: Int
-    let tokens: Int
-    let maximum: Int
-    let currentHour: Int
-
-    var body: some View {
-        RoundedRectangle(cornerRadius: 3, style: .continuous)
-            .fill(hour <= currentHour ? heatmapColor(fraction: Double(tokens) / Double(maximum)) : Color.primary.opacity(0.025))
-            .frame(width: 22, height: 22)
-            .overlay {
-                if hour == currentHour {
-                    RoundedRectangle(cornerRadius: 3, style: .continuous)
-                        .strokeBorder(Color.primary.opacity(0.45), lineWidth: 1)
-                }
-            }
-            .help(hour <= currentHour ? "\(String(format: "%02d:00", hour))–\(String(format: "%02d:00", hour + 1))：\(tokens.compactTokenString) tokens" : "")
-            .accessibilityLabel(Text("\(hour) 时：\(tokens.compactTokenString) tokens"))
-            .accessibilityHidden(hour > currentHour)
-    }
-}
-
-// MARK: - Recent tool sessions
-
-private struct AnalysisSessionSnapshot: Identifiable, Equatable {
-    let id: UUID
-    let tool: Tool
-    let date: Date
-    let tokens: Int
-    let task: String
-    let model: String
-    let branch: String?
-
-    init(_ record: SessionRecord) {
-        id = record.id
-        tool = record.tool
-        date = record.startedAt
-        tokens = record.totalTokens
-        task = record.taskDescription
-        model = record.model
-        branch = record.gitBranch
-    }
-}
-
-struct ToolAnalysisSessionView: View {
-    let tool: Tool
-    let sessions: [SessionRecord]
-    let range: TrendsView.ChartRange
-
-    var body: some View {
-        RecentAnalysisSessions(tool: tool, samples: sessions.map(AnalysisSessionSnapshot.init), days: range.days)
-    }
-}
-
-private struct RecentAnalysisSessions: View {
-    let tool: Tool
-    let samples: [AnalysisSessionSnapshot]
-    let days: Int
-    var showModel = true
-    @State private var recent: [AnalysisSessionSnapshot] = []
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            if recent.isEmpty {
-                Text("暂无记录")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: 60)
-            } else {
-                ForEach(recent) { session in
-                    AnalysisSessionRow(session: session, showModel: showModel)
-                }
-            }
-        }
-        .onChange(of: samples, initial: true) { _, _ in rebuild() }
-        .onChange(of: days) { _, _ in rebuild() }
-        .onChange(of: tool) { _, _ in rebuild() }
-    }
-
-    private func rebuild() {
-        let now = Date()
-        let calendar = Calendar.current
-        let cutoff = calendar.date(byAdding: .day, value: -(days - 1), to: calendar.startOfDay(for: now)) ?? now
-        recent = Array(samples.filter { $0.tool == tool && $0.date >= cutoff && $0.date <= now }
-            .sorted { $0.date > $1.date }.prefix(5))
-    }
-}
-
-private struct AnalysisSessionRow: View {
-    let session: AnalysisSessionSnapshot
-    let showModel: Bool
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            ToolLogoImage(tool: session.tool, size: 22)
-            VStack(alignment: .leading, spacing: 5) {
-                Text(session.task.isEmpty ? String(localized: "Untitled session") : session.task)
-                    .font(.system(size: 12, weight: .medium))
-                    .lineLimit(2)
-                Text(session.date, format: .dateTime.month().day().hour().minute())
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 12)
-            VStack(alignment: .trailing, spacing: 5) {
-                Text(session.tokens.compactTokenString)
-                    .font(.system(size: 12).monospacedDigit())
-                if let branch = session.branch, !branch.isEmpty {
-                    Label(branch, systemImage: "arrow.triangle.branch")
-                        .font(.system(size: 10))
-                        .lineLimit(1)
-                } else if showModel && !session.model.isEmpty {
-                    Text(session.model).font(.system(size: 10)).lineLimit(1)
-                }
-            }
-            .foregroundStyle(.secondary)
-        }
-        .padding(.vertical, 6)
-        .accessibilityElement(children: .combine)
-    }
-}
-
-// MARK: - Antigravity analysis
-
-struct AGAnalysisView: View {
-    let sessions: [SessionRecord]
-    let range: TrendsView.ChartRange
-
-    var body: some View {
-        let samples = sessions.map(AnalysisSessionSnapshot.init)
-        VStack(alignment: .leading, spacing: 22) {
-            AGRecentTaskChart(samples: samples)
-            VStack(alignment: .leading, spacing: 12) {
-                DashboardSectionTitle(title: String(localized: "近期任务记录"))
-                RecentAnalysisSessions(tool: .antigravity, samples: samples, days: range.days, showModel: false)
-            }
-        }
-    }
-}
-
-private struct AGTaskCount: Identifiable {
-    let date: Date
-    let count: Int
-    var id: Date { date }
-}
-
-private struct AGRecentTaskChart: View {
-    let samples: [AnalysisSessionSnapshot]
-    @State private var points: [AGTaskCount] = []
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            DashboardSectionTitle(title: String(localized: "近 7 日任务数"))
-            if points.allSatisfy({ $0.count == 0 }) {
-                Text("暂无数据")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: 100)
-            } else {
-                Chart(points) { point in
-                    BarMark(x: .value("日期", point.date, unit: .day), y: .value("任务数", point.count))
-                        .foregroundStyle(Color.accentColor.opacity(0.7))
-                        .cornerRadius(3)
-                }
-                .chartXAxis { AxisMarks(values: .stride(by: .day)) { _ in AxisValueLabel(format: .dateTime.weekday(.abbreviated)) } }
-                .frame(height: 120)
-            }
-        }
-        .onChange(of: samples, initial: true) { _, _ in rebuild() }
-    }
-
-    private func rebuild() {
-        let calendar = Calendar.current
-        let now = Date()
-        let today = calendar.startOfDay(for: now)
-        let cutoff = calendar.date(byAdding: .day, value: -6, to: today) ?? today
-        var counts: [Date: Int] = [:]
-        for sample in samples where sample.tool == .antigravity && sample.date >= cutoff && sample.date <= now {
-            counts[calendar.startOfDay(for: sample.date), default: 0] += 1
-        }
-        points = (0..<7).compactMap { offset in
-            guard let date = calendar.date(byAdding: .day, value: offset, to: cutoff) else { return nil }
-            return AGTaskCount(date: date, count: counts[date] ?? 0)
-        }
-    }
-}
-
-// MARK: - Copilot analysis
-
-struct CopilotAnalysisView: View {
-    let snapshots: [String: CopilotSnapshot]?
-    let resetAt: Date?
-
-    var body: some View {
-        CopilotAnalysisContent(
-            entries: (snapshots ?? [:]).map { CopilotAnalysisEntry(id: $0.key, snapshot: $0.value) }.sorted { $0.id < $1.id },
-            resetAt: resetAt
-        )
-    }
-}
-
-private struct CopilotAnalysisEntry: Identifiable {
-    let id: String
-    let snapshot: CopilotSnapshot
-}
-
-private struct CopilotAnalysisContent: View {
-    let entries: [CopilotAnalysisEntry]
-    let resetAt: Date?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            if !entries.isEmpty {
-                // Dictionary keys are stable even when the API omits quotaId.
-                ForEach(entries) { entry in
-                    CopilotSnapshotCard(snapshot: entry.snapshot, resetAt: resetAt)
-                }
-            } else {
-                Text("未同步配额数据")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: 60)
-            }
-        }
-    }
-}
-
-struct CopilotSnapshotCard: View {
-    let snapshot: CopilotSnapshot
-    let resetAt: Date?
-
-    private var remainingFraction: Double? {
-        copilotAnalysisRemainingFraction(percentRemaining: snapshot.percentRemaining)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text(snapshot.displayName)
-                    .font(.system(size: 13, weight: .semibold))
-                Spacer()
-                if snapshot.unlimited == true {
-                    Text("无限制")
-                        .font(.system(size: 12, weight: .medium))
-                } else if let remainingFraction {
-                    Text("已用 \(Int(((1 - remainingFraction) * 100).rounded()))%")
-                        .font(.system(size: 12, weight: .medium).monospacedDigit())
-                } else {
-                    Text("—").foregroundStyle(.secondary)
-                }
-            }
-            if snapshot.unlimited != true {
-                QuotaProgressBar(fraction: remainingFraction, color: .accentColor, height: 4)
-                if let resetAt {
-                    Text("重置于 \(resetAt.formatted(date: .abbreviated, time: .shortened))")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-        .padding(16)
-        .dashboardSurface(cornerRadius: 12)
-    }
-}
+// MARK: - Copilot helper
 
 func copilotAnalysisRemainingFraction(percentRemaining: Double?) -> Double? {
     percentRemaining.flatMap { $0.isFinite ? min(1, max(0, $0 / 100)) : nil }

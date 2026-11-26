@@ -163,6 +163,8 @@ final class AppLogger {
         )
     }
 
+    var logsDirectoryURL: URL { Self.makeLogsDirectoryURL() }
+
     func clear() { entries.removeAll() }
 
     private func appendPersistentSyncError(_ event: PersistentSyncErrorEvent) {

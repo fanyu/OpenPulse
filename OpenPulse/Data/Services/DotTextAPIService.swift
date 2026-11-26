@@ -105,6 +105,45 @@ final class DotTextAPIService {
         }
     }
 
+    func testPushQuotaSnapshot(
+        codexAccounts: [CodexAccountSnapshot],
+        claudeUsage: ClaudeUsageResponse?,
+        fallbackQuotas: [QuotaRecord],
+        defaults: UserDefaults = .standard,
+        apiKeyOverride: String? = nil
+    ) async throws {
+        let deviceID = defaults.string(forKey: DefaultsKey.deviceID)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !deviceID.isEmpty else {
+            throw DotTextAPIError.missingDeviceID
+        }
+
+        let apiKey = (apiKeyOverride ?? loadAPIKey(using: defaults))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !apiKey.isEmpty else {
+            throw DotTextAPIError.missingAPIKey
+        }
+
+        let taskKey = defaults.string(forKey: DefaultsKey.taskKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let content = makeQuotaContent(
+            codexAccounts: codexAccounts,
+            claudeUsage: claudeUsage,
+            fallbackQuotas: fallbackQuotas
+        )
+        let body = RequestBody(
+            refreshNow: true,
+            title: content.title,
+            message: content.message,
+            signature: content.signature,
+            taskKey: taskKey?.isEmpty == false ? taskKey : nil
+        )
+
+        try await send(body: body, deviceID: deviceID, apiKey: apiKey)
+        lastSentFingerprint = [deviceID, taskKey ?? "", content.fingerprint].joined(separator: "\u{1F}")
+        AppLogger.shared.info("[dot.text] test push succeeded")
+    }
+
     private func loadAPIKey(using defaults: UserDefaults) -> String {
         let revision = defaults.integer(forKey: DefaultsKey.apiKeyRevision)
         if cachedAPIKeyRevision == revision, let cachedAPIKey {
@@ -247,11 +286,17 @@ final class DotTextAPIService {
     }
 }
 
-enum DotTextAPIError: LocalizedError {
+enum DotTextAPIError: LocalizedError, Equatable {
+    case missingDeviceID
+    case missingAPIKey
     case requestFailed(statusCode: Int, code: Int?, message: String?)
 
     var errorDescription: String? {
         switch self {
+        case .missingDeviceID:
+            return String(localized: "请先填写设备序列号")
+        case .missingAPIKey:
+            return String(localized: "请先保存 API Key")
         case .requestFailed(let statusCode, let code, let message):
             let apiCode = code.map { ", code=\($0)" } ?? ""
             let apiMessage = message.map { ", message=\($0)" } ?? ""

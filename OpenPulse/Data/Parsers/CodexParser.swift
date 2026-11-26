@@ -75,7 +75,14 @@ actor CodexParser {
         }
     }
 
+    static let defaultCodexDir: URL = .homeDirectory.appending(path: ".codex")
+    static let defaultOrcaCodexHomeDir: URL = .homeDirectory
+        .appending(path: "Library/Application Support/orca/codex-runtime-home/home")
+
     private let codexDir: URL
+    private let additionalCodexDirs: [URL]
+    private let piSessionRoots: [URL]
+    private let usesRegistry: Bool
     /// In-memory cache of threadId → model name built by scanning JSONL files.
     /// Rebuilt only on full scans (since == nil) or when empty, so incremental syncs
     /// avoid re-enumerating potentially thousands of archived JSONL files every 5 min.
@@ -92,25 +99,116 @@ actor CodexParser {
     private var cachedRateLimitCandidatesByFile: [URL: [RateLimitCandidate]] = [:]
     private var cachedRateLimitFileSignatures: [URL: RateLimitFileSignature] = [:]
 
-    init(codexDir: URL = .homeDirectory.appending(path: ".codex")) {
+    init(
+        codexDir: URL = CodexParser.defaultCodexDir,
+        additionalCodexDirs: [URL]? = nil,
+        piSessionRoots: [URL]? = nil
+    ) {
         self.codexDir = codexDir
+        let isDefault = codexDir.standardizedFileURL == Self.defaultCodexDir.standardizedFileURL
+        self.usesRegistry = isDefault && additionalCodexDirs == nil && piSessionRoots == nil
+        self.additionalCodexDirs = additionalCodexDirs ?? (isDefault ? [Self.defaultOrcaCodexHomeDir] : [])
+        self.piSessionRoots = piSessionRoots ?? (isDefault ? PiAgentSessionScanner.defaultSessionRoots : [])
+    }
+
+    private var allCodexDirs: [URL] {
+        if usesRegistry {
+            return SessionSourceRegistry.shared.enabledURLs(for: .codexHome)
+        }
+        var dirs: [URL] = []
+        var seen = Set<String>()
+        for dir in [codexDir] + additionalCodexDirs {
+            let std = dir.standardizedFileURL.path
+            if seen.insert(std).inserted {
+                dirs.append(dir)
+            }
+        }
+        return dirs
+    }
+
+    private var resolvedPiSessionRoots: [URL] {
+        if usesRegistry {
+            return SessionSourceRegistry.shared.enabledURLs(for: .piAgentSessions)
+        }
+        return piSessionRoots
     }
 
     private var dbPath: String { codexDir.appending(path: "state_5.sqlite").path }
     private var sessionsDir: URL { codexDir.appending(path: "sessions") }
     private var archivedDir: URL { codexDir.appending(path: "archived_sessions") }
 
-    // MARK: - Sessions from SQLite
+    // MARK: - Sessions from SQLite & Rollout JSONL
 
     func parseSessions(since date: Date? = nil) async throws -> [ToolSession] {
-        guard FileManager.default.fileExists(atPath: dbPath) else { return [] }
+        // Build threadId → model map from JSONL files (real model names).
+        // Full scan (date == nil) always rebuilds; incremental syncs reuse the cache.
+        if cachedModelMap == nil || date == nil {
+            cachedModelMap = buildModelMap()
+        }
+        if let date { refreshModelMap(since: date) }
+        let modelMap = cachedModelMap ?? [:]
+
+        var sessionsByID: [UUID: ToolSession] = [:]
+        var seenThreadIDs = Set<String>()
+
+        func merge(_ session: ToolSession) {
+            if let existing = sessionsByID[session.id] {
+                if session.totalTokens > existing.totalTokens
+                    || (session.totalTokens == existing.totalTokens && (session.endedAt ?? session.startedAt) > (existing.endedAt ?? existing.startedAt)) {
+                    sessionsByID[session.id] = session
+                }
+            } else {
+                sessionsByID[session.id] = session
+            }
+        }
+
+        for dir in allCodexDirs {
+            let dirDBPath = dir.appending(path: "state_5.sqlite").path
+            if FileManager.default.fileExists(atPath: dirDBPath) {
+                let dbSessions = try await parseSessionsFromSQLite(at: dirDBPath, since: date, modelMap: modelMap)
+                for session in dbSessions {
+                    seenThreadIDs.insert(session.id.uuidString.lowercased())
+                    merge(session)
+                }
+            }
+
+            // Fallback: pick up any active rollout JSONLs not yet present in state_5.sqlite
+            let rolloutSessions = parseUnindexedRolloutSessions(
+                in: dir.appending(path: "sessions"),
+                excludingThreadIDs: seenThreadIDs,
+                since: date,
+                modelMap: modelMap
+            )
+            for session in rolloutSessions {
+                seenThreadIDs.insert(session.id.uuidString.lowercased())
+                merge(session)
+            }
+        }
+
+        let effectivePiRoots = resolvedPiSessionRoots
+        if !effectivePiRoots.isEmpty {
+            let piSessions = PiAgentSessionScanner.parseSessions(for: .codex, since: date, roots: effectivePiRoots)
+            for session in piSessions {
+                merge(session)
+            }
+        }
+
+        return sessionsByID.values.sorted { $0.startedAt < $1.startedAt }
+    }
+
+    private func parseSessionsFromSQLite(
+        at sqlitePath: String,
+        since date: Date?,
+        modelMap: [String: String]
+    ) async throws -> [ToolSession] {
         do {
             // CANTOPEN (14) can occur transiently when Codex is checkpointing/vacuuming.
             // Treat as "no data this cycle" rather than a hard error.
-            guard let db = try? Connection(.uri(dbPath, parameters: [.mode(.readOnly)])) else { return [] }
+            guard let db = try? Connection(.uri(sqlitePath, parameters: [.mode(.readOnly)])) else { return [] }
 
             let threads = Table("threads")
             let hasUpdatedAt = (try db.scalar("SELECT COUNT(*) FROM pragma_table_info('threads') WHERE name = 'updated_at'") as? Int64) == 1
+            let hasModelCol = (try db.scalar("SELECT COUNT(*) FROM pragma_table_info('threads') WHERE name = 'model'") as? Int64) == 1
             let updatedCol = Expression<Int64?>("updated_at")
             let idCol = Expression<String>("id")
             let titleCol = Expression<String?>("title")
@@ -119,47 +217,55 @@ actor CodexParser {
             let createdCol = Expression<Int64>("created_at")   // UNIX seconds
             let cwdCol = Expression<String?>("cwd")
             let branchCol = Expression<String?>("git_branch")
+            let modelCol = Expression<String?>("model")
             let modelProviderCol = Expression<String?>("model_provider")
             let archivedCol = Expression<Bool?>("archived")
-
-            // Build threadId → model map from JSONL files (real model names).
-            // Full scan (date == nil) always rebuilds; incremental syncs reuse the cache.
-            if cachedModelMap == nil || date == nil {
-                cachedModelMap = buildModelMap()
-            }
-            if let date { refreshModelMap(since: date) }
-            let modelMap = cachedModelMap ?? [:]
 
             var sessions: [ToolSession] = []
             for row in try db.prepare(threads) {
                 // created_at is Unix SECONDS (not ms)
-                let startDate = Date(timeIntervalSince1970: TimeInterval(row[createdCol]))
+                let createdSec = row[createdCol]
+                let startDate = Date(timeIntervalSince1970: TimeInterval(createdSec))
+                let updatedSec = hasUpdatedAt ? row[updatedCol] : nil
                 // Existing conversations can gain tokens long after they were created.
                 // Older schemas without updated_at require a full scan for correctness.
                 if let cutoff = date, hasUpdatedAt,
                    startDate < cutoff,
-                   TimeInterval(row[updatedCol] ?? row[createdCol]) < cutoff.timeIntervalSince1970 { continue }
+                   TimeInterval(updatedSec ?? createdSec) < cutoff.timeIntervalSince1970 { continue }
                 if row[archivedCol] == true { continue }
 
+                let endedAt: Date? = updatedSec.flatMap { sec in
+                    sec > createdSec ? Date(timeIntervalSince1970: TimeInterval(sec)) : nil
+                }
                 let tokens = Int(row[tokensCol] ?? 0)
-                let description = row[firstMsgCol] ?? row[titleCol] ?? ""
+                let rawTitle = (row[titleCol]?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 }
+                let rawFirstMsg = (row[firstMsgCol]?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 }
+                let preferredRaw: String
+                if let rawFirstMsg, rawFirstMsg.contains("## My request"), !(rawTitle?.contains("## My request") ?? false) {
+                    preferredRaw = rawFirstMsg
+                } else {
+                    preferredRaw = rawTitle ?? rawFirstMsg ?? ""
+                }
+                let description = Self.cleanCodexTitle(preferredRaw)
                 let threadId = row[idCol]
-                // Prefer real model name from JSONL; fall back to model_provider
-                let modelName = modelMap[threadId] ?? row[modelProviderCol] ?? "openai"
+                let rowModel = hasModelCol ? row[modelCol].flatMap { $0.isEmpty ? nil : $0 } : nil
+                // Prefer real model name from JSONL, then threads.model, then model_provider.
+                let modelName = modelMap[threadId] ?? rowModel ?? row[modelProviderCol] ?? "openai"
 
                 sessions.append(ToolSession(
                     id: UUID(uuidString: threadId) ?? UUID(),
                     tool: .codex,
                     startedAt: startDate,
+                    endedAt: endedAt,
                     inputTokens: tokens * 4 / 5,   // rough split: ~80% input, ~20% output
                     outputTokens: tokens - tokens * 4 / 5,
-                    taskDescription: String(description.prefix(300)),
+                    taskDescription: description,
                     model: modelName,
                     cwd: row[cwdCol] ?? "",
                     gitBranch: row[branchCol]
                 ))
             }
-            return sessions.sorted { $0.startedAt < $1.startedAt }
+            return sessions
         } catch {
             if isTransientDatabaseError(error) {
                 await AppLogger.shared.warning("Codex DB unavailable this cycle: \(error.localizedDescription)")
@@ -169,12 +275,130 @@ actor CodexParser {
         }
     }
 
+    private func parseUnindexedRolloutSessions(
+        in dir: URL,
+        excludingThreadIDs: Set<String>,
+        since cutoff: Date?,
+        modelMap: [String: String]
+    ) -> [ToolSession] {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: dir.path),
+              let enumerator = fm.enumerator(
+                at: dir,
+                includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey],
+                options: [.skipsHiddenFiles]
+              ) else { return [] }
+
+        var sessions: [ToolSession] = []
+        let decoder = JSONDecoder()
+
+        for case let url as URL in enumerator where url.pathExtension == "jsonl" {
+            if let cutoff,
+               let modDate = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate,
+               modDate < cutoff {
+                continue
+            }
+            let parts = url.deletingPathExtension().lastPathComponent.components(separatedBy: "-")
+            guard parts.count >= 5 else { continue }
+            let threadId = parts.suffix(5).joined(separator: "-")
+            guard !excludingThreadIDs.contains(threadId.lowercased()),
+                  let uuid = UUID(uuidString: threadId) else { continue }
+
+            var firstTimestamp: Date?
+            var lastTimestamp: Date?
+            var cwd = ""
+            var gitBranch: String?
+            var model = modelMap[threadId] ?? ""
+            var title = ""
+            var inputTokens = 0
+            var outputTokens = 0
+            var cacheReadTokens = 0
+
+            JSONLReader.forEachLine(of: url) { lineData, _ in
+                guard !lineData.isEmpty,
+                      let event = try? decoder.decode(CodexRolloutLine.self, from: lineData) else { return }
+                if let ts = self.parseEventTimestamp(event.timestamp) {
+                    if firstTimestamp == nil { firstTimestamp = ts }
+                    lastTimestamp = ts
+                }
+                switch event.type {
+                case "session_meta":
+                    if cwd.isEmpty, let c = event.payload?.cwd, !c.isEmpty { cwd = c }
+                    if gitBranch == nil, let b = event.payload?.git?.branch, !b.isEmpty { gitBranch = b }
+                case "turn_context":
+                    if model.isEmpty, let m = event.payload?.model, !m.isEmpty { model = m }
+                case "event_msg":
+                    if event.payload?.type == "user_message", title.isEmpty, let msg = event.payload?.message, !msg.isEmpty {
+                        title = Self.cleanCodexTitle(msg)
+                    } else if event.payload?.type == "token_count", let usage = event.payload?.info?.totalTokenUsage {
+                        inputTokens = max(inputTokens, usage.inputTokens ?? 0)
+                        outputTokens = max(outputTokens, usage.outputTokens ?? 0)
+                        cacheReadTokens = max(cacheReadTokens, usage.cachedInputTokens ?? 0)
+                    }
+                default:
+                    break
+                }
+            }
+
+            guard let startDate = firstTimestamp else { continue }
+            if inputTokens + outputTokens == 0 && title.isEmpty { continue }
+            let endDate = lastTimestamp.flatMap { $0 > startDate ? $0 : nil }
+            sessions.append(ToolSession(
+                id: uuid,
+                tool: .codex,
+                startedAt: startDate,
+                endedAt: endDate,
+                inputTokens: inputTokens,
+                outputTokens: outputTokens,
+                cacheReadTokens: cacheReadTokens,
+                taskDescription: title,
+                model: model.isEmpty ? "openai" : model,
+                cwd: cwd,
+                gitBranch: gitBranch
+            ))
+        }
+        return sessions
+    }
+
+    static func cleanCodexTitle(_ raw: String) -> String {
+        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Codex IDE injects "# Files mentioned by the user: ... ## My request:\n<actual prompt>"
+        if text.hasPrefix("# Files mentioned by the user") {
+            for marker in ["## My request for Codex:", "## My request:"] {
+                if let range = text.range(of: marker, options: .caseInsensitive) {
+                    let after = String(text[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !after.isEmpty {
+                        text = after
+                        break
+                    }
+                }
+            }
+            if text.hasPrefix("# Files mentioned by the user") {
+                if text.localizedCaseInsensitiveContains("Image attachment") || text.localizedCaseInsensitiveContains("codex-clipboard-") {
+                    return String(localized: "图片附件会话")
+                }
+                return String(localized: "文件附件会话")
+            }
+        }
+
+        let singleLine = text
+            .replacingOccurrences(of: "\r\n", with: " ")
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\t", with: " ")
+            .components(separatedBy: .whitespaces)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return String(singleLine.prefix(240))
+    }
+
     /// Scans all JSONL rollout files and extracts threadId → model from turn_context events.
     /// JSONL filename format: rollout-<date>T<time>-<threadId>.jsonl
     private func buildModelMap() -> [String: String] {
         var map: [String: String] = [:]
         let fm = FileManager.default
-        let allDirs = [sessionsDir, archivedDir]
+        let allDirs = allCodexDirs.flatMap { [$0.appending(path: "sessions"), $0.appending(path: "archived_sessions")] }
 
         for rootDir in allDirs {
             guard let enumerator = fm.enumerator(at: rootDir, includingPropertiesForKeys: nil) else { continue }
@@ -210,7 +434,8 @@ actor CodexParser {
     }
 
     private func refreshModelMap(since cutoff: Date) {
-        for root in [sessionsDir, archivedDir] {
+        let allDirs = allCodexDirs.flatMap { [$0.appending(path: "sessions"), $0.appending(path: "archived_sessions")] }
+        for root in allDirs {
             guard let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.contentModificationDateKey]) else { continue }
             for case let url as URL in enumerator where url.pathExtension == "jsonl" {
                 guard let modified = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
@@ -856,6 +1081,45 @@ struct CodexResetCredits: Codable, Sendable {
         case availableCount = "available_count"
         case credits
     }
+
+    /// Unexpired, available reset credits sorted earliest expiry first.
+    func activeCredits(now: Date = Date()) -> [CodexResetCredit] {
+        (credits ?? [])
+            .filter { credit in
+                if let status = credit.status,
+                   !status.isEmpty,
+                   status.caseInsensitiveCompare("available") != .orderedSame {
+                    return false
+                }
+                if let expiresAt = credit.expiresAt, expiresAt <= now {
+                    return false
+                }
+                return true
+            }
+            .sorted { lhs, rhs in
+                switch (lhs.expiresAt, rhs.expiresAt) {
+                case let (left?, right?): return left < right
+                case (.some, .none): return true
+                case (.none, .some): return false
+                case (.none, .none): return (lhs.title ?? lhs.id) < (rhs.title ?? rhs.id)
+                }
+            }
+    }
+
+    func resolvedAvailableCount(now: Date = Date()) -> Int {
+        if let credits {
+            return activeCredits(now: now).count
+        }
+        return max(0, availableCount ?? 0)
+    }
+
+    func expiryDates(now: Date = Date()) -> [Date] {
+        activeCredits(now: now).compactMap(\.expiresAt)
+    }
+
+    func hasDisplayableCredits(now: Date = Date()) -> Bool {
+        resolvedAvailableCount(now: now) > 0
+    }
 }
 
 struct CodexResetCredit: Codable, Sendable, Identifiable {
@@ -936,4 +1200,43 @@ private struct CodexTurnContextEvent: Decodable {
 
 private struct CodexTurnContextPayload: Decodable {
     let model: String?
+}
+
+private struct CodexRolloutLine: Decodable {
+    let timestamp: String?
+    let type: String?
+    let payload: CodexRolloutPayload?
+}
+
+private struct CodexRolloutPayload: Decodable {
+    let type: String?
+    let cwd: String?
+    let model: String?
+    let message: String?
+    let git: CodexRolloutGit?
+    let info: CodexRolloutTokenInfo?
+}
+
+private struct CodexRolloutGit: Decodable {
+    let branch: String?
+}
+
+private struct CodexRolloutTokenInfo: Decodable {
+    let totalTokenUsage: CodexRolloutTokenUsage?
+
+    enum CodingKeys: String, CodingKey {
+        case totalTokenUsage = "total_token_usage"
+    }
+}
+
+private struct CodexRolloutTokenUsage: Decodable {
+    let inputTokens: Int?
+    let outputTokens: Int?
+    let cachedInputTokens: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case inputTokens = "input_tokens"
+        case outputTokens = "output_tokens"
+        case cachedInputTokens = "cached_input_tokens"
+    }
 }

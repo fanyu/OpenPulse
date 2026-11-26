@@ -10,15 +10,18 @@ struct OpenPulseApp: App {
     init() {
         guard !AppStore.isRunningTests else { return }
         let defaults = UserDefaults.standard
-        if let currentOrder = defaults.string(forKey: "menubar.toolOrder") {
-            var parts = currentOrder.components(separatedBy: ",")
-            if let claudeIndex = parts.firstIndex(of: "claude"),
-               let codexIndex = parts.firstIndex(of: "codex") {
-                if claudeIndex < codexIndex {
+        let migrationKey = "menubar.toolOrder.codexFirstMigrated"
+        if !defaults.bool(forKey: migrationKey) {
+            if let currentOrder = defaults.string(forKey: "menubar.toolOrder") {
+                var parts = currentOrder.components(separatedBy: ",")
+                if let claudeIndex = parts.firstIndex(of: "claude"),
+                   let codexIndex = parts.firstIndex(of: "codex"),
+                   claudeIndex < codexIndex {
                     parts.swapAt(claudeIndex, codexIndex)
                     defaults.set(parts.joined(separator: ","), forKey: "menubar.toolOrder")
                 }
             }
+            defaults.set(true, forKey: migrationKey)
         }
 
         Task { @MainActor in
@@ -132,6 +135,9 @@ final class StatusBarAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
             refreshStatusItem(force: true)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             installClickMonitors()
+            Task { @MainActor [weak self] in
+                await self?.appStore.syncService?.refreshTodayUsageIfNeeded()
+            }
         }
     }
 
@@ -424,9 +430,9 @@ private enum StatusBarSnapshot: Equatable {
 
         let lines: [String]
         if let item = items.first, items.count == 1 {
-            lines = ["5H \(item.fiveHourText)", "7D \(item.sevenDayText)"]
+            lines = item.singleToolLines
         } else {
-            lines = items.map { "\($0.shortLabel) \($0.fiveHourText) \($0.sevenDayText)" }
+            lines = items.map(\.multiToolLine)
         }
         return .classic(lines: lines)
     }
@@ -457,7 +463,11 @@ private struct StatusBarCompactItem: Equatable {
             let percent = AGAccountQuota.effectiveMenuBarFiveHourPercent(across: accounts)
             return StatusBarCompactItem(logoImageName: tool.menuBarIconName, fiveHourPercent: format(percent))
         case .copilot:
-            return StatusBarCompactItem(logoImageName: tool.menuBarIconName, fiveHourPercent: " --%")
+            let percent = CopilotSnapshot.menuBarRemainingPercent(
+                from: appStore.syncService?.latestCopilotSnapshots,
+                resetAt: appStore.syncService?.latestCopilotResetAt
+            )
+            return StatusBarCompactItem(logoImageName: tool.menuBarIconName, fiveHourPercent: format(percent))
         }
     }
 
@@ -471,7 +481,21 @@ private struct StatusBarCompactItem: Equatable {
 private struct StatusBarClassicItem: Equatable {
     let shortLabel: String
     let fiveHourText: String
-    let sevenDayText: String
+    let sevenDayText: String?
+
+    var singleToolLines: [String] {
+        if let sevenDayText {
+            return ["5H \(fiveHourText)", "7D \(sevenDayText)"]
+        }
+        return [shortLabel, fiveHourText]
+    }
+
+    var multiToolLine: String {
+        if let sevenDayText {
+            return "\(shortLabel) \(fiveHourText) \(sevenDayText)"
+        }
+        return "\(shortLabel) \(fiveHourText)"
+    }
 
     static func build(tool: Tool, appStore: AppStore) -> StatusBarClassicItem {
         switch tool {
@@ -498,7 +522,11 @@ private struct StatusBarClassicItem: Equatable {
                 ?? AGAccountQuota.averageWeekly3PPercent(across: target)
             return StatusBarClassicItem(shortLabel: "AG", fiveHourText: format(fiveHour), sevenDayText: format(sevenDay))
         case .copilot:
-            return StatusBarClassicItem(shortLabel: tool.displayName.prefix(1).uppercased(), fiveHourText: "--", sevenDayText: "--")
+            let percent = CopilotSnapshot.menuBarRemainingPercent(
+                from: appStore.syncService?.latestCopilotSnapshots,
+                resetAt: appStore.syncService?.latestCopilotResetAt
+            )
+            return StatusBarClassicItem(shortLabel: "CP", fiveHourText: format(percent), sevenDayText: nil)
         }
     }
 

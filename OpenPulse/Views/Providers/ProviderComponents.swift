@@ -3,48 +3,74 @@ import SwiftUI
 // MARK: - Shared connection presentation
 
 private struct ProviderMessage: View {
+    @Environment(\.colorScheme) private var colorScheme
     let text: String
     var isError = false
 
     var body: some View {
-        Label {
-            Text(text).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-        } icon: {
-            Image(systemName: isError ? "exclamationmark.circle" : "checkmark.circle")
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                .font(.system(size: 12))
+                .foregroundStyle(isError ? Color.red : Color.green)
+                .padding(.top, 1)
+            Text(text)
+                .font(.system(size: 12))
+                .foregroundStyle(isError ? Color.red : .secondary)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
         }
-        .font(.callout)
-        .foregroundStyle(isError ? Color.red : Color.secondary)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background(
+            (isError ? Color.red : Color.green).opacity(colorScheme == .dark ? 0.12 : 0.07),
+            in: RoundedRectangle(cornerRadius: 9, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .strokeBorder((isError ? Color.red : Color.green).opacity(0.22), lineWidth: 0.75)
+        }
         .accessibilityElement(children: .combine)
     }
 }
 
 private struct ProviderEmptyState: View {
+    @Environment(\.colorScheme) private var colorScheme
+    let icon: String
     let title: LocalizedStringKey
     let description: LocalizedStringKey
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.callout.weight(.medium))
-            Text(description).font(.callout).foregroundStyle(.secondary)
-        }
-        .padding(.vertical, 12)
-        .frame(maxWidth: .infinity, alignment: .leading)
+    init(icon: String = "tray", title: LocalizedStringKey, description: LocalizedStringKey) {
+        self.icon = icon
+        self.title = title
+        self.description = description
     }
-}
-
-private struct ProviderSourceRow: View {
-    let path: String
 
     var body: some View {
-        LabeledContent("数据源") {
-            Text(path)
-                .font(.callout.monospaced())
-                .foregroundStyle(.secondary)
-                .textSelection(.enabled)
-                .lineLimit(2)
-                .truncationMode(.middle)
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 18, weight: .light))
+                .foregroundStyle(.tertiary)
+                .frame(width: 28)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 13, weight: .medium))
+                Text(description)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
         }
-        .font(.callout)
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            Color.primary.opacity(colorScheme == .dark ? 0.035 : 0.022),
+            in: RoundedRectangle(cornerRadius: 11, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.75)
+        }
     }
 }
 
@@ -55,65 +81,268 @@ private struct ProviderField<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.callout.weight(.medium))
-            content().textFieldStyle(.roundedBorder)
+            Text(title)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.primary)
+            content()
+                .textFieldStyle(.roundedBorder)
             if let detail {
-                Text(detail).font(.caption).foregroundStyle(.secondary)
+                Text(detail)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+}
+
+private struct ProviderMiniQuotaPill: View {
+    @Environment(\.colorScheme) private var colorScheme
+    let label: String
+    let remainingPercent: Int?
+
+    var body: some View {
+        let fraction = remainingPercent.map { Double(max(0, min(100, $0))) / 100.0 }
+        let tint: Color = fraction.map { quotaBarColor(fraction: $0) } ?? .secondary
+        HStack(spacing: 5) {
+            Text(label)
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .foregroundStyle(.secondary)
+            Text(remainingPercent.map { "\($0)%" } ?? "—")
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundStyle(remainingPercent == nil ? .secondary : tint)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3.5)
+        .background(
+            (remainingPercent == nil ? Color.primary : tint).opacity(colorScheme == .dark ? 0.14 : 0.09),
+            in: Capsule()
+        )
     }
 }
 
 // MARK: - Claude Code
 
 struct ClaudeProviderContent: View {
+    @Environment(AppStore.self) private var appStore
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var isRefreshing = false
+
+    private var bridgeCacheExists: Bool {
+        FileManager.default.fileExists(atPath: ClaudeCodeBridgeInstaller.cacheURL.path)
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Claude Code 的本地对话记录会自动同步，无需额外配置。")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-            ProviderSourceRow(path: Provider.claudeCode.dataSourcePath)
+        let info = appStore.syncService?.latestClaudeAccountInfo
+        let usage = appStore.syncService?.latestClaudeUsage
+        let fiveHour = usage?.effectiveRemainingPercent
+        let sevenDay = usage?.sevenDay?.utilization.map { max(0, 100 - Int($0.rounded())) }
+        let limitResets = usage?.cedarEmber
+        let brand = Tool.claudeCode.brandAccentColor(for: colorScheme)
+
+        SettingsCard(
+            title: "订阅与同步状态",
+            subtitle: "Claude Code 本地对话日志自动同步；额度优先通过零开销的 Statusline Bridge 缓存读取。"
+        ) {
+            VStack(alignment: .leading, spacing: 18) {
+                HStack(alignment: .center, spacing: 16) {
+                    LazyVGrid(
+                        columns: [GridItem(.adaptive(minimum: 180), spacing: 12)],
+                        alignment: .leading,
+                        spacing: 12
+                    ) {
+                        claudeStatTile(
+                            label: "订阅账号",
+                            value: info?.accountLabel ?? String(localized: "本地自动识别"),
+                            badge: info?.displaySubscriptionName,
+                            accent: brand
+                        )
+
+                        claudeStatTile(
+                            label: "Statusline Bridge",
+                            value: bridgeCacheExists ? String(localized: "已激活") : String(localized: "待写入缓存"),
+                            badge: nil,
+                            accent: bridgeCacheExists ? .green : .secondary
+                        )
+
+                        if let limitResets {
+                            ForEach(limitResets.groupedResets()) { bucket in
+                                let expiryBadge = bucket.expiryDates.first.map { date in
+                                    let formatted = date.formatted(.dateTime.month(.twoDigits).day(.twoDigits))
+                                    return String(localized: "\(formatted) 过期")
+                                }
+                                claudeStatTile(
+                                    label: LocalizedStringKey(bucket.kind.displayTitle),
+                                    value: String(localized: "\(bucket.count) 次"),
+                                    badge: expiryBadge,
+                                    accent: brand
+                                )
+                            }
+                        }
+                    }
+
+                    Button {
+                        guard !isRefreshing else { return }
+                        isRefreshing = true
+                        Task {
+                            defer { isRefreshing = false }
+                            await appStore.syncService?.refreshTool(.claudeCode)
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            if isRefreshing {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Image(systemName: "arrow.clockwise")
+                                    .font(.system(size: 11.5, weight: .semibold))
+                            }
+                            Text("刷新状态")
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isRefreshing)
+                }
+
+                if fiveHour != nil || sevenDay != nil {
+                    Divider().opacity(0.45)
+                    HStack(spacing: 16) {
+                        if let fiveHour {
+                            claudeQuotaMeter(
+                                title: "5 小时窗口",
+                                percent: fiveHour,
+                                resetDate: usage?.fiveHour?.resetDate,
+                                isWeekly: false
+                            )
+                        }
+                        if let sevenDay {
+                            claudeQuotaMeter(
+                                title: "7 天窗口",
+                                percent: sevenDay,
+                                resetDate: usage?.sevenDay?.resetDate,
+                                isWeekly: true
+                            )
+                        }
+                    }
+                }
+            }
         }
+    }
+
+    private func claudeStatTile(label: LocalizedStringKey, value: String, badge: String?, accent: Color) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                Text(value)
+                    .font(.system(size: 13, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if let badge, !badge.isEmpty {
+                    Text(badge)
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .foregroundStyle(accent)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2)
+                        .background(accent.opacity(colorScheme == .dark ? 0.18 : 0.11), in: Capsule())
+                }
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            Color.primary.opacity(colorScheme == .dark ? 0.04 : 0.025),
+            in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.75)
+        }
+    }
+
+    private func claudeQuotaMeter(title: LocalizedStringKey, percent: Int, resetDate: Date?, isWeekly: Bool) -> some View {
+        let fraction = Double(max(0, min(100, percent))) / 100.0
+        let tint = quotaBarColor(fraction: fraction)
+        let resetLabel = resetDate.map { date -> String in
+            let formatted = isWeekly
+                ? date.formatted(.dateTime.month(.twoDigits).day(.twoDigits).hour(.twoDigits(amPM: .abbreviated)).minute(.twoDigits))
+                : date.formatted(.dateTime.hour(.twoDigits(amPM: .abbreviated)).minute(.twoDigits))
+            return String(localized: "重置于 \(formatted)")
+        }
+        return VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 6) {
+                Text(title)
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(.secondary)
+                if let resetLabel {
+                    Text("·")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                    Text(resetLabel)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                }
+                Spacer()
+                Text("\(percent)%")
+                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(tint)
+            }
+            QuotaProgressBar(fraction: fraction, color: tint, height: 5)
+        }
+        .frame(maxWidth: .infinity)
     }
 }
 
-// MARK: - Codex accounts
+// MARK: - Codex
 
 struct CodexProviderContent: View {
     let appStore: AppStore
+    @AppStorage("codex.smartSwitch.enabled") private var codexSmartSwitchEnabled = false
     @State private var isWorking = false
     @State private var errorMessage: String?
-    @State private var providerManager = CodexProviderManagerViewModel()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            CodexConnectionSummary()
-            CodexAccountActions(isWorking: isWorking, onImport: {
-                runAsyncAction { try await appStore.codexAccountService.importCurrentAuth() }
-            }, onLogin: {
-                runAsyncAction { try await appStore.codexAccountService.addAccountViaOAuth() }
-            }, onRefresh: {
-                runAsyncAction { _ = try await appStore.codexAccountService.refreshAllUsage(force: true) }
-            })
+        SettingsCard(
+            title: "OpenAI 账号",
+            subtitle: "支持添加多个 OpenAI 账号并随时切换当前 Codex 登录状态；切换账号时会自动重启 Codex。"
+        ) {
+            VStack(alignment: .leading, spacing: 18) {
+                CodexAccountActions(
+                    isWorking: isWorking,
+                    onImport: {
+                        runAsyncAction { try await appStore.codexAccountService.importCurrentAuth() }
+                    },
+                    onLogin: {
+                        runAsyncAction { try await appStore.codexAccountService.addAccountViaOAuth() }
+                    },
+                    onRefresh: {
+                        runAsyncAction { _ = try await appStore.codexAccountService.refreshAllUsage(force: true) }
+                    }
+                )
 
-            if let errorMessage { ProviderMessage(text: errorMessage, isError: true) }
+                if let errorMessage { ProviderMessage(text: errorMessage, isError: true) }
 
-            CodexProviderAccounts(
-                accounts: appStore.syncService?.latestCodexAccounts ?? [],
-                isWorking: isWorking,
-                onSwitch: { id in
-                    runAsyncAction { _ = try await appStore.codexAccountService.switchAccount(id: id) }
-                },
-                onDelete: { id in
-                    runAsyncAction { try await appStore.codexAccountService.deleteAccount(id: id) }
-                }
-            )
-            Divider()
-            CodexProviderManagerSection(viewModel: providerManager, appStore: appStore)
-        }
-        .task {
-            if providerManager.providers.isEmpty {
-                await providerManager.load(using: appStore.codexProviderConfigService, coordinator: appStore.codexRouterCoordinator)
+                CodexProviderAccounts(
+                    accounts: appStore.syncService?.latestCodexAccounts ?? [],
+                    isWorking: isWorking,
+                    onSwitch: { id in
+                        runAsyncAction { _ = try await appStore.codexAccountService.switchAccount(id: id) }
+                    },
+                    onDelete: { id in
+                        runAsyncAction { try await appStore.codexAccountService.deleteAccount(id: id) }
+                    }
+                )
+
+                Divider().opacity(0.5)
+
+                SettingsToggleRow(
+                    title: "启用智能切换",
+                    detail: "开启后，菜单栏会显示「智能切换」入口；后台监测到当前 Codex 账号 5h/7d 配额耗尽时，会自动切换到更优账号并重启 Codex。",
+                    isOn: $codexSmartSwitchEnabled
+                )
             }
         }
     }
@@ -137,17 +366,6 @@ struct CodexProviderContent: View {
     }
 }
 
-private struct CodexConnectionSummary: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("添加多个 OpenAI 账号，查看额度并切换当前 Codex 账号。切换账号时会重新启动 Codex。")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-            ProviderSourceRow(path: Provider.codex.dataSourcePath)
-        }
-    }
-}
-
 private struct CodexAccountActions: View {
     let isWorking: Bool
     let onImport: () -> Void
@@ -156,14 +374,23 @@ private struct CodexAccountActions: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Button("新增 OpenAI 登录", action: onLogin).buttonStyle(.borderedProminent)
-            Menu("更多操作") {
-                Button("导入当前账号", action: onImport)
-                Button("刷新额度", action: onRefresh)
+            Button(action: onLogin) {
+                Label("新增 OpenAI 登录", systemImage: "plus")
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
+            .buttonStyle(.borderedProminent)
+
+            Button("导入当前账号", action: onImport)
+                .buttonStyle(.bordered)
+
+            Button {
+                onRefresh()
+            } label: {
+                Label("刷新额度", systemImage: "arrow.clockwise")
+            }
+            .buttonStyle(.bordered)
+
             if isWorking { ProgressView().controlSize(.small) }
+            Spacer(minLength: 0)
         }
         .controlSize(.regular)
         .disabled(isWorking)
@@ -177,14 +404,21 @@ private struct CodexProviderAccounts: View {
     let onDelete: (String) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 10) {
             if accounts.isEmpty {
-                ProviderEmptyState(title: "还没有 Codex 账号", description: "新增 OpenAI 登录，或从“更多操作”导入当前账号。")
+                ProviderEmptyState(
+                    icon: "person.badge.plus",
+                    title: "还没有 Codex 账号",
+                    description: "点击「新增 OpenAI 登录」，或直接导入当前本机已登录的 Codex 账号。"
+                )
             } else {
                 ForEach(accounts) { account in
-                    CodexProviderAccountCard(account: account, isWorking: isWorking,
-                        onSwitch: { onSwitch(account.id) }, onDelete: { onDelete(account.id) })
-                    if account.id != accounts.last?.id { Divider() }
+                    CodexProviderAccountCard(
+                        account: account,
+                        isWorking: isWorking,
+                        onSwitch: { onSwitch(account.id) },
+                        onDelete: { onDelete(account.id) }
+                    )
                 }
             }
         }
@@ -192,325 +426,240 @@ private struct CodexProviderAccounts: View {
 }
 
 private struct CodexProviderAccountCard: View {
+    @Environment(\.colorScheme) private var colorScheme
     let account: CodexAccountSnapshot
     let isWorking: Bool
     let onSwitch: () -> Void
     let onDelete: () -> Void
+    @State private var isHovered = false
+
+    private var fiveHourWindow: CodexWindow? {
+        account.limits?.fiveHourWindow
+    }
+
+    private var sevenDayWindow: CodexWindow? {
+        account.limits?.oneWeekWindow
+    }
+
+    private var fiveHourPercent: Int? {
+        fiveHourWindow?.remainingPercent.map { Int($0.rounded()) }
+    }
+
+    private var sevenDayPercent: Int? {
+        sevenDayWindow?.remainingPercent.map { Int($0.rounded()) }
+    }
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .top, spacing: 20) {
-                identity
-                Spacer(minLength: 12)
-                actions
+        let brand = Tool.codex.brandAccentColor(for: colorScheme)
+        VStack(alignment: .leading, spacing: 12) {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .center, spacing: 14) {
+                    identity
+                    Spacer(minLength: 12)
+                    actions
+                }
+                VStack(alignment: .leading, spacing: 10) {
+                    identity
+                    actions
+                }
             }
-            VStack(alignment: .leading, spacing: 12) {
-                identity
-                actions
+
+            if fiveHourPercent != nil || sevenDayPercent != nil {
+                Divider().opacity(0.4)
+                HStack(spacing: 16) {
+                    if let fiveHourPercent {
+                        codexQuotaMeter(
+                            title: "5 小时窗口",
+                            percent: fiveHourPercent,
+                            resetDate: fiveHourWindow?.resetDate,
+                            isWeekly: false
+                        )
+                    }
+                    if let sevenDayPercent {
+                        codexQuotaMeter(
+                            title: "7 天窗口",
+                            percent: sevenDayPercent,
+                            resetDate: sevenDayWindow?.resetDate,
+                            isWeekly: true
+                        )
+                    }
+                }
+            }
+
+            if let resetCredits = account.limits?.resetCredits, resetCredits.hasDisplayableCredits() {
+                codexResetCreditsBadge(resetCredits: resetCredits, brand: brand)
+            }
+
+            if let error = account.usageError {
+                ProviderMessage(text: error, isError: true)
             }
         }
-        .padding(.vertical, 16)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(
+            account.isCurrent
+                ? brand.opacity(colorScheme == .dark ? 0.11 : 0.065)
+                : (isHovered
+                    ? Color.primary.opacity(colorScheme == .dark ? 0.05 : 0.03)
+                    : Color.primary.opacity(colorScheme == .dark ? 0.03 : 0.018)),
+            in: RoundedRectangle(cornerRadius: 11, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                .strokeBorder(
+                    account.isCurrent
+                        ? brand.opacity(colorScheme == .dark ? 0.45 : 0.35)
+                        : Color.primary.opacity(0.06),
+                    lineWidth: account.isCurrent ? 1 : 0.75
+                )
+        }
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.12)) {
+                isHovered = hovering
+            }
+        }
     }
 
     private var identity: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Text(account.titleText).font(.callout.weight(.semibold)).textSelection(.enabled)
-                if account.isCurrent {
-                    Label("当前账号", systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(.green)
+        let brand = Tool.codex.brandAccentColor(for: colorScheme)
+        return HStack(alignment: .center, spacing: 11) {
+            ZStack {
+                Circle()
+                    .fill((account.isCurrent ? brand : Color.secondary).opacity(colorScheme == .dark ? 0.20 : 0.12))
+                    .frame(width: 30, height: 30)
+                Image(systemName: account.isCurrent ? "checkmark" : "person.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(account.isCurrent ? brand : .secondary)
+            }
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 7) {
+                    Text(account.titleText)
+                        .font(.system(size: 13, weight: .semibold))
+                        .textSelection(.enabled)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    if account.isCurrent {
+                        Text("当前账号")
+                            .font(.system(size: 10.5, weight: .semibold))
+                            .foregroundStyle(brand)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 2)
+                            .background(brand.opacity(colorScheme == .dark ? 0.20 : 0.12), in: Capsule())
+                    }
+                    if let plan = account.displaySubscriptionName, !plan.isEmpty {
+                        SubscriptionTag(text: plan)
+                    }
+                }
+
+                let secondaryParts = [account.subtitleText, account.metaText].compactMap { $0 }.filter { !$0.isEmpty }
+                if !secondaryParts.isEmpty {
+                    Text(secondaryParts.joined(separator: " · "))
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
                 }
             }
-            if let subtitle = account.subtitleText { Text(subtitle).font(.callout).foregroundStyle(.secondary) }
-            if let meta = account.metaText { Text(meta).font(.caption).foregroundStyle(.secondary) }
-            if let plan = account.displaySubscriptionName { Text(plan).font(.caption).foregroundStyle(.secondary) }
-            if let error = account.usageError { ProviderMessage(text: error, isError: true) }
         }
-        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func codexQuotaMeter(title: LocalizedStringKey, percent: Int, resetDate: Date?, isWeekly: Bool) -> some View {
+        let fraction = Double(max(0, min(100, percent))) / 100.0
+        let tint = quotaBarColor(fraction: fraction)
+        let resetLabel = resetDate.map { date -> String in
+            let formatted = isWeekly
+                ? date.formatted(.dateTime.month(.twoDigits).day(.twoDigits).hour(.twoDigits(amPM: .abbreviated)).minute(.twoDigits))
+                : date.formatted(.dateTime.hour(.twoDigits(amPM: .abbreviated)).minute(.twoDigits))
+            return String(localized: "重置于 \(formatted)")
+        }
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Text(title)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                if let resetLabel {
+                    Text("·")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.tertiary)
+                    Text(resetLabel)
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.tertiary)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                }
+                Spacer()
+                Text("\(percent)%")
+                    .font(.system(size: 11.5, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(tint)
+            }
+            QuotaProgressBar(fraction: fraction, color: tint, height: 4.5)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func codexResetCreditsBadge(resetCredits: CodexResetCredits, brand: Color) -> some View {
+        let count = resetCredits.resolvedAvailableCount()
+        let expiryDates = resetCredits.expiryDates().map {
+            $0.formatted(.dateTime.month(.twoDigits).day(.twoDigits).hour(.twoDigits(amPM: .abbreviated)).minute(.twoDigits))
+        }
+        let expiryDetail: String? = {
+            guard !expiryDates.isEmpty else { return nil }
+            if expiryDates.count == 1, let first = expiryDates.first {
+                return String(localized: "过期于 \(first)")
+            }
+            return String(localized: "分别过期于 \(expiryDates.formatted())")
+        }()
+
+        return HStack(spacing: 7) {
+            Image(systemName: "arrow.counterclockwise.circle.fill")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(brand)
+            Text("可用重置券")
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(.secondary)
+            Text(String(localized: "\(count) 次"))
+                .font(.system(size: 11.5, weight: .semibold))
+                .monospacedDigit()
+                .foregroundStyle(brand)
+            if let expiryDetail {
+                Text("·")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                Text(expiryDetail)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(brand.opacity(colorScheme == .dark ? 0.12 : 0.07), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
     private var actions: some View {
-        HStack(spacing: 10) {
-            Button("切换", action: onSwitch).buttonStyle(.bordered).disabled(isWorking || account.isCurrent)
-            Button(role: .destructive, action: onDelete) { Label("删除", systemImage: "trash") }
-                .buttonStyle(.borderless)
-                .disabled(isWorking || account.isCurrent)
-                .help(account.isCurrent
-                    ? String(localized: "请先切换到其他账号，再删除当前账号。")
-                    : String(localized: "删除已保存的账号"))
-        }
-    }
-}
-
-// MARK: - Codex model routing
-
-private struct CodexProviderManagerSection: View {
-    let viewModel: CodexProviderManagerViewModel
-    let appStore: AppStore
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            CodexProviderManagerHeader(viewModel: viewModel)
-            CodexRouterControlPanel(viewModel: viewModel, appStore: appStore)
-            if viewModel.isLoading {
-                ProgressView("读取 Provider…").controlSize(.small)
-            } else {
-                ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .top, spacing: 28) {
-                        CodexProviderList(viewModel: viewModel, appStore: appStore).frame(width: 220)
-                        CodexProviderEditor(viewModel: viewModel, appStore: appStore).frame(minWidth: 340)
-                    }
-                    VStack(alignment: .leading, spacing: 24) {
-                        CodexProviderList(viewModel: viewModel, appStore: appStore)
-                        Divider()
-                        CodexProviderEditor(viewModel: viewModel, appStore: appStore)
-                    }
-                }
-            }
-            CodexProviderManagerFeedback(viewModel: viewModel)
-        }
-    }
-}
-
-private struct CodexProviderManagerHeader: View {
-    let viewModel: CodexProviderManagerViewModel
-
-    var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .top, spacing: 20) {
-                title
-                Spacer(minLength: 12)
-                addButton
-            }
-            VStack(alignment: .leading, spacing: 12) {
-                title
-                addButton
-            }
-        }
-    }
-
-    private var title: some View {
-        DashboardSectionTitle(title: "模型路由", subtitle: "OpenAI 模型直接连接；第三方模型通过 Router 接入。")
-    }
-
-    private var addButton: some View {
-        Button("新增 Provider") { viewModel.beginCreate() }
-            .buttonStyle(.bordered)
-            .disabled(viewModel.isBusy)
-    }
-}
-
-private struct CodexProviderList: View {
-    let viewModel: CodexProviderManagerViewModel
-    let appStore: AppStore
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            if viewModel.providers.isEmpty {
-                ProviderEmptyState(title: "无法读取 Provider", description: "检查 Codex 配置文件后重试。")
-                Button("重新读取") {
-                    Task { await viewModel.load(using: appStore.codexProviderConfigService, coordinator: appStore.codexRouterCoordinator) }
-                }
-                .disabled(viewModel.isBusy)
-            } else {
-                ForEach(viewModel.providers) { provider in
-                    CodexProviderSelectionRow(
-                        name: provider.name, id: provider.id, model: provider.defaultModel,
-                        isCurrent: provider.id == viewModel.currentProviderID,
-                        isSelected: provider.id == viewModel.selectedProviderID,
-                        unavailableReason: viewModel.unavailableReason(for: provider),
-                        isDisabled: viewModel.isBusy
-                    ) {
-                        Task { await viewModel.selectProvider(id: provider.id, using: appStore.codexProviderConfigService) }
-                    }
-                }
-            }
-        }
-    }
-}
-
-private struct CodexProviderSelectionRow: View {
-    let name: String
-    let id: String
-    let model: String
-    let isCurrent: Bool
-    let isSelected: Bool
-    let unavailableReason: String?
-    let isDisabled: Bool
-    let onSelect: () -> Void
-
-    var body: some View {
-        Button(action: onSelect) {
-            HStack(alignment: .top, spacing: 10) {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(name).font(.callout.weight(.semibold))
-                    Text(id).font(.caption.monospaced()).foregroundStyle(.secondary)
-                    Text(model.isEmpty ? String(localized: "未配置默认模型") : model).font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                    if isCurrent { Label("当前路由", systemImage: "checkmark.circle").font(.caption).foregroundStyle(.green) }
-                    if let unavailableReason {
-                        Text(unavailableReason).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                Spacer(minLength: 4)
-                if isSelected { Image(systemName: "checkmark").font(.caption.weight(.semibold)) }
-            }
-            .foregroundStyle(.primary)
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(isSelected ? Color.primary.opacity(0.055) : Color.clear, in: RoundedRectangle(cornerRadius: 10))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(isDisabled)
-        .accessibilityValue(isSelected ? String(localized: "已选择") : "")
-    }
-}
-
-private struct CodexProviderEditor: View {
-    @Bindable var viewModel: CodexProviderManagerViewModel
-    let appStore: AppStore
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            CodexProviderEditorHeader(viewModel: viewModel, appStore: appStore)
-            VStack(alignment: .leading, spacing: 16) {
-                if !viewModel.draft.isBuiltIn {
-                    ProviderField(title: "内部 ID", detail: "使用简短英文标识，例如 mimo 或 openrouter。") {
-                        TextField("provider-id", text: $viewModel.draft.id)
-                            .disabled(!viewModel.isCreatingNew)
-                    }
-                    ProviderField(title: "名称") { TextField("Provider Name", text: $viewModel.draft.name) }
-                    ProviderField(title: "Base URL") { TextField("https://example.com/v1", text: $viewModel.draft.baseURL) }
-                }
-                ProviderField(title: "默认模型") { TextField("model-name", text: $viewModel.draft.defaultModel) }
-                if !viewModel.draft.isBuiltIn {
-                    ProviderField(title: "API Key", detail: "授权保存在钥匙串。清空后保存会删除已保存的授权。") {
-                        SecureField("输入 API Key", text: $viewModel.draftAPIKey)
-                    }
-                    DisclosureGroup("环境变量") {
-                        Text(viewModel.environmentVariableName())
-                            .font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
-                            .padding(.top, 6)
-                    }
-                    .font(.caption)
-                }
-            }
-            .disabled(viewModel.isBusy)
-            CodexProviderEditorActions(viewModel: viewModel, appStore: appStore)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-private struct CodexProviderEditorHeader: View {
-    let viewModel: CodexProviderManagerViewModel
-    let appStore: AppStore
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(viewModel.draft.isBuiltIn ? "OpenAI" : (viewModel.isCreatingNew ? String(localized: "新建 Provider") : String(localized: "编辑 Provider")))
-                    .font(.headline)
-                Spacer(minLength: 12)
-                if !viewModel.draft.isBuiltIn, !viewModel.isCreatingNew {
-                    Button(role: .destructive) {
-                        Task { await viewModel.delete(using: appStore.codexProviderConfigService) }
-                    } label: { Label("删除", systemImage: "trash") }
-                    .disabled(viewModel.isBusy || viewModel.draft.id == viewModel.currentProviderID)
-                }
-            }
-            Text(viewModel.draft.isBuiltIn
-                ? String(localized: "维护 OpenAI 默认模型；账号授权由上方账号管理。")
-                : String(localized: "保存后更新 Codex 配置；应用后切换当前模型路由。"))
-                .font(.callout).foregroundStyle(.secondary)
-        }
-    }
-}
-
-private struct CodexProviderEditorActions: View {
-    let viewModel: CodexProviderManagerViewModel
-    let appStore: AppStore
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 10) {
-                Button("保存") { Task { await viewModel.save(using: appStore.codexProviderConfigService) } }
-                    .buttonStyle(.borderedProminent).disabled(viewModel.isBusy)
-                Button("应用") {
-                    Task { await viewModel.setCurrent(using: appStore.codexProviderConfigService, coordinator: appStore.codexRouterCoordinator) }
-                }
-                .buttonStyle(.bordered)
-                .disabled(viewModel.isBusy || viewModel.isCreatingNew || viewModel.hasUnsavedChanges || viewModel.draft.id == viewModel.currentProviderID)
-                if viewModel.isWorking || viewModel.isLoadingAPIKey { ProgressView().controlSize(.small) }
-            }
-            if viewModel.hasUnsavedChanges, !viewModel.isCreatingNew {
-                Text("先保存修改，再应用路由。")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-        }
-    }
-}
-
-private struct CodexProviderManagerFeedback: View {
-    let viewModel: CodexProviderManagerViewModel
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if let error = viewModel.errorMessage { ProviderMessage(text: error, isError: true) }
-            else if let status = viewModel.statusMessage { ProviderMessage(text: status) }
-        }
-    }
-}
-
-private struct CodexRouterControlPanel: View {
-    let viewModel: CodexProviderManagerViewModel
-    let appStore: AppStore
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 16) {
-                    routerToggle
-                    Spacer(minLength: 12)
-                    checkButton
-                }
-                VStack(alignment: .leading, spacing: 12) {
-                    routerToggle
-                    checkButton
-                }
-            }
-            if let status = viewModel.routerStatus {
-                Label(status.statusText, systemImage: status.canUseRouter ? "checkmark.circle" : "info.circle")
-                    .font(.callout).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                if status.isConfigured && !status.catalogFileExists {
-                    ProviderMessage(text: String(localized: "模型目录不存在：\(status.modelCatalogPath ?? "merged-models.json")"), isError: true)
-                }
-            } else {
-                Text(viewModel.isLoading ? String(localized: "正在检测 Router 配置…") : String(localized: "尚未获取 Router 状态"))
-                    .font(.callout).foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private var routerToggle: some View {
-        Toggle("启用 Router", isOn: Binding(
-            get: { viewModel.isRouterEnabled },
-            set: { enabled in
-                Task { await viewModel.setRouterEnabled(enabled, using: appStore.codexProviderConfigService, coordinator: appStore.codexRouterCoordinator) }
-            }
-        ))
-        .toggleStyle(.switch)
-        .disabled(viewModel.isBusy)
-    }
-
-    private var checkButton: some View {
         HStack(spacing: 8) {
-            if viewModel.isRefreshingRouterState || viewModel.isApplyingRouterState { ProgressView().controlSize(.small) }
-            Button(viewModel.isRefreshingRouterState ? String(localized: "检测中…") : String(localized: "检测状态")) {
-                Task { await viewModel.refreshRouterStatus(using: appStore.codexRouterCoordinator) }
+            if !account.isCurrent {
+                Button("切换", action: onSwitch)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(isWorking)
             }
-            .buttonStyle(.bordered)
-            .disabled(viewModel.isBusy)
+            Button(role: .destructive, action: onDelete) {
+                Image(systemName: "trash")
+                    .font(.system(size: 12))
+                    .frame(width: 26, height: 26)
+            }
+            .buttonStyle(.borderless)
+            .disabled(isWorking || account.isCurrent)
+            .opacity(account.isCurrent ? 0.3 : 0.85)
+            .help(account.isCurrent
+                ? String(localized: "请先切换到其他账号，再删除当前账号。")
+                : String(localized: "删除已保存的账号"))
+            .accessibilityLabel("删除")
         }
     }
 }
@@ -519,6 +668,7 @@ private struct CodexRouterControlPanel: View {
 
 struct CopilotProviderContent: View {
     @Environment(AppStore.self) private var appStore
+    @Environment(\.colorScheme) private var colorScheme
     @State private var githubToken = ""
     @State private var savedToken = ""
     @State private var verifiedToken: String?
@@ -530,32 +680,88 @@ struct CopilotProviderContent: View {
 
     private var isBusy: Bool { isVerifying || isImporting || isLoading }
 
+    private var remainingPercent: Int? {
+        CopilotSnapshot.menuBarRemainingPercent(
+            from: appStore.syncService?.latestCopilotSnapshots,
+            resetAt: appStore.syncService?.latestCopilotResetAt
+        )
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Text("使用 GitHub OAuth Token 获取 Copilot 额度，可从本地配置导入。")
-                .font(.callout).foregroundStyle(.secondary)
-            ProviderField(title: "GitHub OAuth Token") {
-                SecureField("输入 Token 或从本地配置导入", text: $githubToken)
-                    .disabled(isBusy)
-            }
-            HStack(spacing: 10) {
-                Button("保存并验证") { saveToken() }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(githubToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isBusy)
-                Button("从本地配置导入") { Task { await importToken() } }
-                    .buttonStyle(.bordered).disabled(isBusy)
-                if isBusy { ProgressView().controlSize(.small) }
-            }
-            if let error = importError {
-                ProviderMessage(text: error, isError: true)
-            } else if verifiedToken == githubToken, !githubToken.isEmpty {
-                ProviderMessage(text: String(localized: "授权已验证并保存"))
-            } else if importedToken == githubToken, !githubToken.isEmpty {
-                Text("已导入授权，保存前将验证可用性。")
-                    .font(.callout).foregroundStyle(.secondary)
-            } else if !savedToken.isEmpty, githubToken == savedToken {
-                Text("已保存授权；可重新验证可用性。")
-                    .font(.callout).foregroundStyle(.secondary)
+        let brand = Tool.copilot.brandAccentColor(for: colorScheme)
+        SettingsCard(
+            title: "GitHub 授权",
+            subtitle: "使用 GitHub OAuth Token 读取 Copilot 高级交互配额，可从本地代理配置自动导入。"
+        ) {
+            VStack(alignment: .leading, spacing: 18) {
+                if remainingPercent != nil || appStore.syncService?.latestCopilotPlan != nil {
+                    HStack(spacing: 12) {
+                        if let plan = appStore.syncService?.latestCopilotPlan, !plan.isEmpty {
+                            Text(plan.capitalized)
+                                .font(.system(size: 11.5, weight: .semibold))
+                                .foregroundStyle(brand)
+                                .padding(.horizontal, 9)
+                                .padding(.vertical, 3.5)
+                                .background(brand.opacity(colorScheme == .dark ? 0.18 : 0.11), in: Capsule())
+                        }
+                        if let pct = remainingPercent {
+                            ProviderMiniQuotaPill(label: "剩余", remainingPercent: pct)
+                        }
+                        Spacer()
+                        Button {
+                            Task { await appStore.syncService?.refreshTool(.copilot) }
+                        } label: {
+                            Label("刷新额度", systemImage: "arrow.clockwise")
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(isBusy)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(
+                        brand.opacity(colorScheme == .dark ? 0.10 : 0.055),
+                        in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    )
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(brand.opacity(0.24), lineWidth: 0.75)
+                    }
+                }
+
+                ProviderField(title: "GitHub OAuth Token") {
+                    SecureField("输入 Token 或从本地配置导入", text: $githubToken)
+                        .disabled(isBusy)
+                }
+
+                HStack(spacing: 10) {
+                    Button("保存并验证") { saveToken() }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(githubToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isBusy)
+                    Button("从本地配置导入") { Task { await importToken() } }
+                        .buttonStyle(.bordered)
+                        .disabled(isBusy)
+                    if !savedToken.isEmpty {
+                        Button("移除授权", role: .destructive) { removeToken() }
+                            .buttonStyle(.borderless)
+                            .disabled(isBusy)
+                    }
+                    if isBusy { ProgressView().controlSize(.small) }
+                }
+
+                if let error = importError {
+                    ProviderMessage(text: error, isError: true)
+                } else if verifiedToken == githubToken, !githubToken.isEmpty {
+                    ProviderMessage(text: String(localized: "授权已验证并保存"))
+                } else if importedToken == githubToken, !githubToken.isEmpty {
+                    Text("已导入授权，保存前将验证可用性。")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                } else if !savedToken.isEmpty, githubToken == savedToken {
+                    Text("已保存授权；可随时重新验证或刷新配额。")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .task { await loadAndAutoImport() }
@@ -571,6 +777,15 @@ struct CopilotProviderContent: View {
         }.value
         savedToken = githubToken
         if githubToken.isEmpty { await importToken(silent: true) }
+    }
+
+    private func removeToken() {
+        KeychainService.delete(key: KeychainService.Keys.githubToken)
+        githubToken = ""
+        savedToken = ""
+        verifiedToken = nil
+        importedToken = nil
+        importError = nil
     }
 
     private func importToken(silent: Bool = false) async {
@@ -653,7 +868,15 @@ struct CopilotProviderContent: View {
     }
 }
 
-// MARK: - Antigravity
+// MARK: - Antigravity (Unified Accounts — zero duplicate list)
+
+private struct UnifiedAntigravityAccount: Identifiable {
+    let email: String
+    let quota: AGAccountQuota?
+    let isOpenPulseOwned: Bool
+
+    var id: String { email }
+}
 
 struct AntigravityProviderContent: View {
     let appStore: AppStore
@@ -667,40 +890,95 @@ struct AntigravityProviderContent: View {
         Set(hiddenAccountEmailsRaw.components(separatedBy: ",").filter { !$0.isEmpty })
     }
 
+    private var unifiedAccounts: [UnifiedAntigravityAccount] {
+        let ownedSet = Set(ownedAccounts.map(\.email))
+        let synced = appStore.syncService?.latestAntigravityAccounts ?? []
+        var seen = Set<String>()
+        var merged: [UnifiedAntigravityAccount] = []
+
+        for account in synced {
+            if seen.insert(account.email).inserted {
+                merged.append(UnifiedAntigravityAccount(
+                    email: account.email,
+                    quota: account,
+                    isOpenPulseOwned: ownedSet.contains(account.email)
+                ))
+            }
+        }
+        for stored in ownedAccounts where seen.insert(stored.email).inserted {
+            merged.append(UnifiedAntigravityAccount(
+                email: stored.email,
+                quota: nil,
+                isOpenPulseOwned: true
+            ))
+        }
+        return merged
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            Text("使用 Google 登录添加账号，或自动读取本地授权。每个账号分别显示 5 小时与每周额度。")
-                .font(.callout).foregroundStyle(.secondary)
-            AntigravityAccountActions(isWorking: isWorking || isLoading, onLogin: {
-                runAsyncAction {
-                    _ = try await appStore.antigravityAccountService.addAccountViaOAuth()
-                    try await reload()
-                    await appStore.syncService?.refreshTool(.antigravity)
-                }
-            }, onRefresh: {
-                runAsyncAction {
-                    try await reload()
-                    await appStore.syncService?.refreshTool(.antigravity)
-                }
-            })
-            if let errorMessage { ProviderMessage(text: errorMessage, isError: true) }
-            if !ownedAccounts.isEmpty {
-                AntigravityOwnedAccounts(accounts: ownedAccounts, isWorking: isWorking) { email in
-                    runAsyncAction {
-                        try await appStore.antigravityAccountService.deleteAccount(email: email)
-                        try await reload()
-                        await appStore.syncService?.refreshTool(.antigravity)
+        SettingsCard(
+            title: "Google 账号与菜单栏显示",
+            subtitle: "统一管理 OAuth 登录与本地代理授权账号，可按账号控制是否在菜单栏中显示。"
+        ) {
+            VStack(alignment: .leading, spacing: 18) {
+                AntigravityAccountActions(
+                    isWorking: isWorking || isLoading,
+                    onLogin: {
+                        runAsyncAction {
+                            _ = try await appStore.antigravityAccountService.addAccountViaOAuth()
+                            try await reload()
+                            await appStore.syncService?.refreshTool(.antigravity)
+                        }
+                    },
+                    onRefresh: {
+                        runAsyncAction {
+                            try await reload()
+                            await appStore.syncService?.refreshTool(.antigravity)
+                        }
+                    }
+                )
+
+                if let errorMessage { ProviderMessage(text: errorMessage, isError: true) }
+
+                let accounts = unifiedAccounts
+                if accounts.isEmpty {
+                    if isLoading {
+                        HStack(spacing: 8) {
+                            ProgressView().controlSize(.small)
+                            Text("正在读取账号…")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.vertical, 8)
+                    } else {
+                        ProviderEmptyState(
+                            icon: "person.badge.plus",
+                            title: "尚未获取账号额度",
+                            description: "点击「添加 Google 账号」完成授权，或刷新已配置的本地代理文件。"
+                        )
+                    }
+                } else {
+                    VStack(spacing: 12) {
+                        ForEach(accounts) { entry in
+                            AGUnifiedAccountPlate(
+                                entry: entry,
+                                isVisibleInMenuBar: !hiddenAccountEmails.contains(entry.email),
+                                isWorking: isWorking,
+                                onToggleMenuBar: { isVisible in
+                                    setHiddenAccount(entry.email, isVisible)
+                                },
+                                onDelete: entry.isOpenPulseOwned ? {
+                                    runAsyncAction {
+                                        try await appStore.antigravityAccountService.deleteAccount(email: entry.email)
+                                        try await reload()
+                                        await appStore.syncService?.refreshTool(.antigravity)
+                                    }
+                                } : nil
+                            )
+                        }
                     }
                 }
             }
-            AntigravityQuotaAccounts(
-                accounts: appStore.syncService?.latestAntigravityAccounts ?? [],
-                hiddenEmails: hiddenAccountEmails,
-                isLoading: isLoading || isWorking,
-                onSetVisibility: { email, isVisible in
-                    setHiddenAccount(email, isVisible)
-                }
-            )
         }
         .task {
             do { try await reload() }
@@ -750,74 +1028,181 @@ private struct AntigravityAccountActions: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Button("添加 Google 账号", action: onLogin).buttonStyle(.borderedProminent)
-            Button("刷新额度", action: onRefresh).buttonStyle(.bordered)
+            Button(action: onLogin) {
+                Label("添加 Google 账号", systemImage: "plus")
+            }
+            .buttonStyle(.borderedProminent)
+
+            Button {
+                onRefresh()
+            } label: {
+                Label("刷新额度", systemImage: "arrow.clockwise")
+            }
+            .buttonStyle(.bordered)
+
             if isWorking { ProgressView().controlSize(.small) }
+            Spacer(minLength: 0)
         }
         .disabled(isWorking)
     }
 }
 
-private struct AntigravityOwnedAccounts: View {
-    let accounts: [AGStoredAccount]
+private struct AGUnifiedAccountPlate: View {
+    @Environment(\.colorScheme) private var colorScheme
+    let entry: UnifiedAntigravityAccount
+    let isVisibleInMenuBar: Bool
     let isWorking: Bool
-    let onDelete: (String) -> Void
+    let onToggleMenuBar: (Bool) -> Void
+    let onDelete: (() -> Void)?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("已保存的 Google 账号").font(.callout.weight(.semibold)).padding(.bottom, 8)
-            ForEach(accounts, id: \.email) { account in
-                HStack(spacing: 12) {
-                    Image(systemName: "person.crop.circle").foregroundStyle(.secondary)
-                    Text(account.label).font(.callout).textSelection(.enabled)
-                    Spacer(minLength: 12)
-                    Button(role: .destructive) { onDelete(account.email) } label: { Label("删除", systemImage: "trash") }
-                        .buttonStyle(.borderless).disabled(isWorking)
+        let brand = Tool.antigravity.brandAccentColor(for: colorScheme)
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .center, spacing: 10) {
+                ZStack {
+                    Circle()
+                        .fill(brand.opacity(colorScheme == .dark ? 0.18 : 0.11))
+                        .frame(width: 28, height: 28)
+                    Image(systemName: "person.fill")
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .foregroundStyle(brand)
                 }
-                .padding(.vertical, 12)
-                if account.email != accounts.last?.email { Divider().padding(.leading, 28) }
+
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 7) {
+                        Text(entry.email)
+                            .font(.system(size: 13, weight: .semibold))
+                            .textSelection(.enabled)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        if let quota = entry.quota {
+                            AGTierBadge(account: quota)
+                        }
+                        Text(entry.isOpenPulseOwned ? String(localized: "OAuth 登录") : String(localized: "本地授权"))
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 1.5)
+                            .background(Color.primary.opacity(colorScheme == .dark ? 0.08 : 0.05), in: Capsule())
+                    }
+                }
+
+                Spacer(minLength: 12)
+
+                HStack(spacing: 10) {
+                    HStack(spacing: 6) {
+                        Text("菜单栏")
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(.secondary)
+                        Toggle("在菜单栏显示此账号", isOn: Binding(
+                            get: { isVisibleInMenuBar },
+                            set: onToggleMenuBar
+                        ))
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .labelsHidden()
+                    }
+
+                    if let onDelete {
+                        Button(role: .destructive, action: onDelete) {
+                            Image(systemName: "trash")
+                                .font(.system(size: 12))
+                                .frame(width: 26, height: 26)
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(isWorking)
+                        .help("删除已保存的 Google 账号")
+                        .accessibilityLabel("删除")
+                    }
+                }
             }
-        }
-    }
-}
 
-private struct AntigravityQuotaAccounts: View {
-    let accounts: [AGAccountQuota]
-    let hiddenEmails: Set<String>
-    let isLoading: Bool
-    let onSetVisibility: @MainActor @Sendable (String, Bool) -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            if accounts.isEmpty {
-                if isLoading {
-                    ProgressView("正在读取账号…").controlSize(.small)
-                } else {
-                    ProviderEmptyState(title: "尚未获取账号额度", description: "添加 Google 账号，或刷新已配置的本地授权。")
+            if let groups = entry.quota?.groups, !groups.isEmpty {
+                Divider().opacity(0.45)
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 260), spacing: 14, alignment: .top)],
+                    alignment: .leading,
+                    spacing: 12
+                ) {
+                    ForEach(groups) { group in
+                        AGCompactGroupTile(group: group)
+                    }
                 }
             } else {
-                ForEach(accounts) { account in
-                    AGAccountCard(account: account, isAccountHidden: hiddenEmails.contains(account.email)) {
-                        onSetVisibility(account.email, $0)
-                    }
-                    if account.id != accounts.last?.id { Divider() }
-                }
+                Text("等待首次额度同步")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(.secondary)
             }
         }
+        .padding(14)
+        .background(
+            Color.primary.opacity(colorScheme == .dark ? 0.035 : 0.02),
+            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.065), lineWidth: 0.75)
+        }
+        .opacity(isVisibleInMenuBar ? 1 : 0.68)
     }
 }
 
-struct AGAccountCard: View {
-    let account: AGAccountQuota
-    let isAccountHidden: Bool
-    let onToggleAccount: @MainActor @Sendable (Bool) -> Void
+private struct AGCompactGroupTile: View {
+    @Environment(\.colorScheme) private var colorScheme
+    let group: AGQuotaGroup
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            AGAccountQuotaBody(account: account)
-            Toggle("在菜单栏显示此账号", isOn: Binding(get: { !isAccountHidden }, set: onToggleAccount))
-                .toggleStyle(.checkbox)
-                .font(.callout)
+        VStack(alignment: .leading, spacing: 10) {
+            Text(group.displayName)
+                .font(.system(size: 11.5, weight: .semibold))
+                .foregroundStyle(.primary)
+
+            compactWindowBar(
+                label: "5H",
+                window: group.fiveHour,
+                isBlockedByWeekly: agQuotaDisplayFraction(for: group.weekly).map { $0 <= 0.001 } ?? false
+            )
+            compactWindowBar(label: "7D", window: group.weekly, isBlockedByWeekly: false)
+        }
+        .padding(11)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            Color(nsColor: .controlBackgroundColor).opacity(colorScheme == .dark ? 0.55 : 0.85),
+            in: RoundedRectangle(cornerRadius: 9, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.055), lineWidth: 0.6)
+        }
+    }
+
+    private func compactWindowBar(label: String, window: AGWindow?, isBlockedByWeekly: Bool) -> some View {
+        let fraction = agQuotaDisplayFraction(for: window)
+        let pctText = fraction.map { "\(Int(($0 * 100).rounded()))%" } ?? "—"
+        let color = fraction.map { quotaBarColor(fraction: $0) } ?? .secondary
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Text(label)
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 20, alignment: .leading)
+                QuotaProgressBar(fraction: fraction, color: color, height: 4)
+                Text(pctText)
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(fraction == nil ? .secondary : color)
+                    .frame(width: 34, alignment: .trailing)
+            }
+            if isBlockedByWeekly {
+                Text("本周额度已耗尽")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.orange)
+                    .padding(.leading, 26)
+            } else if let countdown = window?.resetCountdown {
+                Text(countdown)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+                    .padding(.leading, 26)
+            }
         }
     }
 }

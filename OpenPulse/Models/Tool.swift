@@ -50,7 +50,7 @@ enum Tool: String, Codable, CaseIterable, Sendable {
         switch self {
         case .claudeCode: "claude-menubar"
         case .codex: "codex-menubar"
-        case .copilot: "CopilotLogo"
+        case .copilot: "copilot-menubar"
         case .antigravity: "antigravity-menubar"
         }
     }
@@ -60,14 +60,12 @@ enum Tool: String, Codable, CaseIterable, Sendable {
         false
     }
 
-    /// Tools whose 5-hour quota is backed by a real data source and can be shown
-    /// directly in the menu bar title.
+    /// Tools whose quota is backed by a real data source and can be shown
+    /// directly in the macOS menu bar.
     var supportsMenuBarFiveHourDisplay: Bool {
         switch self {
-        case .claudeCode, .codex, .antigravity:
+        case .claudeCode, .codex, .antigravity, .copilot:
             true
-        case .copilot:
-            false
         }
     }
 

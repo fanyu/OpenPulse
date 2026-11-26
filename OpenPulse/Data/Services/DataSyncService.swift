@@ -40,8 +40,16 @@ final class DataSyncService {
 
     // MARK: - MenuBarView compatibility helpers
 
-    /// True when any tool is actively refreshing.
-    var isSyncingActive: Bool { isRefreshAllInFlight || Tool.allCases.contains { states[$0].isRefreshing } }
+    /// True when any user-visible (network / manual / scheduled) sync is running.
+    /// Silent background FSEvents local parses intentionally keep this false so the
+    /// sidebar and dashboard headers don't flash "Syncing" every few seconds while coding.
+    var isSyncingActive: Bool { isRefreshAllInFlight || Tool.allCases.contains { states[$0].isUserVisibleRefreshing } }
+
+    /// True when any refresh (including silent local file parses) owns a write lock.
+    var hasAnyRefreshInFlight: Bool { isRefreshAllInFlight || Tool.allCases.contains { states[$0].isRefreshing } }
+
+    /// Next scheduled poll fire date per tool (nil when manual-only or stopped).
+    private(set) var nextScheduledPollDates: [Tool: Date] = [:]
 
     /// Most recent sync date across all tools.
     var lastSyncDate: Date? { Tool.allCases.compactMap { states[$0].lastSyncDate }.max() }
@@ -63,7 +71,7 @@ final class DataSyncService {
 
     func refreshAntigravityAccount(email: String) async {
         guard !refreshingAntigravityAccountEmails.contains(email) else { return }
-        await performQuotaOnlyRefresh(for: .antigravity) {
+        await performQuotaOnlyRefresh(for: .antigravity, refreshKind: .full) {
             self.refreshingAntigravityAccountEmails.insert(email)
             defer { self.refreshingAntigravityAccountEmails.remove(email) }
             let account = try await antigravityParser.fetchQuota(forAccountEmail: email)
@@ -89,14 +97,145 @@ final class DataSyncService {
         .copilot:     3600,
     ]
 
-    /// Watched filesystem paths and which tool they belong to.
+    /// Deterministic initial phase offsets (seconds) so tools never collide on
+    /// startup or share harmonic timer alignments (e.g. 3m / 5m / 60m LCM).
+    static let pollPhaseOffset: [Tool: TimeInterval] = [
+        .codex:        0,
+        .claudeCode:  25,
+        .antigravity: 50,
+        .copilot:     75,
+    ]
+
+    /// Staggered startup launch offsets (seconds) to avoid simultaneous cold-start spikes.
+    private static let launchStaggerOffset: [Tool: TimeInterval] = [
+        .codex:       0.0,
+        .claudeCode:  0.6,
+        .antigravity: 1.2,
+        .copilot:     1.8,
+    ]
+
+    static let localFileWatchEnabledKey = "sync.localFileWatch.enabled"
+    private static let localEventDebounceDuration: Duration = .milliseconds(1500)
+    private static let localEventCooldown: TimeInterval = 8
+
+    static func pollIntervalKey(for tool: Tool) -> String {
+        "sync.pollInterval.\(tool.rawValue)"
+    }
+
+    static func minimumPollInterval(for tool: Tool) -> TimeInterval {
+        tool == .copilot ? 300 : 60
+    }
+
+    /// User-selectable polling presets per tool (seconds; `0` means manual-only).
+    static func pollIntervalOptions(for tool: Tool) -> [TimeInterval] {
+        switch tool {
+        case .copilot:
+            [300, 900, 1800, 3600, 7200, 0]
+        case .claudeCode, .codex, .antigravity:
+            [60, 180, 300, 600, 900, 1800, 3600, 0]
+        }
+    }
+
+    static func normalizedPollInterval(_ raw: TimeInterval, for tool: Tool) -> TimeInterval {
+        guard raw.isFinite else { return defaultPollInterval[tool] ?? 300 }
+        if raw <= 0 { return 0 }
+        return max(minimumPollInterval(for: tool), raw)
+    }
+
+    static func pollInterval(for tool: Tool, defaults: UserDefaults = .standard) -> TimeInterval {
+        let key = pollIntervalKey(for: tool)
+        guard defaults.object(forKey: key) != nil else {
+            return defaultPollInterval[tool] ?? 300
+        }
+        return normalizedPollInterval(defaults.double(forKey: key), for: tool)
+    }
+
+    /// Computes the next one-shot timer delay with phase staggering and bounded jitter
+    /// (`jitterUnit` in `[-1, 1]`). Returns `nil` when `baseInterval <= 0` (manual-only).
+    static func nextPollDelay(
+        for tool: Tool,
+        baseInterval: TimeInterval,
+        isInitial: Bool,
+        jitterUnit: Double = Double.random(in: -1...1)
+    ) -> TimeInterval? {
+        guard baseInterval > 0 else { return nil }
+        let clampedJitterUnit = max(-1, min(1, jitterUnit))
+        let maxJitter = min(15.0, baseInterval * 0.05)
+        let jitter = clampedJitterUnit * maxJitter
+        let phase = isInitial
+            ? (pollPhaseOffset[tool] ?? 0).truncatingRemainder(dividingBy: max(60, baseInterval))
+            : 0
+        return max(30, baseInterval + phase + jitter)
+    }
+
+    func currentPollInterval(for tool: Tool) -> TimeInterval {
+        Self.pollInterval(for: tool, defaults: cacheDefaults)
+    }
+
+    func setPollInterval(_ interval: TimeInterval, for tool: Tool) {
+        let normalized = Self.normalizedPollInterval(interval, for: tool)
+        cacheDefaults.set(normalized, forKey: Self.pollIntervalKey(for: tool))
+        if isRunning {
+            schedulePollTimer(for: tool, isInitial: true)
+        }
+    }
+
+    func resetPollIntervalsToDefaults() {
+        for tool in Tool.allCases {
+            cacheDefaults.removeObject(forKey: Self.pollIntervalKey(for: tool))
+            if isRunning {
+                schedulePollTimer(for: tool, isInitial: true)
+            }
+        }
+    }
+
+    var isLocalFileWatchEnabled: Bool {
+        guard cacheDefaults.object(forKey: Self.localFileWatchEnabledKey) != nil else { return true }
+        return cacheDefaults.bool(forKey: Self.localFileWatchEnabledKey)
+    }
+
+    func setLocalFileWatchEnabled(_ enabled: Bool) {
+        cacheDefaults.set(enabled, forKey: Self.localFileWatchEnabledKey)
+        guard isRunning else { return }
+        if enabled {
+            if fsEventStream == nil {
+                startFSEventWatching()
+            }
+        } else {
+            fsEventStream?.stop()
+            fsEventStream = nil
+            fsDebounceTask?.cancel()
+            fsDebounceTask = nil
+            clearPendingLocalRefreshes()
+        }
+    }
+
+    /// Lightweight paths watched even when only the Menu Bar is active (for live local quota updates).
+    private static let quotaOnlyFSWatchRoots: [(path: String, tool: Tool)] = [
+        (.homeDirectory + "/.codex/config.toml",                                     .codex),
+        (.homeDirectory + "/.codex/sessions",                                        .codex),
+    ]
+
+    /// Full local session paths watched only while the main app window is open.
     private static let fsWatchRoots: [(path: String, tool: Tool)] = [
-        (.homeDirectory + "/.claude/projects",            .claudeCode),
-        (.homeDirectory + "/.config/claude/projects",     .claudeCode),
-        (.homeDirectory + "/.codex/config.toml",          .codex),
-        (.homeDirectory + "/.codex/sessions",             .codex),
-        (.homeDirectory + "/.codex/codex-router/merged-models.json", .codex),
-        (.homeDirectory + "/.gemini/antigravity/brain",   .antigravity),
+        (.homeDirectory + "/.claude/projects",                                       .claudeCode),
+        (.homeDirectory + "/.config/claude/projects",                                .claudeCode),
+        (.homeDirectory + "/.codex/config.toml",                                     .codex),
+        (.homeDirectory + "/.codex/sessions",                                        .codex),
+        (.homeDirectory + "/Library/Application Support/orca/codex-runtime-home/home", .codex),
+        (.homeDirectory + "/.gemini/antigravity/brain",                              .antigravity),
+        (.homeDirectory + "/.gemini/antigravity-cli",                                .antigravity),
+        (.homeDirectory + "/.gemini/antigravity-acp",                                .antigravity),
+        (.homeDirectory + "/.t3/userdata/providers/antigravity",                     .antigravity),
+    ]
+    private static let antigravityFilteredRoots: [String] = [
+        .homeDirectory + "/.t3/userdata/providers/antigravity",
+        .homeDirectory + "/.gemini/antigravity-cli",
+        .homeDirectory + "/.gemini/antigravity-acp",
+    ]
+    private static let piAgentSessionWatchRoots: [String] = [
+        .homeDirectory + "/.omp/agent/sessions",
+        .homeDirectory + "/.pi/agent/sessions",
     ]
 
     /// Claude Code bridge cache dir/file (triggers quota refresh, not session parse).
@@ -109,7 +248,7 @@ final class DataSyncService {
     // MARK: - Private state
 
     private let claudeParser: ClaudeCodeParser
-    private let codexParser   = CodexParser()
+    private let codexParser: CodexParser
     private let antigravityParser: AntigravityParser
     private let copilotClient = CopilotAPIClient()
     private let codexAccountService: CodexAccountService
@@ -130,6 +269,7 @@ final class DataSyncService {
     }()
 
     // Poll timers and background tasks
+    private var isRunning = false
     private var pollTimers: [Tool: Timer] = [:]
     private var fsEventStream: FSEventStream?
     private var fsDebounceTask: Task<Void, Never>?
@@ -137,13 +277,26 @@ final class DataSyncService {
     private var pendingLocalRefreshTools: Set<Tool> = []
     private var pendingBridgeQuotaRefresh = false
     private var pendingCodexLocalQuotaRefresh = false
+    private var lastLocalRefreshAt: [Tool: Date] = [:]
     @ObservationIgnored private var localCatchUpTasks: [Tool: Task<Void, Never>] = [:]
     @ObservationIgnored private var localWorkGeneration: UInt64 = 0
     private var acceptingLocalEvents = true
     private var isRefreshAllInFlight = false
 
+    // Tracks when Claude supplemental API metadata (cedar_ember / extra_usage) was last refreshed
+    private var lastClaudeSupplementFetchAt: Date?
+    private static let claudeSupplementTTL: TimeInterval = 900
+
     // Tracks the last sync cutoff date used per-tool for incremental parsing
     private var lastParsedAt: [Tool: Date] = [:]
+
+    /// True while the main dashboard window is visible (or in unit tests).
+    /// When false (Menu Bar background mode), OpenPulse skips historical session scans
+    /// and shrinks FSEvents to lightweight quota-only paths.
+    private(set) var sessionScanningActive: Bool
+    private var lastTodayUsageRefreshAt: Date?
+    private static let todayUsagePopoverCooldown: TimeInterval = 60
+    @ObservationIgnored private var mainWindowSessionSyncTask: Task<Void, Never>?
 
     // One-time flag: backfill Codex placeholder model names at most once per launch
     private var codexBackfillDone = false
@@ -159,7 +312,9 @@ final class DataSyncService {
         codexAccountService: CodexAccountService,
         deskSnapshotPublisher: DeskSnapshotPublisher? = DeskSnapshotPublisher.makeIfAvailable(),
         restoreCachedSnapshots: Bool = true,
+        sessionScanningActive: Bool = true,
         claudeParser: ClaudeCodeParser = ClaudeCodeParser(),
+        codexParser: CodexParser = CodexParser(),
         antigravityParser: AntigravityParser = AntigravityParser(),
         cacheDefaults: UserDefaults = .standard,
         postRefresh: (@MainActor (Tool?) async -> Void)? = nil,
@@ -167,7 +322,9 @@ final class DataSyncService {
     ) {
         self.modelContainer = modelContainer
         self.codexAccountService = codexAccountService
+        self.sessionScanningActive = sessionScanningActive
         self.claudeParser = claudeParser
+        self.codexParser = codexParser
         self.antigravityParser = antigravityParser
         self.deskSnapshotPublisher = deskSnapshotPublisher
         self.cacheDefaults = cacheDefaults
@@ -187,33 +344,112 @@ final class DataSyncService {
     }
 
     func start() {
+        isRunning = true
         acceptingLocalEvents = true
         purgeLegacyRefreshPreferences()
         purgeOrphanedQuotas()
-        for tool in Tool.allCases { schedulePollTimer(for: tool) }
-        startFSEventWatching()
+        for tool in Tool.allCases { schedulePollTimer(for: tool, isInitial: true) }
+        if isLocalFileWatchEnabled {
+            startFSEventWatching()
+        }
         if UserDefaults.standard.bool(forKey: "notifications.enabled") {
             NotificationService.shared.requestPermission()
         }
-        Task { await refreshAll() }
+        Task { await refreshAllStaggeredOnLaunch() }
     }
 
     func stop() {
+        isRunning = false
         acceptingLocalEvents = false
         pollTimers.values.forEach { $0.invalidate() }
         pollTimers.removeAll()
+        nextScheduledPollDates.removeAll()
         fsEventStream?.stop()
         fsEventStream = nil
         fsDebounceTask?.cancel()
         fsDebounceTask = nil
+        mainWindowSessionSyncTask?.cancel()
+        mainWindowSessionSyncTask = nil
         clearPendingLocalRefreshes()
         dotTextPushTask?.cancel()
         Task { await deskSnapshotPublishDebouncer?.cancel() }
     }
 
+    /// Toggles full local session scanning and FSEvents scope based on whether the main window is open.
+    /// When the main window is closed, OpenPulse stays in lightweight Menu Bar mode (quota only).
+    func setMainWindowVisible(_ visible: Bool) {
+        guard sessionScanningActive != visible else { return }
+        sessionScanningActive = visible
+        AppLogger.shared.info("[sync] main window visible=\(visible) (session scanning \(visible ? "active" : "paused"))")
+
+        if isRunning && isLocalFileWatchEnabled {
+            restartFSEventWatching()
+        }
+
+        if visible {
+            mainWindowSessionSyncTask?.cancel()
+            mainWindowSessionSyncTask = Task { @MainActor [weak self] in
+                guard let self, !Task.isCancelled else { return }
+                await self.syncLocalSessionsForMainWindow()
+            }
+        } else {
+            mainWindowSessionSyncTask?.cancel()
+            mainWindowSessionSyncTask = nil
+            pendingLocalRefreshTools.removeAll()
+        }
+    }
+
+    /// Lightweight today-only local usage refresh when the user opens the Menu Bar popover
+    /// while the main window is closed, throttled so rapid popover opens stay zero-cost.
+    func refreshTodayUsageIfNeeded() async {
+        guard !sessionScanningActive else { return }
+        let now = Date()
+        if let last = lastTodayUsageRefreshAt, now.timeIntervalSince(last) < Self.todayUsagePopoverCooldown {
+            return
+        }
+        lastTodayUsageRefreshAt = now
+        let todayStart = Calendar.current.startOfDay(for: now)
+        await withTaskGroup(of: Void.self) { group in
+            for tool in [Tool.claudeCode, .codex, .antigravity] {
+                group.addTask {
+                    await self.refreshLocalFiles(for: tool, cutoffOverride: todayStart, advanceParseCursor: false)
+                }
+            }
+        }
+    }
+
+    /// Reloads local session source configuration (after discovery, toggling, or adding custom folders).
+    func reloadSessionSources(rediscover: Bool = false) async {
+        if rediscover {
+            await Task.detached(priority: .utility) {
+                SessionSourceRegistry.shared.rediscover()
+            }.value
+        }
+        lastParsedAt.removeAll()
+        if isRunning && isLocalFileWatchEnabled {
+            restartFSEventWatching()
+        }
+        if sessionScanningActive {
+            await syncLocalSessionsForMainWindow()
+        }
+    }
+
+    private func syncLocalSessionsForMainWindow() async {
+        await Task.detached(priority: .utility) {
+            SessionSourceRegistry.shared.ensureDiscovered()
+        }.value
+        await withTaskGroup(of: Void.self) { group in
+            for tool in [Tool.claudeCode, .codex, .antigravity] {
+                group.addTask {
+                    await self.refreshLocalFiles(for: tool)
+                }
+            }
+        }
+    }
+
     // MARK: - Public refresh API
 
-    /// Refresh all tools concurrently. This is the primary entry point.
+    /// Refresh all tools concurrently. This is the primary manual entry point.
     func refreshAll() async {
         guard !isRefreshAllInFlight else { return }
         isRefreshAllInFlight = true
@@ -228,16 +464,45 @@ final class DataSyncService {
         await publishAfterSuccessfulRefresh()
     }
 
-    /// Refresh a single tool (called by per-tool timers and FSEvents).
+    /// Gentle staggered launch sweep so cold startup does not spike disk & network across all 4 tools at t=0.
+    private func refreshAllStaggeredOnLaunch() async {
+        guard !isRefreshAllInFlight else { return }
+        isRefreshAllInFlight = true
+        defer {
+            isRefreshAllInFlight = false
+        }
+        await withTaskGroup(of: Void.self) { group in
+            for tool in Tool.allCases {
+                let offset = Self.launchStaggerOffset[tool] ?? 0
+                group.addTask {
+                    if offset > 0 {
+                        try? await Task.sleep(for: .milliseconds(Int(offset * 1000)))
+                    }
+                    guard !Task.isCancelled else { return }
+                    await self.refreshTool(tool)
+                }
+            }
+        }
+        await publishAfterSuccessfulRefresh()
+    }
+
+    /// Refresh a single tool (called by per-tool timers and manual refresh).
     func refreshTool(_ tool: Tool) async {
-        guard states[tool].beginRefresh() else { return }
-        defer { endRefreshAndScheduleLocalCatchUp(for: tool) }
+        guard states[tool].beginRefresh(kind: .full) else { return }
+        defer {
+            endRefreshAndScheduleLocalCatchUp(for: tool)
+            if isRunning {
+                schedulePollTimer(for: tool, isInitial: false)
+            }
+        }
 
         do {
             try await performToolRefresh(tool)
             states[tool].recordSuccess()
             failureGates[tool]?.recordSuccess()
-            lastParsedAt[tool] = Date()
+            if sessionScanningActive {
+                lastParsedAt[tool] = Date()
+            }
             if !isRefreshAllInFlight {
                 await publishAfterSuccessfulRefresh(for: tool)
             }
@@ -256,9 +521,14 @@ final class DataSyncService {
 
     /// Quota-only work owns the same per-tool gate as polling and session imports.
     /// An accepted, saved snapshot advances sync time, never the session parse cursor.
-    func performQuotaOnlyRefresh(for tool: Tool, onBusy: (@MainActor () -> Void)? = nil, operation: @MainActor () async throws -> Bool) async {
+    func performQuotaOnlyRefresh(
+        for tool: Tool,
+        refreshKind: SyncRefreshKind = .full,
+        onBusy: (@MainActor () -> Void)? = nil,
+        operation: @MainActor () async throws -> Bool
+    ) async {
         guard !Task.isCancelled else { return }
-        guard states[tool].beginRefresh() else { onBusy?(); return }
+        guard states[tool].beginRefresh(kind: refreshKind) else { onBusy?(); return }
         defer { endRefreshAndScheduleLocalCatchUp(for: tool) }
         do {
             guard try await operation() else { return }
@@ -303,11 +573,25 @@ final class DataSyncService {
         if usageChanged { dataRevision &+= 1 }
     }
 
+    /// Notify observers (Trends, Activity, Settings) after external session deletions/restorations.
+    func notifyUsageRecordsMutated() {
+        readContext = makeWriteContext()
+        dataRevision &+= 1
+    }
+
+    /// Clear hidden session IDs and force a full rescan so restored historical sessions reappear immediately.
+    func restoreHiddenSessionsAndResync() async {
+        SessionManagementService.unhideAllSessions(defaults: cacheDefaults)
+        lastParsedAt.removeAll()
+        await refreshAll()
+    }
+
     func usageCacheWasCleared() {
         fsDebounceTask?.cancel()
         fsDebounceTask = nil
         clearPendingLocalRefreshes()
         lastParsedAt.removeAll()
+        lastClaudeSupplementFetchAt = nil
         codexBackfillDone = false
         latestCodexAccounts = []
         latestClaudeUsage = nil
@@ -331,36 +615,38 @@ final class DataSyncService {
     // MARK: - Claude Code
 
     private func refreshClaudeCode(context: ModelContext) async throws {
-        // 1. Parse local files off main thread
-        let since = incrementalCutoff(for: .claudeCode)
-        let todayStart = Calendar.current.startOfDay(for: Date())
-        let (sessions, cacheStats) = try await Task.detached(priority: .utility) {
-            let sessions  = try await self.claudeParser.parseSessions(since: since)
-            let cliStats  = (try? await self.claudeParser.parseDailyStatsFromCache()) ?? []
-            let desktopStats = (try? await self.claudeParser.parseDailyStatsFromClaudeDesktop()) ?? []
-            return (sessions, cliStats + desktopStats)
-        }.value
-
-        try await upsertSessions(sessions, context: context)
-
-        // Merge cache stats with session-derived stats so today's tokens are always present.
-        // stats-cache.json may not cover today yet; sessions are always fresh.
-        var mergedStats = try mergeDailyStats(cacheStats, sessions: sessions, tool: .claudeCode, context: context)
-
-        // If today still has no tokens after the merge (incremental cutoff may have skipped
-        // earlier sessions), do a full scan of today's sessions to fill the gap.
-        let todayHasTokens = mergedStats.contains {
-            $0.date == todayStart && ($0.totalInputTokens + $0.totalOutputTokens) > 0
-        }
-        if !todayHasTokens {
-            let todaySessions = try await Task.detached(priority: .utility) {
-                try await self.claudeParser.parseSessions(since: todayStart)
+        // 1. Parse local session files only when the main window is active.
+        if sessionScanningActive {
+            let since = incrementalCutoff(for: .claudeCode)
+            let todayStart = Calendar.current.startOfDay(for: Date())
+            let (sessions, cacheStats) = try await Task.detached(priority: .utility) {
+                let sessions  = try await self.claudeParser.parseSessions(since: since)
+                let cliStats  = (try? await self.claudeParser.parseDailyStatsFromCache()) ?? []
+                let desktopStats = (try? await self.claudeParser.parseDailyStatsFromClaudeDesktop()) ?? []
+                return (sessions, cliStats + desktopStats)
             }.value
-            try await upsertSessions(todaySessions, context: context)
-            mergedStats = try mergeDailyStats(mergedStats, sessions: todaySessions, tool: .claudeCode, context: context)
-        }
 
-        mergedStats.forEach { upsertDailyStats($0, context: context) }
+            try await upsertSessions(sessions, context: context)
+
+            // Merge cache stats with session-derived stats so today's tokens are always present.
+            // stats-cache.json may not cover today yet; sessions are always fresh.
+            var mergedStats = try mergeDailyStats(cacheStats, sessions: sessions, tool: .claudeCode, context: context)
+
+            // If today still has no tokens after the merge (incremental cutoff may have skipped
+            // earlier sessions), do a full scan of today's sessions to fill the gap.
+            let todayHasTokens = mergedStats.contains {
+                $0.date == todayStart && ($0.totalInputTokens + $0.totalOutputTokens) > 0
+            }
+            if !todayHasTokens {
+                let todaySessions = try await Task.detached(priority: .utility) {
+                    try await self.claudeParser.parseSessions(since: todayStart)
+                }.value
+                try await upsertSessions(todaySessions, context: context)
+                mergedStats = try mergeDailyStats(mergedStats, sessions: todaySessions, tool: .claudeCode, context: context)
+            }
+
+            mergedStats.forEach { upsertDailyStats($0, context: context) }
+        }
 
         // 2. Account info (cheap local read, do once or on first miss)
         if latestClaudeAccountInfo == nil {
@@ -379,13 +665,20 @@ final class DataSyncService {
             upsertQuota(toolQuotaFromClaudeUsage(cached), context: context)
         }
 
-        // Try bridge cache first (zero network cost)
+        // Try bridge cache first (zero network cost for 5h/7d windows)
         do {
             let quota = try await claudeParser.readSubscriptionQuotaFromBridge()
-            if let usage = quota.raw as? ClaudeUsageResponse {
-                latestClaudeUsage = usage
+            if let bridgeUsage = quota.raw as? ClaudeUsageResponse {
+                var merged = bridgeUsage.mergingSupplementalMetadata(from: latestClaudeUsage)
+                let needsSupplement = merged.cedarEmber == nil
+                    || lastClaudeSupplementFetchAt.map { Date().timeIntervalSince($0) >= Self.claudeSupplementTTL } ?? true
+                if needsSupplement, let supplement = await fetchClaudeSupplementalUsage() {
+                    merged = bridgeUsage.mergingSupplementalMetadata(from: supplement)
+                    lastClaudeSupplementFetchAt = Date()
+                }
+                latestClaudeUsage = merged
                 latestClaudeQuotaObservedAt = quota.updatedAt
-                persistClaudeUsageCache(usage, observedAt: quota.updatedAt)
+                persistClaudeUsageCache(merged, observedAt: quota.updatedAt)
             }
             upsertQuota(quota, context: context)
             return
@@ -397,9 +690,11 @@ final class DataSyncService {
         do {
             let quota = try await claudeParser.fetchSubscriptionQuotaFromClaudeDesktop()
             if let usage = quota.raw as? ClaudeUsageResponse {
-                latestClaudeUsage = usage
+                let merged = usage.mergingSupplementalMetadata(from: latestClaudeUsage)
+                latestClaudeUsage = merged
                 latestClaudeQuotaObservedAt = quota.updatedAt
-                persistClaudeUsageCache(usage, observedAt: quota.updatedAt)
+                lastClaudeSupplementFetchAt = Date()
+                persistClaudeUsageCache(merged, observedAt: quota.updatedAt)
             }
             upsertQuota(quota, context: context)
             return
@@ -411,9 +706,11 @@ final class DataSyncService {
         do {
             let quota = try await claudeParser.fetchSubscriptionQuota()
             if let usage = quota.raw as? ClaudeUsageResponse {
-                latestClaudeUsage = usage
+                let merged = usage.mergingSupplementalMetadata(from: latestClaudeUsage)
+                latestClaudeUsage = merged
                 latestClaudeQuotaObservedAt = quota.updatedAt
-                persistClaudeUsageCache(usage, observedAt: quota.updatedAt)
+                lastClaudeSupplementFetchAt = Date()
+                persistClaudeUsageCache(merged, observedAt: quota.updatedAt)
             }
             upsertQuota(quota, context: context)
         } catch {
@@ -421,18 +718,31 @@ final class DataSyncService {
         }
     }
 
+    private func fetchClaudeSupplementalUsage() async -> ClaudeUsageResponse? {
+        if let desktop = try? await claudeParser.fetchSubscriptionQuotaFromClaudeDesktop(),
+           let usage = desktop.raw as? ClaudeUsageResponse {
+            return usage
+        }
+        if let oauth = try? await claudeParser.fetchSubscriptionQuota(),
+           let usage = oauth.raw as? ClaudeUsageResponse {
+            return usage
+        }
+        return nil
+    }
+
     /// File events consume bridge data only; unavailable caches await the normal poll.
     func refreshClaudeQuotaFromBridge() async {
-        await performQuotaOnlyRefresh(for: .claudeCode, onBusy: { self.pendingBridgeQuotaRefresh = true }) {
+        await performQuotaOnlyRefresh(for: .claudeCode, refreshKind: .local, onBusy: { self.pendingBridgeQuotaRefresh = true }) {
             let quota = try await claudeParser.readSubscriptionQuotaFromBridge()
             try Task.checkCancellation()
             let context = makeWriteContext()
             upsertQuota(quota, context: context)
             try saveUsageContext(context)
             if let usage = quota.raw as? ClaudeUsageResponse {
-                latestClaudeUsage = usage
+                let merged = usage.mergingSupplementalMetadata(from: latestClaudeUsage)
+                latestClaudeUsage = merged
                 latestClaudeQuotaObservedAt = quota.updatedAt
-                persistClaudeUsageCache(usage, observedAt: quota.updatedAt)
+                persistClaudeUsageCache(merged, observedAt: quota.updatedAt)
             }
             return true
         }
@@ -441,21 +751,30 @@ final class DataSyncService {
     // MARK: - Codex
 
     private func refreshCodex(context: ModelContext) async throws {
-        // 1. Parse local sessions + daily stats off main thread
-        let since = incrementalCutoff(for: .codex)
-        let needsBackfill = !codexBackfillDone && hasCodexPlaceholderModels(context: context)
-        let effectiveSince: Date? = needsBackfill ? nil : since
+        // 1. Parse local sessions + daily stats only when the main window is open;
+        //    always keep lightweight local rate limits fresh for Menu Bar quota.
+        let rateLimitSnapshot: CodexParser.LocalRateLimitSnapshot?
+        if sessionScanningActive {
+            let since = incrementalCutoff(for: .codex)
+            let needsBackfill = !codexBackfillDone && hasCodexPlaceholderModels(context: context)
+            let effectiveSince: Date? = needsBackfill ? nil : since
 
-        let (sessions, dailyStats, rateLimitSnapshot) = try await Task.detached(priority: .utility) {
-            let sessions = try await self.codexParser.parseSessions(since: effectiveSince)
-            let stats    = try await self.codexParser.parseDailyStats(since: since)
-            let rl       = await self.codexParser.parseLatestRateLimitsSnapshot()
-            return (sessions, stats, rl)
-        }.value
+            let (sessions, dailyStats, rl) = try await Task.detached(priority: .utility) {
+                let sessions = try await self.codexParser.parseSessions(since: effectiveSince)
+                let stats    = try await self.codexParser.parseDailyStats(since: since)
+                let rl       = await self.codexParser.parseLatestRateLimitsSnapshot()
+                return (sessions, stats, rl)
+            }.value
 
-        try await upsertSessions(sessions, context: context)
-        if needsBackfill && !sessions.isEmpty { codexBackfillDone = true }
-        dailyStats.forEach { upsertDailyStats($0, context: context) }
+            try await upsertSessions(sessions, context: context)
+            if needsBackfill && !sessions.isEmpty { codexBackfillDone = true }
+            dailyStats.forEach { upsertDailyStats($0, context: context) }
+            rateLimitSnapshot = rl
+        } else {
+            rateLimitSnapshot = await Task.detached(priority: .utility) {
+                await self.codexParser.parseLatestRateLimitsSnapshot()
+            }.value
+        }
 
         // 2. Account sync + quota
         try await codexAccountService.syncCurrentSelectionFromAuthFile()
@@ -513,15 +832,19 @@ final class DataSyncService {
     // MARK: - Antigravity
 
     private func refreshAntigravity(context: ModelContext) async throws {
-        // 1. Parse local markdown files
-        let since = incrementalCutoff(for: .antigravity)
-        let sessions = try await Task.detached(priority: .utility) {
-            try await self.antigravityParser.parseSessions(since: since)
-        }.value
-        try await upsertSessions(sessions, context: context)
-        try Task.checkCancellation()
-        try saveUsageContext(context)
-        lastParsedAt[.antigravity] = Date()
+        // 1. Parse local markdown / T3 / Orca / OMP transcript files only when main window is open.
+        if sessionScanningActive {
+            let since = incrementalCutoff(for: .antigravity)
+            let sessions = try await Task.detached(priority: .utility) {
+                try await self.antigravityParser.parseSessions(since: since)
+            }.value
+            try await upsertSessions(sessions, context: context)
+            try mergeDailyStats([], sessions: sessions, tool: .antigravity, context: context)
+                .forEach { upsertDailyStats($0, context: context) }
+            try Task.checkCancellation()
+            try saveUsageContext(context)
+            lastParsedAt[.antigravity] = Date()
+        }
 
         // 2. Quota API
         do {
@@ -581,16 +904,36 @@ final class DataSyncService {
     // MARK: - FSEvents (local-files-only, no API calls)
 
     /// Called by FSEvents when local files change. Runs only the parsers for the affected
-    /// tools — never touches network APIs. The 500 ms debounce collapses burst writes.
+    /// tools — never touches network APIs. Coalesces rapid bursts with debounce + cooldown.
     func handleLocalFileChange(paths: [String]) {
         guard acceptingLocalEvents else { return }
         pendingFSPaths.formUnion(paths)
         fsDebounceTask?.cancel()
+        let extraDelay = remainingLocalCooldown(for: toolsAffectedByPaths(Array(pendingFSPaths)))
         fsDebounceTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(500))
+            if extraDelay > 0 {
+                try? await Task.sleep(for: .milliseconds(Int(extraDelay * 1000)))
+            } else {
+                try? await Task.sleep(for: Self.localEventDebounceDuration)
+            }
             guard !Task.isCancelled else { return }
             await self?.flushLocalFileChanges()
         }
+    }
+
+    private func remainingLocalCooldown(for tools: Set<Tool>) -> TimeInterval {
+        let now = Date()
+        var maxRemaining: TimeInterval = 0
+        for tool in tools {
+            if let last = lastLocalRefreshAt[tool] {
+                let elapsed = now.timeIntervalSince(last)
+                let remaining = Self.localEventCooldown - elapsed
+                if remaining > maxRemaining {
+                    maxRemaining = remaining
+                }
+            }
+        }
+        return maxRemaining
     }
 
     func flushLocalFileChanges() async {
@@ -601,10 +944,12 @@ final class DataSyncService {
         let affectedTools = toolsAffectedByPaths(paths)
         let bridgeTriggered = paths.contains(Self.claudeBridgeCachePath)
 
-        await withTaskGroup(of: Void.self) { group in
-            for tool in affectedTools {
-                // Local-files-only refresh — skip quota API
-                group.addTask { await self.refreshLocalFiles(for: tool) }
+        if sessionScanningActive {
+            await withTaskGroup(of: Void.self) { group in
+                for tool in affectedTools {
+                    // Local-files-only refresh — skip quota API
+                    group.addTask { await self.refreshLocalFiles(for: tool) }
+                }
             }
         }
 
@@ -616,17 +961,23 @@ final class DataSyncService {
         if paths.contains(where: { $0.contains("/.codex/") }) {
             await refreshCodexLocalQuotaFromFile()
         }
-
     }
 
-    func refreshLocalFiles(for tool: Tool) async {
+    func refreshLocalFiles(
+        for tool: Tool,
+        cutoffOverride: Date? = nil,
+        advanceParseCursor: Bool = true
+    ) async {
         guard !Task.isCancelled else { return }
-        guard states[tool].beginRefresh() else {
-            pendingLocalRefreshTools.insert(tool)
+        guard states[tool].beginRefresh(kind: .local) else {
+            if sessionScanningActive {
+                pendingLocalRefreshTools.insert(tool)
+            }
             return
         }
         defer { endRefreshAndScheduleLocalCatchUp(for: tool) }
-        let since = incrementalCutoff(for: tool)
+        lastLocalRefreshAt[tool] = Date()
+        let since = cutoffOverride ?? incrementalCutoff(for: tool)
         let context = makeWriteContext()
         do {
             switch tool {
@@ -641,7 +992,7 @@ final class DataSyncService {
                 try mergeDailyStats(stats, sessions: sessions, tool: .claudeCode, context: context)
                     .forEach { upsertDailyStats($0, context: context) }
             case .codex:
-                let needsBackfill = !codexBackfillDone && hasCodexPlaceholderModels(context: context)
+                let needsBackfill = cutoffOverride == nil && !codexBackfillDone && hasCodexPlaceholderModels(context: context)
                 let effectiveSince: Date? = needsBackfill ? nil : since
                 let (sessions, stats) = try await Task.detached(priority: .utility) {
                     let s = try await self.codexParser.parseSessions(since: effectiveSince)
@@ -656,6 +1007,8 @@ final class DataSyncService {
                     try await self.antigravityParser.parseSessions(since: since)
                 }.value
                 try await upsertSessions(sessions, context: context)
+                try mergeDailyStats([], sessions: sessions, tool: .antigravity, context: context)
+                    .forEach { upsertDailyStats($0, context: context) }
             case .copilot:
                 break   // no local files
             }
@@ -663,7 +1016,9 @@ final class DataSyncService {
             try saveUsageContext(context)
             states[tool].recordSuccess()
             failureGates[tool]?.recordSuccess()
-            lastParsedAt[tool] = Date()
+            if advanceParseCursor {
+                lastParsedAt[tool] = Date()
+            }
             if !isRefreshAllInFlight {
                 await publishAfterSuccessfulRefresh(for: tool)
             }
@@ -675,7 +1030,7 @@ final class DataSyncService {
 
     /// Re-read Codex local rate-limit JSONL and apply quota without hitting the API.
     private func refreshCodexLocalQuotaFromFile() async {
-        await performQuotaOnlyRefresh(for: .codex, onBusy: { self.pendingCodexLocalQuotaRefresh = true }) {
+        await performQuotaOnlyRefresh(for: .codex, refreshKind: .local, onBusy: { self.pendingCodexLocalQuotaRefresh = true }) {
             guard !UserDefaults.standard.bool(forKey: "codex.smartSwitch.enabled") else { return false }
             guard let snapshot = await codexParser.parseLatestRateLimitsSnapshot() else { return false }
             try await codexAccountService.syncCurrentSelectionFromAuthFile()
@@ -770,8 +1125,14 @@ final class DataSyncService {
             if path == Self.claudeDesktopRoot || path.hasPrefix(Self.claudeDesktopRoot + "/") {
                 tools.insert(.claudeCode)
             }
+            if Self.piAgentSessionWatchRoots.contains(where: { path == $0 || path.hasPrefix($0 + "/") }) {
+                tools.formUnion([.antigravity, .claudeCode, .codex])
+            }
             for (root, tool) in Self.fsWatchRoots where path.hasPrefix(root) {
                 tools.insert(tool)
+            }
+            if sessionScanningActive {
+                tools.formUnion(SessionSourceRegistry.shared.toolsAffected(by: path))
             }
         }
         return tools
@@ -788,8 +1149,12 @@ final class DataSyncService {
     }
 
     func upsertSessions(_ sessions: [ToolSession], context: ModelContext) async throws {
-        for start in stride(from: 0, to: sessions.count, by: Self.upsertBatchYieldSize) {
-            let batch = Array(sessions[start..<min(start + Self.upsertBatchYieldSize, sessions.count)])
+        let hiddenIDs = SessionManagementService.hiddenSessionIDs(defaults: cacheDefaults)
+        let visibleSessions = hiddenIDs.isEmpty
+            ? sessions
+            : sessions.filter { !hiddenIDs.contains($0.id) }
+        for start in stride(from: 0, to: visibleSessions.count, by: Self.upsertBatchYieldSize) {
+            let batch = Array(visibleSessions[start..<min(start + Self.upsertBatchYieldSize, visibleSessions.count)])
             let ids = batch.map(\.id)
             let desc = FetchDescriptor<SessionRecord>(predicate: #Predicate { ids.contains($0.id) })
             let records = try context.fetch(desc)
@@ -1073,26 +1438,63 @@ final class DataSyncService {
 
     // MARK: - Poll timers
 
-    private func schedulePollTimer(for tool: Tool) {
-        let interval = max(30, Self.defaultPollInterval[tool] ?? 300)
-        pollTimers[tool] = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in await self?.refreshTool(tool) }
+    private func schedulePollTimer(for tool: Tool, isInitial: Bool) {
+        pollTimers[tool]?.invalidate()
+        pollTimers[tool] = nil
+
+        let interval = currentPollInterval(for: tool)
+        guard let delay = Self.nextPollDelay(for: tool, baseInterval: interval, isInitial: isInitial) else {
+            nextScheduledPollDates.removeValue(forKey: tool)
+            return
+        }
+
+        let fireDate = Date().addingTimeInterval(delay)
+        nextScheduledPollDates[tool] = fireDate
+        pollTimers[tool] = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, self.isRunning else { return }
+                await self.refreshTool(tool)
+            }
         }
     }
 
     // MARK: - FSEvents
 
+    private func restartFSEventWatching() {
+        fsEventStream?.stop()
+        fsEventStream = nil
+        fsDebounceTask?.cancel()
+        fsDebounceTask = nil
+        pendingFSPaths.removeAll()
+        startFSEventWatching()
+    }
+
     private func startFSEventWatching() {
-        var watchPaths = Self.fsWatchRoots.map(\.path).filter { FileManager.default.fileExists(atPath: $0) }
-        if FileManager.default.fileExists(atPath: Self.claudeBridgeRoot) {
-            watchPaths.append(Self.claudeBridgeRoot)
+        var watchPaths: [String] = []
+        var seen = Set<String>()
+        func addIfExists(_ path: String) {
+            if FileManager.default.fileExists(atPath: path), seen.insert(path).inserted {
+                watchPaths.append(path)
+            }
         }
-        if FileManager.default.fileExists(atPath: Self.claudeDesktopRoot) {
-            watchPaths.append(Self.claudeDesktopRoot)
+
+        if sessionScanningActive {
+            for path in SessionSourceRegistry.shared.enabledFSEventWatchPaths() {
+                addIfExists(path)
+            }
+            for root in Self.quotaOnlyFSWatchRoots {
+                addIfExists(root.path)
+            }
+            addIfExists(Self.claudeDesktopRoot)
+        } else {
+            for root in Self.quotaOnlyFSWatchRoots {
+                addIfExists(root.path)
+            }
         }
+        addIfExists(Self.claudeBridgeRoot)
         guard !watchPaths.isEmpty else { return }
 
-        AppLogger.shared.info("[fs] watching: \(watchPaths)")
+        AppLogger.shared.info("[fs] watching (\(sessionScanningActive ? "full" : "quota-only")): \(watchPaths)")
         fsEventStream = FSEventStream(paths: watchPaths) { [weak self] changedPaths in
             Task { @MainActor [weak self] in
                 let filtered = self?.filterFSEventPaths(changedPaths) ?? []
@@ -1114,6 +1516,17 @@ final class DataSyncService {
                 return path == Self.claudeDesktopRoot
                     || path == Self.claudeDesktopBuddyTokensPath
                     || path.hasPrefix(Self.claudeDesktopRoot + "/claude-code-sessions")
+            }
+            if Self.piAgentSessionWatchRoots.contains(where: { path.hasPrefix($0) }) {
+                return path.hasSuffix(".jsonl")
+            }
+            if Self.antigravityFilteredRoots.contains(where: { path.hasPrefix($0) }) {
+                return path.hasSuffix("/transcript.jsonl")
+                    || path.hasSuffix("/task.md")
+                    || path.hasSuffix("/task.md.resolved")
+                    || path.hasSuffix(".metadata.json")
+                    || path.hasSuffix("/conversation_summaries.db")
+                    || path.hasSuffix("/conversation_summaries.db-wal")
             }
             return true
         }
@@ -1141,6 +1554,19 @@ final class DataSyncService {
             claudeUsage: latestClaudeUsage,
             fallbackQuotas: fallback,
             force: force
+        )
+    }
+
+    func testDotTextPush() async throws {
+        let codexRaw  = Tool.codex.rawValue
+        let claudeRaw = Tool.claudeCode.rawValue
+        let ctx  = readContext
+        let desc = FetchDescriptor<QuotaRecord>(predicate: #Predicate { $0.toolRaw == codexRaw || $0.toolRaw == claudeRaw })
+        let fallback = (try? ctx.fetch(desc)) ?? []
+        try await dotTextAPIService.testPushQuotaSnapshot(
+            codexAccounts: latestCodexAccounts,
+            claudeUsage: latestClaudeUsage,
+            fallbackQuotas: fallback
         )
     }
 
@@ -1247,7 +1673,7 @@ final class FSEventStream: @unchecked Sendable {
             &context,
             paths as CFArray,
             FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
-            2.0,
+            4.0,
             FSEventStreamCreateFlags(kFSEventStreamCreateFlagUseCFTypes | kFSEventStreamCreateFlagFileEvents)
         )
     }

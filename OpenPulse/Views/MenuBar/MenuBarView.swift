@@ -4,24 +4,8 @@ import SwiftData
 import AppKit
 
 struct MenuBarView: View {
-    @State private var dayStart = Calendar.current.startOfDay(for: Date())
-
     var body: some View {
-        MenuBarContentView(dayStart: dayStart)
-            .onAppear { updateDayBoundary() }
-            .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
-                updateDayBoundary()
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange)) { _ in
-                updateDayBoundary()
-            }
-            .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in
-                updateDayBoundary()
-            }
-    }
-
-    private func updateDayBoundary() {
-        dayStart = Calendar.current.startOfDay(for: Date())
+        MenuBarContentView()
     }
 }
 
@@ -60,21 +44,12 @@ private struct MenuBarContentView: View {
     @Environment(AppStore.self) private var appStore
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @Query private var dailyStats: [DailyStatsRecord]
     @Query private var quotas: [QuotaRecord]
     @State private var logger = AppLogger.shared
 
     @AppStorage("menubar.toolOrder") private var toolOrderRaw = Tool.defaultOrderRaw
     @AppStorage("menubar.hiddenTools") private var hiddenToolsRaw = ""
     @AppStorage("menubar.antigravityDisplayMode") private var antigravityDisplayMode = "accounts"
-    let dayStart: Date
-
-    init(dayStart: Date) {
-        self.dayStart = dayStart
-        // A moving, bounded aggregate query keeps yesterday out after midnight.
-        let dayEnd = Calendar.current.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart.addingTimeInterval(86_400)
-        _dailyStats = Query(filter: #Predicate<DailyStatsRecord> { $0.date >= dayStart && $0.date < dayEnd })
-    }
 
     private var orderedVisibleTools: [Tool] {
         let hidden = Set(hiddenToolsRaw.components(separatedBy: ",").filter { !$0.isEmpty })
@@ -84,27 +59,7 @@ private struct MenuBarContentView: View {
     }
 
     @State private var contentHeight: CGFloat = 0
-    @State private var headerHeight: CGFloat = 48
     @State private var footerHeight: CGFloat = 44
-    // Cached per-tool today token counts — one pass over today's aggregate stats only.
-    @State private var todayTokensByTool: [Tool: Int] = [:]
-
-    private var todayStatsSnapshot: [MenuBarDailyStatsSnapshot] {
-        dailyStats.map {
-            MenuBarDailyStatsSnapshot(
-                date: $0.date,
-                tool: $0.tool,
-                inputTokens: $0.totalInputTokens,
-                outputTokens: $0.totalOutputTokens
-            )
-        }
-    }
-
-    private func rebuildTodayTokens() {
-        todayTokensByTool = menuBarTodayTokens(from: todayStatsSnapshot, dayStart: dayStart)
-    }
-
-    private var todayTokens: Int { todayTokensByTool.values.reduce(0, +) }
 
     private var isSyncing: Bool { appStore.syncService?.isSyncingActive ?? false }
     private var lastSyncDate: Date? { appStore.syncService?.lastSyncDate ?? appStore.lastSyncDate }
@@ -115,14 +70,12 @@ private struct MenuBarContentView: View {
     }
 
     private var resolvedPopoverHeight: CGFloat {
-        let desired = contentHeight + headerHeight + footerHeight
-        return min(max(240, desired), maxPopoverHeight)
+        let desired = contentHeight + footerHeight
+        return min(max(220, desired), maxPopoverHeight)
     }
 
     var body: some View {
         ScrollView {
-            // Only quota rows tick; today's bounded query and cached totals
-            // remain in the parent and rebuild only when usage or day changes.
             TimelineView(.periodic(from: .now, by: 60)) { context in
                 VStack(spacing: 10) {
                     if orderedVisibleTools.isEmpty {
@@ -136,29 +89,24 @@ private struct MenuBarContentView: View {
                     }
                 }
                 .padding(.horizontal, 12)
-                .padding(.vertical, 3)
+                .padding(.top, 12)
+                .padding(.bottom, 4)
                 .environment(\.menuBarQuotaNow, context.date)
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
             }
         }
         .scrollIndicators(.hidden)
         .scrollEdgeEffectStyle(.soft, for: .vertical)
-        .safeAreaInset(edge: .top, spacing: 0) {
-            MenuBarHeader(
-                todayTokens: todayTokens,
-                isSyncing: isSyncing,
-                onRefresh: {
-                    performMenuBarAction {
-                        await appStore.syncService?.sync()
-                    }
-                }
-            )
-            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { headerHeight = $0 }
-        }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             MenuBarFooter(
+                isSyncing: isSyncing,
                 lastSyncDate: lastSyncDate,
                 syncError: appStore.syncService?.syncError.map { syncErrorHelpText(fallback: $0) },
+                onRefresh: {
+                    Task {
+                        await appStore.syncService?.sync()
+                    }
+                },
                 onOpen: {
                     performMenuBarAction {
                         WindowCoordinator.shared.showMainWindow()
@@ -192,10 +140,6 @@ private struct MenuBarContentView: View {
             }
             MenuBarWindowCapture()
         }
-        .task { rebuildTodayTokens() }
-        .onChange(of: todayStatsSnapshot) { _, _ in rebuildTodayTokens() }
-        .onChange(of: dayStart) { _, _ in rebuildTodayTokens() }
-        .onChange(of: appStore.syncService?.dataRevision) { _, _ in rebuildTodayTokens() }
     }
 
     @ViewBuilder
@@ -205,20 +149,15 @@ private struct MenuBarContentView: View {
             ClaudeQuotaCard(
                 usage: appStore.syncService?.latestClaudeUsage,
                 quota: quotas.first(where: { $0.tool == .claudeCode }),
-                accountInfo: appStore.syncService?.latestClaudeAccountInfo,
-                todayTokens: todaySessionTokens(for: .claudeCode)
+                accountInfo: appStore.syncService?.latestClaudeAccountInfo
             )
         case .codex:
             if let accounts = appStore.syncService?.latestCodexAccounts, !accounts.isEmpty {
-                CodexMultiAccountQuotaCard(
-                    accounts: accounts,
-                    todayTokens: todaySessionTokens(for: .codex)
-                )
+                CodexMultiAccountQuotaCard(accounts: accounts)
             } else {
                 CodexQuotaCard(
                     limits: nil,
-                    fallbackQuota: quotas.first(where: { $0.tool == .codex && $0.accountKey == nil }),
-                    todayTokens: todaySessionTokens(for: .codex)
+                    fallbackQuota: quotas.first(where: { $0.tool == .codex && $0.accountKey == nil })
                 )
             }
         case .copilot:
@@ -226,30 +165,20 @@ private struct MenuBarContentView: View {
                 snapshots: appStore.syncService?.latestCopilotSnapshots,
                 resetAt: appStore.syncService?.latestCopilotResetAt,
                 plan: appStore.syncService?.latestCopilotPlan,
-                fallbackQuota: quotas.first(where: { $0.tool == .copilot }),
-                todayTokens: todaySessionTokens(for: .copilot)
+                fallbackQuota: quotas.first(where: { $0.tool == .copilot })
             )
         case .antigravity:
             if let accounts = appStore.syncService?.latestAntigravityAccounts {
                 if antigravityDisplayMode == "aggregate" {
-                    AntigravityAggregateCard(
-                        accounts: accounts,
-                        todayTokens: todaySessionTokens(for: .antigravity)
-                    )
+                    AntigravityAggregateCard(accounts: accounts)
                 } else {
-                    AntigravityMultiAccountCard(
-                        accounts: accounts,
-                        todayTokens: todaySessionTokens(for: .antigravity)
-                    )
+                    AntigravityMultiAccountCard(accounts: accounts)
                 }
             } else if let fallback = quotas.first(where: { $0.tool == .antigravity }) {
-                AntigravityFallbackCard(
-                    quota: fallback,
-                    todayTokens: todaySessionTokens(for: .antigravity)
-                )
+                AntigravityFallbackCard(quota: fallback)
             } else {
                 MenuBarToolShell(tool: .antigravity) {
-                    MenuBarToolIdentity(tool: .antigravity, todayTokens: todaySessionTokens(for: .antigravity)) {
+                    MenuBarToolIdentity(tool: .antigravity) {
                         ConfigShortcutButton(tool: .antigravity)
                     }
                 } content: {
@@ -260,8 +189,6 @@ private struct MenuBarContentView: View {
             }
         }
     }
-
-    private func todaySessionTokens(for tool: Tool) -> Int { todayTokensByTool[tool] ?? 0 }
 
     private func syncErrorHelpText(fallback: String) -> String {
         logger.latestPersistentSyncError?.summary ?? fallback
@@ -286,24 +213,7 @@ private enum MenuBarGrid {
 }
 
 private func menuBarToolAccentColor(for tool: Tool, colorScheme: ColorScheme) -> Color {
-    switch tool {
-    case .codex:
-        return colorScheme == .dark
-            ? Color(red: 0.18, green: 0.82, blue: 0.64)
-            : Color(red: 0.055, green: 0.61, blue: 0.47)
-    case .antigravity:
-        return colorScheme == .dark
-            ? Color(red: 0.65, green: 0.54, blue: 0.98)
-            : Color(red: 0.43, green: 0.28, blue: 0.90)
-    case .claudeCode:
-        return colorScheme == .dark
-            ? Color(red: 0.94, green: 0.54, blue: 0.42)
-            : Color(red: 0.85, green: 0.41, blue: 0.27)
-    case .copilot:
-        return colorScheme == .dark
-            ? Color(red: 0.35, green: 0.63, blue: 1.00)
-            : Color(red: 0.12, green: 0.42, blue: 0.88)
-    }
+    tool.brandAccentColor(for: colorScheme)
 }
 
 private func menuBarWarningColor(colorScheme: ColorScheme) -> Color {
@@ -329,46 +239,47 @@ private struct MenuBarHairline: View {
     }
 }
 
-private struct MenuBarHeader: View {
-    let todayTokens: Int
-    let isSyncing: Bool
-    let onRefresh: () -> Void
+private struct MenuBarFooter: View {
+    @Environment(\.colorScheme) private var colorScheme
     @Namespace private var glassNamespace
+    let isSyncing: Bool
+    let lastSyncDate: Date?
+    let syncError: String?
+    let onRefresh: () -> Void
+    let onOpen: () -> Void
+    let onSettings: () -> Void
+    let onQuit: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {
-            HStack(spacing: 6) {
-                if let icon = NSImage(named: "MenuBarIcon") {
-                    Image(nsImage: icon)
-                        .renderingMode(.template)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 15, height: 15)
-                        .foregroundStyle(.primary.opacity(0.85))
-                }
-                Text("OpenPulse")
-                    .font(.system(size: 13.5, weight: .bold))
-                    .tracking(-0.2)
+            if isSyncing {
+                Text("同步中…")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            } else if let syncError {
+                Label("同步出现问题", systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(menuBarWarningColor(colorScheme: colorScheme))
+                    .lineLimit(1)
+                    .help(syncError)
+                    .accessibilityHint(syncError)
+            } else if let lastSyncDate {
+                Text("更新于 \(lastSyncDate, style: .relative)前")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .help(lastSyncDate.formatted(date: .abbreviated, time: .shortened))
+            } else {
+                Text("尚未同步")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
             }
 
             Spacer(minLength: 8)
 
             GlassEffectContainer(spacing: 8) {
                 HStack(spacing: 8) {
-                    HStack(alignment: .firstTextBaseline, spacing: 4) {
-                        Text(todayTokens.compactTokenString)
-                            .font(.system(size: 11.5, weight: .semibold))
-                            .monospacedDigit()
-                        Text("今日 tokens")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.horizontal, 10)
-                    .frame(height: 26)
-                    .glassEffect(.regular, in: .capsule)
-                    .glassEffectID("todayTokens", in: glassNamespace)
-                    .accessibilityElement(children: .combine)
-
                     Button {
                         guard !isSyncing else { return }
                         onRefresh()
@@ -394,49 +305,7 @@ private struct MenuBarHeader: View {
                     .keyboardShortcut("r", modifiers: .command)
                     .help(isSyncing ? String(localized: "同步中…") : String(localized: "刷新同步 (⌘R)"))
                     .accessibilityLabel("刷新同步")
-                }
-            }
-            .animation(.smooth(duration: 0.25), value: isSyncing)
-        }
-        .padding(.horizontal, 14)
-        .padding(.top, 11)
-        .padding(.bottom, 7)
-    }
-}
 
-private struct MenuBarFooter: View {
-    @Environment(\.colorScheme) private var colorScheme
-    let lastSyncDate: Date?
-    let syncError: String?
-    let onOpen: () -> Void
-    let onSettings: () -> Void
-    let onQuit: () -> Void
-
-    var body: some View {
-        HStack(spacing: 8) {
-            if let syncError {
-                Label("同步出现问题", systemImage: "exclamationmark.triangle.fill")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(menuBarWarningColor(colorScheme: colorScheme))
-                    .lineLimit(1)
-                    .help(syncError)
-                    .accessibilityHint(syncError)
-            } else if let lastSyncDate {
-                Text("更新于 \(lastSyncDate, style: .relative)前")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .help(lastSyncDate.formatted(date: .abbreviated, time: .shortened))
-            } else {
-                Text("尚未同步")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer(minLength: 8)
-
-            GlassEffectContainer(spacing: 8) {
-                HStack(spacing: 8) {
                     Button(action: onOpen) {
                         HStack(spacing: 6) {
                             Image(systemName: "macwindow")
@@ -455,6 +324,7 @@ private struct MenuBarFooter: View {
                     }
                     .buttonStyle(.plain)
                     .glassEffect(.regular.interactive(), in: .capsule)
+                    .glassEffectID("open", in: glassNamespace)
                     .focusEffectDisabled()
                     .keyboardShortcut("m", modifiers: .command)
                     .help("打开主窗口 (⌘M)")
@@ -476,15 +346,17 @@ private struct MenuBarFooter: View {
                     .menuIndicator(.hidden)
                     .frame(width: 26, height: 26)
                     .glassEffect(.regular.interactive(), in: .circle)
+                    .glassEffectID("more", in: glassNamespace)
                     .focusEffectDisabled()
                     .help("更多操作")
                     .accessibilityLabel("更多操作")
                 }
             }
+            .animation(.smooth(duration: 0.25), value: isSyncing)
         }
         .padding(.horizontal, 14)
-        .padding(.top, 7)
-        .padding(.bottom, 11)
+        .padding(.top, 8)
+        .padding(.bottom, 12)
     }
 }
 
@@ -505,7 +377,7 @@ private struct ConfigShortcutButton: View {
     let tool: Tool
     @State private var isHovered = false
 
-    private var configFile: ConfigFile? { ConfigFile.primaryConfig(for: tool) }
+    private var configFile: ToolConfigFileEntry? { ToolConfigFileEntry.entries(for: tool).first }
 
     var body: some View {
         if let configFile {
@@ -549,8 +421,8 @@ private struct MenuBarQuotaUnavailable: View {
     }
 }
 
-/// Single-layer provider plate with radial brand sheen emanating from the logo well
-/// and specular top-rim lighting. Houses flat, borderless telemetry rows inside.
+/// Single-layer provider plate with a soft radial brand glow emanating from behind the app icon
+/// and specular top-rim lighting, while keeping table headers and telemetry rows neutral.
 private struct MenuBarToolShell<Identity: View, Content: View>: View {
     @Environment(\.colorScheme) private var colorScheme
     let tool: Tool
@@ -580,9 +452,9 @@ private struct MenuBarToolShell<Identity: View, Content: View>: View {
                 shape
                     .fill(
                         Color(nsColor: .controlBackgroundColor)
-                            .opacity(colorScheme == .dark ? 0.72 : 0.84)
+                            .opacity(colorScheme == .dark ? 0.72 : 0.86)
                     )
-                // Soft radial brand sheen radiating seamlessly from behind the tool icon
+                // Soft radial brand glow radiating behind the tool icon
                 RadialGradient(
                     colors: [
                         accent.opacity(colorScheme == .dark ? 0.16 : 0.095),
@@ -603,9 +475,9 @@ private struct MenuBarToolShell<Identity: View, Content: View>: View {
                         colors: [
                             colorScheme == .dark
                                 ? Color.white.opacity(0.22)
-                                : Color.white.opacity(0.92),
+                                : Color.white.opacity(0.94),
                             accent.opacity(colorScheme == .dark ? 0.16 : 0.12),
-                            Color.primary.opacity(colorScheme == .dark ? 0.13 : 0.10)
+                            Color.primary.opacity(colorScheme == .dark ? 0.13 : 0.09)
                         ],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
@@ -769,24 +641,24 @@ private struct MenuBarToolIdentity<Accessory: View>: View {
     @Environment(\.colorScheme) private var colorScheme
     let tool: Tool
     let subtitle: String?
+    let subtitleHelp: String?
     let accountCount: Int?
     let metaText: String?
-    let todayTokens: Int
     let accessory: Accessory
 
     init(
         tool: Tool,
         subtitle: String? = nil,
+        subtitleHelp: String? = nil,
         accountCount: Int? = nil,
         metaText: String? = nil,
-        todayTokens: Int = 0,
         @ViewBuilder accessory: () -> Accessory
     ) {
         self.tool = tool
         self.subtitle = subtitle
+        self.subtitleHelp = subtitleHelp
         self.accountCount = accountCount
         self.metaText = metaText
-        self.todayTokens = todayTokens
         self.accessory = accessory()
     }
 
@@ -794,16 +666,7 @@ private struct MenuBarToolIdentity<Accessory: View>: View {
         let accent = menuBarToolAccentColor(for: tool, colorScheme: colorScheme)
 
         HStack(alignment: .center, spacing: 8) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(accent.opacity(colorScheme == .dark ? 0.22 : 0.14))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .strokeBorder(accent.opacity(colorScheme == .dark ? 0.35 : 0.24), lineWidth: 0.5)
-                    }
-                ToolLogoImage(tool: tool, size: 15)
-            }
-            .frame(width: 24, height: 24)
+            ToolBrandIconWell(tool: tool, size: 24)
 
             HStack(alignment: .center, spacing: 6) {
                 Text(tool.displayName)
@@ -813,11 +676,13 @@ private struct MenuBarToolIdentity<Accessory: View>: View {
                 if let subtitle, !subtitle.isEmpty {
                     Text(subtitle)
                         .font(.system(size: 10, weight: .semibold))
+                        .monospacedDigit()
                         .foregroundStyle(accent)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .background(accent.opacity(colorScheme == .dark ? 0.18 : 0.12), in: Capsule())
                         .lineLimit(1)
+                        .help(subtitleHelp ?? "")
                 }
                 if let accountCount, accountCount > 1 {
                     Text("\(accountCount)")
@@ -837,14 +702,6 @@ private struct MenuBarToolIdentity<Accessory: View>: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 6)
-            if todayTokens > 0 {
-                Text(todayTokens.compactTokenString)
-                    .font(.system(size: 10.5, weight: .medium))
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-                    .help("今日 \(todayTokens.compactTokenString) tokens")
-                    .accessibilityLabel(Text("今日 \(todayTokens.compactTokenString) tokens"))
-            }
             accessory
         }
     }
@@ -869,7 +726,7 @@ private struct MenuBarMatrixGauge: View {
     }
 
     private var valueColor: Color {
-        if isUnknown { return Color.secondary.opacity(0.55) }
+        if isUnknown { return Color.secondary.opacity(0.50) }
         if isExhausted { return Color.secondary }
         guard let fraction else { return .primary }
         if fraction < 0.15 { return menuBarCriticalColor(colorScheme: colorScheme) }
@@ -879,28 +736,37 @@ private struct MenuBarMatrixGauge: View {
 
     var body: some View {
         let barColor = isExhausted
-            ? Color.primary.opacity(0.16)
-            : menuBarQuotaBarColor(fraction: fraction, tool: tool, colorScheme: colorScheme)
+            ? Color.primary.opacity(0.14)
+            : menuBarQuotaBarColor(fraction: fraction, tool: tool, colorScheme: colorScheme).opacity(0.88)
 
-        VStack(alignment: .leading, spacing: 3.5) {
+        VStack(alignment: .leading, spacing: 3) {
             Text(primaryValue)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: 11.5, weight: .semibold))
                 .monospacedDigit()
                 .foregroundStyle(valueColor)
                 .lineLimit(1)
 
-            MenuBarLuminousBar(
-                fraction: fraction,
-                color: barColor,
-                height: 4.5,
-                isExhausted: isExhausted
-            )
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(Color.primary.opacity(colorScheme == .dark ? 0.12 : 0.075))
+                        .frame(height: 3)
+                    if let f = fraction, !isExhausted {
+                        let clamped = CGFloat(max(0, min(1, f)))
+                        let width = max(clamped > 0.001 ? 3 : 0, geo.size.width * clamped)
+                        Capsule()
+                            .fill(barColor)
+                            .frame(width: width, height: 3)
+                    }
+                }
+            }
+            .frame(height: 3)
 
             if let resetText, !resetText.isEmpty {
                 Text(resetText)
-                    .font(.system(size: 9.5))
+                    .font(.system(size: 9))
                     .monospacedDigit()
-                    .foregroundStyle(.secondary.opacity(0.88))
+                    .foregroundStyle(.tertiary)
                     .lineLimit(1)
             }
         }
@@ -920,6 +786,7 @@ private struct MenuBarQuotaPanel: View {
     let countdown: String?
     let footer: String?
     var isExpired: Bool = false
+    var expiredDetail: String? = nil
     var isExhaustedOverride: Bool? = nil
 
     private var isExhausted: Bool {
@@ -940,6 +807,16 @@ private struct MenuBarQuotaPanel: View {
     }
 
     private var trailingHelp: String {
+        if isExpired {
+            let base = String(localized: "等待更新")
+            if let expiredDetail, !expiredDetail.isEmpty {
+                return "\(base) · \(expiredDetail)"
+            }
+            if let countdown {
+                return "\(base) · \(String(localized: "\(countdown) 重置"))"
+            }
+            return base
+        }
         if let countdown {
             return String(localized: "\(countdown) 重置")
         }
@@ -974,7 +851,7 @@ private struct MenuBarQuotaPanel: View {
                 Spacer(minLength: 4)
 
                 if isExpired {
-                    Text("等待更新")
+                    Text("待更新")
                         .font(.system(size: 9.5, weight: .medium))
                         .foregroundStyle(menuBarWarningColor(colorScheme: colorScheme))
                         .lineLimit(1)
@@ -1208,6 +1085,7 @@ func codexQuotaObservedRelativeText(observedAt: Date, locale: Locale = .current)
 
 private struct CodexMenuBarQuotaRows: View {
     let limits: CodexRateLimits
+    var usageError: String? = nil
 
     var body: some View {
         let rows = codexMenuBarQuotaRows(for: limits)
@@ -1216,7 +1094,8 @@ private struct CodexMenuBarQuotaRows: View {
             ForEach(rows) { row in
                 CodexMenuBarQuotaRowView(
                     row: row,
-                    showTitle: hasMultipleRows || row.id != "codex"
+                    showTitle: hasMultipleRows || row.id != "codex",
+                    usageError: usageError
                 )
             }
         }
@@ -1227,6 +1106,7 @@ private struct CodexMenuBarQuotaRowView: View {
     @Environment(\.menuBarQuotaNow) private var now
     let row: CodexMenuBarQuotaRow
     let showTitle: Bool
+    var usageError: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -1254,7 +1134,8 @@ private struct CodexMenuBarQuotaRowView: View {
             primaryValue: state.primaryValue,
             countdown: state.countdown,
             footer: state.footer,
-            isExpired: state.isExpired
+            isExpired: state.isExpired,
+            expiredDetail: usageError
         )
     }
 }
@@ -1296,14 +1177,12 @@ struct ClaudeQuotaCard: View {
     let usage: ClaudeUsageResponse?
     let quota: QuotaRecord?
     let accountInfo: ClaudeAccountInfo?
-    let todayTokens: Int
 
     var body: some View {
         MenuBarToolShell(tool: .claudeCode) {
             MenuBarToolIdentity(
                 tool: .claudeCode,
-                subtitle: accountInfo?.displaySubscriptionName,
-                todayTokens: todayTokens
+                subtitle: accountInfo?.displaySubscriptionName
             ) {
                 ConfigShortcutButton(tool: .claudeCode)
             }
@@ -1323,30 +1202,35 @@ struct ClaudeQuotaCard: View {
                             now: now
                         )
                         let isWeeklyExhausted = weeklyFraction.map { $0 <= 0.001 } ?? false
-                        HStack(alignment: .top, spacing: MenuBarGrid.groupColumnGap) {
-                            MenuBarQuotaPanel(
-                                tool: .claudeCode,
-                                title: "5小时余量",
-                                shortBadge: "5H",
-                                fraction: fiveHourFraction,
-                                primaryValue: menuBarQuotaPercentText(fiveHourFraction),
-                                countdown: usage.fiveHour?.resetDate.map { menuBarCompactClockString(for: $0) },
-                                footer: isWeeklyExhausted
-                                    ? String(localized: "本周额度已耗尽")
-                                    : menuBarQuotaRefreshFooter(resetAt: usage.fiveHour?.resetDate, now: now),
-                                isExpired: menuBarQuotaIsExpired(resetAt: usage.fiveHour?.resetDate, now: now),
-                                isExhaustedOverride: isWeeklyExhausted ? true : nil
-                            )
-                            MenuBarQuotaPanel(
-                                tool: .claudeCode,
-                                title: "本周余量",
-                                shortBadge: "7D",
-                                fraction: weeklyFraction,
-                                primaryValue: menuBarQuotaPercentText(weeklyFraction),
-                                countdown: usage.sevenDay?.resetDate.map { menuBarShortResetString(for: $0) },
-                                footer: menuBarQuotaRefreshFooter(resetAt: usage.sevenDay?.resetDate, now: now),
-                                isExpired: menuBarQuotaIsExpired(resetAt: usage.sevenDay?.resetDate, now: now)
-                            )
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(alignment: .top, spacing: MenuBarGrid.groupColumnGap) {
+                                MenuBarQuotaPanel(
+                                    tool: .claudeCode,
+                                    title: "5小时余量",
+                                    shortBadge: "5H",
+                                    fraction: fiveHourFraction,
+                                    primaryValue: menuBarQuotaPercentText(fiveHourFraction),
+                                    countdown: usage.fiveHour?.resetDate.map { menuBarCompactClockString(for: $0) },
+                                    footer: isWeeklyExhausted
+                                        ? String(localized: "本周额度已耗尽")
+                                        : menuBarQuotaRefreshFooter(resetAt: usage.fiveHour?.resetDate, now: now),
+                                    isExpired: menuBarQuotaIsExpired(resetAt: usage.fiveHour?.resetDate, now: now),
+                                    isExhaustedOverride: isWeeklyExhausted ? true : nil
+                                )
+                                MenuBarQuotaPanel(
+                                    tool: .claudeCode,
+                                    title: "本周余量",
+                                    shortBadge: "7D",
+                                    fraction: weeklyFraction,
+                                    primaryValue: menuBarQuotaPercentText(weeklyFraction),
+                                    countdown: usage.sevenDay?.resetDate.map { menuBarShortResetString(for: $0) },
+                                    footer: menuBarQuotaRefreshFooter(resetAt: usage.sevenDay?.resetDate, now: now),
+                                    isExpired: menuBarQuotaIsExpired(resetAt: usage.sevenDay?.resetDate, now: now)
+                                )
+                            }
+                            if let limitResets = usage.cedarEmber, limitResets.hasDisplayableResets(now: now) {
+                                ClaudeLimitResetsLine(limitResets: limitResets, now: now)
+                            }
                         }
                     } else if let q = quota, let r = q.remaining, let t = q.total, t > 0 {
                         let frac = menuBarQuotaFraction(remainingFraction: Double(r) / Double(t), resetAt: q.resetAt, now: now)
@@ -1370,24 +1254,52 @@ struct ClaudeQuotaCard: View {
             }
         }
     }
+}
 
-    // TODO: surface off-peak multiplier badge in UI when ClaudeOffPeakBadge is re-added
-    private var claudeOffPeakBadgeText: String? {
-        var calendar = Calendar(identifier: .gregorian)
-        guard let pacificTimeZone = TimeZone(identifier: "America/Los_Angeles") else { return nil }
-        calendar.timeZone = pacificTimeZone
+private struct ClaudeLimitResetsLine: View {
+    @Environment(\.colorScheme) private var colorScheme
+    let limitResets: ClaudeLimitResets
+    let now: Date
 
-        let now = Date()
-        let weekday = calendar.component(.weekday, from: now) // 1 = Sunday, 7 = Saturday
-        let hour = calendar.component(.hour, from: now)
-
-        if weekday == 1 || weekday == 7 {
-            return "2x weekend"
+    var body: some View {
+        let accent = menuBarToolAccentColor(for: .claudeCode, colorScheme: colorScheme)
+        let buckets = limitResets.groupedResets(now: now)
+        VStack(alignment: .leading, spacing: 5) {
+            MenuBarHairline(opacity: 0.06)
+            ForEach(buckets) { bucket in
+                let expiryText = bucket.expiryDates.map { menuBarShortResetString(for: $0) }.joined(separator: ", ")
+                let labels = bucket.grants.compactMap(\.label).filter { !$0.isEmpty }
+                HStack(spacing: 5) {
+                    Image(systemName: "arrow.counterclockwise.circle.fill")
+                        .font(.system(size: 9.5, weight: .semibold))
+                        .foregroundStyle(accent)
+                    Text(bucket.kind.displayTitle)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                    Text("\(bucket.count)")
+                        .font(.system(size: 10, weight: .semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(accent)
+                    if !expiryText.isEmpty {
+                        Text("·")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                        Text("过期")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                        Text(expiryText)
+                            .font(.system(size: 10))
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .help(labels.isEmpty ? String(localized: "可用于提前重置 Claude 用量限制") : labels.joined(separator: " · "))
+            }
         }
-        if hour < 5 || hour >= 11 {
-            return "2x off-peak"
-        }
-        return nil
+        .padding(.top, 2)
     }
 }
 
@@ -1398,14 +1310,12 @@ struct CodexQuotaCard: View {
     @Environment(\.menuBarQuotaNow) private var now
     let limits: CodexRateLimits?
     let fallbackQuota: QuotaRecord?
-    let todayTokens: Int
     @State private var statusMessage: String?
     var body: some View {
         MenuBarToolShell(tool: .codex) {
             MenuBarToolIdentity(
                 tool: .codex,
-                subtitle: normalizedSubscriptionDisplayName(limits?.planType),
-                todayTokens: todayTokens
+                subtitle: normalizedSubscriptionDisplayName(limits?.planType)
             ) {
                 ConfigShortcutButton(tool: .codex)
             }
@@ -1415,6 +1325,9 @@ struct CodexQuotaCard: View {
                 VStack(alignment: .leading, spacing: 8) {
                     if let limits, !codexMenuBarQuotaRows(for: limits).isEmpty {
                         CodexMenuBarQuotaRows(limits: limits)
+                        if let resetCredits = limits.resetCredits, resetCredits.hasDisplayableCredits(now: now) {
+                            CodexResetCreditsLine(resetCredits: resetCredits, now: now, leadingInset: 0)
+                        }
                     } else if let q = fallbackQuota, let r = q.remaining, let t = q.total, t > 0 {
                         let frac = menuBarQuotaFraction(remainingFraction: Double(r) / Double(t), resetAt: q.resetAt, now: now)
                         MenuBarQuotaPanel(
@@ -1501,7 +1414,7 @@ struct CodexAccountQuotaCard: View {
                                 .font(.system(size: 11))
                                 .foregroundStyle(.secondary)
                         } else {
-                            CodexMenuBarQuotaRows(limits: limits)
+                            CodexMenuBarQuotaRows(limits: limits, usageError: account.usageError)
                         }
                     } else if let error = account.usageError {
                         Text(error).font(.system(size: 11)).foregroundStyle(.secondary)
@@ -1510,8 +1423,8 @@ struct CodexAccountQuotaCard: View {
                     }
                 }
 
-                if let resetCredits = account.limits?.resetCredits {
-                    CodexResetCreditsLine(resetCredits: resetCredits)
+                if let resetCredits = account.limits?.resetCredits, resetCredits.hasDisplayableCredits(now: now) {
+                    CodexResetCreditsLine(resetCredits: resetCredits, now: now, leadingInset: 12)
                 }
             }
         }
@@ -1564,7 +1477,8 @@ struct CodexAccountQuotaCard: View {
             primaryValue: state.primaryValue,
             countdown: state.countdown,
             footer: state.footer,
-            isExpired: state.isExpired
+            isExpired: state.isExpired,
+            expiredDetail: account.usageError
         )
     }
 }
@@ -1572,37 +1486,36 @@ struct CodexAccountQuotaCard: View {
 private struct CodexResetCreditsLine: View {
     @Environment(\.colorScheme) private var colorScheme
     let resetCredits: CodexResetCredits
+    let now: Date
+    var leadingInset: CGFloat = 12
 
     private var availableCredits: [CodexResetCredit] {
-        (resetCredits.credits ?? [])
-            .filter { ($0.status ?? "").caseInsensitiveCompare("available") == .orderedSame }
-            .sorted { lhs, rhs in
-            switch (lhs.expiresAt, rhs.expiresAt) {
-            case let (left?, right?): return left < right
-            case (.some, .none): return true
-            case (.none, .some): return false
-            case (.none, .none): return (lhs.title ?? "") < (rhs.title ?? "")
-            }
-        }
+        resetCredits.activeCredits(now: now)
     }
 
     private var availableCount: Int {
-        resetCredits.availableCount ?? availableCredits.count
+        resetCredits.resolvedAvailableCount(now: now)
     }
 
     private var expiryText: String? {
-        let values = availableCredits.compactMap { credit in
-            credit.expiresAt.map { menuBarShortResetString(for: $0) }
-        }
+        let values = resetCredits.expiryDates(now: now).map { menuBarShortResetString(for: $0) }
         guard !values.isEmpty else { return nil }
         return values.joined(separator: ", ")
+    }
+
+    private var helpText: String {
+        let titles = availableCredits.compactMap(\.title).filter { !$0.isEmpty }
+        if !titles.isEmpty {
+            return titles.joined(separator: " · ")
+        }
+        return String(localized: "可用于提前重置 Codex 用量限制")
     }
 
     var body: some View {
         let accent = menuBarToolAccentColor(for: .codex, colorScheme: colorScheme)
         VStack(alignment: .leading, spacing: 5) {
             MenuBarHairline(opacity: 0.06)
-                .padding(.leading, 12)
+                .padding(.leading, leadingInset)
             HStack(spacing: 5) {
                 Image(systemName: "arrow.counterclockwise.circle.fill")
                     .font(.system(size: 9.5, weight: .semibold))
@@ -1630,9 +1543,10 @@ private struct CodexResetCreditsLine: View {
                 }
                 Spacer(minLength: 0)
             }
-            .padding(.leading, 12)
+            .padding(.leading, leadingInset)
         }
         .padding(.top, 2)
+        .help(helpText)
     }
 }
 
@@ -1641,7 +1555,6 @@ struct CodexMultiAccountQuotaCard: View {
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage("codex.smartSwitch.enabled") private var codexSmartSwitchEnabled = false
     let accounts: [CodexAccountSnapshot]
-    let todayTokens: Int
     @State private var isSwitching = false
     @State private var statusMessage: String?
 
@@ -1651,8 +1564,7 @@ struct CodexMultiAccountQuotaCard: View {
         MenuBarToolShell(tool: .codex) {
             MenuBarToolIdentity(
                 tool: .codex,
-                accountCount: accounts.count > 1 ? accounts.count : nil,
-                todayTokens: todayTokens
+                accountCount: accounts.count > 1 ? accounts.count : nil
             ) {
                 HStack(spacing: 5) {
                     if codexSmartSwitchEnabled {
@@ -1750,244 +1662,6 @@ struct CodexMultiAccountQuotaCard: View {
     }
 }
 
-private struct CodexProviderMenuButton: View {
-    @Environment(AppStore.self) private var appStore
-    @State private var providerState: CodexProviderConfigurationState?
-    @State private var routerStatus: CodexRouterStatus?
-    @State private var isSwitching = false
-
-    let onMessage: (String) -> Void
-
-    private var currentProviderName: String? {
-        guard
-            let providerState,
-            let provider = providerState.providers.first(where: { $0.id == providerState.currentProviderID })
-        else {
-            return nil
-        }
-        return provider.name
-    }
-
-    var body: some View {
-        Menu {
-            if let providerState {
-                ForEach(providerState.providers) { provider in
-                    Button {
-                        if canSwitchProvider(provider) {
-                            switchProvider(provider)
-                        } else {
-                            onMessage(switchDisabledReason(provider) ?? "该 Provider 当前不可用")
-                        }
-                    } label: {
-                        HStack {
-                            Text(provider.name)
-                            Spacer()
-                            if provider.id == providerState.currentProviderID {
-                                Image(systemName: "checkmark")
-                            } else if provider.defaultModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                Text("未配模型")
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                    .disabled(isSwitching)
-                }
-            } else {
-                Text("读取中…")
-            }
-        } label: {
-            HStack(spacing: 5) {
-                Image(systemName: "point.3.connected.trianglepath.dotted")
-                    .font(.system(size: 10, weight: .semibold))
-                if let currentProviderName {
-                    Text(currentProviderName)
-                        .font(.system(size: 10, weight: .bold))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                } else {
-                    Text("服务商")
-                        .font(.system(size: 10, weight: .bold))
-                        .lineLimit(1)
-                }
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .bold))
-                    .foregroundStyle(.secondary)
-            }
-            .foregroundStyle(.primary)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .frame(maxWidth: 112)
-            .background(Color.primary.opacity(0.065), in: Capsule())
-            .overlay {
-                Capsule()
-                    .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
-            }
-        }
-        .buttonStyle(.plain)
-        .controlSize(.mini)
-        .focusEffectDisabled()
-        .task {
-                if providerState == nil {
-                await reloadState()
-            }
-        }
-        .onTapGesture {
-            Task {
-                await reloadState()
-            }
-        }
-    }
-
-    private func reloadState() async {
-        do {
-            let state = try await appStore.codexProviderConfigService.loadState()
-            let status = await appStore.codexRouterCoordinator.loadStatus()
-            await MainActor.run {
-                providerState = state
-                routerStatus = status
-            }
-        } catch {
-            await MainActor.run {
-                providerState = nil
-                routerStatus = nil
-                onMessage(error.localizedDescription)
-            }
-        }
-    }
-
-    private func switchProvider(_ provider: CodexProviderConfig) {
-        isSwitching = true
-        let previousProviderID = providerState?.currentProviderID
-        Task {
-            do {
-                let state = try await appStore.codexProviderConfigService.switchProvider(
-                    id: provider.id,
-                    allowThirdParty: canSwitchProvider(provider)
-                )
-                let status = await appStore.codexRouterCoordinator.loadStatus()
-                await appStore.syncService?.sync(tool: .codex)
-                await MainActor.run {
-                    providerState = state
-                    routerStatus = status
-                    isSwitching = false
-                    AppLogger.shared.recordDiagnostic(
-                        level: .info,
-                        scope: CodexRouterDiagnostics.diagnosticScope,
-                        message: CodexRouterDiagnostics.switchedToProviderMessage(providerID: provider.id)
-                    )
-                    onMessage(String(localized: "已切换到 \(provider.name)"))
-                    GlobalHotkeyService.shared.closeMenuBar()
-                }
-            } catch {
-                let originalError = error.localizedDescription
-                await MainActor.run {
-                    AppLogger.shared.recordDiagnostic(
-                        level: .warning,
-                        scope: CodexRouterDiagnostics.diagnosticScope,
-                        message: CodexRouterDiagnostics.switchProviderFailedMessage(
-                            target: provider.id,
-                            reason: originalError
-                        )
-                    )
-                }
-                await MainActor.run {
-                    isSwitching = false
-                }
-
-                if let previousProviderID, previousProviderID != provider.id {
-                    let rollbackID = previousProviderID
-                    do {
-                        let rollbackState = try await appStore.codexProviderConfigService.switchProvider(
-                            id: rollbackID,
-                            allowThirdParty: true
-                        )
-                        let rollbackStatus = await appStore.codexRouterCoordinator.loadStatus()
-                        let rollbackSnapshot = describeRollbackTarget(
-                            providerID: rollbackID,
-                            in: rollbackState,
-                            at: Date()
-                        )
-                        await MainActor.run {
-                            providerState = rollbackState
-                            routerStatus = rollbackStatus
-                            AppLogger.shared.recordDiagnostic(
-                                level: .info,
-                                scope: CodexRouterDiagnostics.diagnosticScope,
-                                message: CodexRouterDiagnostics.rollbackSucceededMessage(snapshot: rollbackSnapshot)
-                            )
-                            onMessage(CodexRouterDiagnostics.userRollbackNoticeMessage(
-                                snapshot: rollbackSnapshot,
-                                reason: originalError
-                            ))
-                        }
-                    } catch {
-                        await MainActor.run {
-                            AppLogger.shared.recordDiagnostic(
-                                level: .error,
-                                scope: CodexRouterDiagnostics.diagnosticScope,
-                                message: CodexRouterDiagnostics.rollbackFailedMessage(
-                                    target: provider.id,
-                                    fallback: previousProviderID,
-                                    reason: error.localizedDescription
-                                )
-                            )
-                        }
-                        await MainActor.run {
-                            onMessage(CodexRouterDiagnostics.userRollbackFailureMessage(
-                                rollbackError: error.localizedDescription,
-                                originalReason: originalError
-                            ))
-                        }
-                    }
-                } else {
-                    await MainActor.run {
-                        onMessage(originalError)
-                    }
-                }
-            }
-        }
-    }
-
-    private func canSwitchProvider(_ provider: CodexProviderConfig) -> Bool {
-        if provider.id == CodexRouterConstants.openAIProviderID {
-            return true
-        }
-        guard let routerStatus, routerStatus.canUseRouter else { return false }
-        return !provider.defaultModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    private func switchDisabledReason(_ provider: CodexProviderConfig) -> String? {
-        if provider.id == CodexRouterConstants.openAIProviderID {
-            return nil
-        }
-        if provider.defaultModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "该 Provider 未配置默认模型"
-        }
-        guard let status = routerStatus else {
-            return "Router 状态尚未就绪"
-        }
-        if !status.isConfigured {
-            return "未检测到 codex-router 配置"
-        }
-        if !status.isUserEnabled {
-            return "请先在 Providers 中开启 Router"
-        }
-        if !status.isRouterHealthy {
-            return status.healthError ?? "Router 未就绪"
-        }
-        return nil
-    }
-
-    private func describeRollbackTarget(
-        providerID: String,
-        in state: CodexProviderConfigurationState,
-        at timestamp: Date,
-    ) -> String {
-        CodexRouterDiagnostics.rollbackSnapshot(providerID: providerID, in: state, at: timestamp)
-    }
-}
-
 // MARK: - Copilot
 
 struct CopilotQuotaCard: View {
@@ -1996,7 +1670,6 @@ struct CopilotQuotaCard: View {
     let resetAt: Date?
     let plan: String?
     let fallbackQuota: QuotaRecord?
-    let todayTokens: Int
     private var ordered: [(key: String, value: CopilotSnapshot)] {
         guard let s = snapshots else { return [] }
         return s
@@ -2013,8 +1686,7 @@ struct CopilotQuotaCard: View {
         MenuBarToolShell(tool: .copilot) {
             MenuBarToolIdentity(
                 tool: .copilot,
-                subtitle: normalizedCopilotPlanDisplayName(plan),
-                todayTokens: todayTokens
+                subtitle: normalizedCopilotPlanDisplayName(plan)
             ) {
                 ConfigShortcutButton(tool: .copilot)
             }
@@ -2168,20 +1840,27 @@ private struct AGMenuBarMatrixRow: View {
         let accent = menuBarToolAccentColor(for: .antigravity, colorScheme: colorScheme)
         MenuBarHoverRow(hoverTint: accent) {
             HStack(alignment: .top, spacing: 8) {
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        MenuBarHealthDot(fraction: healthFraction, brandAccent: accent)
-                        Text(displayEmail)
-                            .font(.system(size: 12, weight: .semibold))
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .help(account.email)
-                    }
-                    Text(account.badgeLabel)
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(displayEmail)
+                        .font(.system(size: 12, weight: .semibold))
                         .lineLimit(1)
-                        .padding(.leading, 12)
+                        .truncationMode(.middle)
+                        .help(account.email)
+                    Text(account.isPaid ? "Pro" : "Free")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(account.isPaid ? accent : .secondary)
+                        .padding(.horizontal, 5.5)
+                        .padding(.vertical, 1.5)
+                        .background(
+                            (account.isPaid ? accent : Color.primary).opacity(
+                                colorScheme == .dark
+                                    ? (account.isPaid ? 0.18 : 0.09)
+                                    : (account.isPaid ? 0.11 : 0.06)
+                            ),
+                            in: Capsule()
+                        )
+                        .lineLimit(1)
+                        .help(account.badgeLabel)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -2193,12 +1872,13 @@ private struct AGMenuBarMatrixRow: View {
                             alignment: .leading
                         )
                 } else {
-                    HStack(alignment: .center, spacing: 0) {
+                    HStack(alignment: .top, spacing: 0) {
                         ForEach(Array(columns.enumerated()), id: \.element.id) { index, column in
                             if index > 0 {
                                 Rectangle()
                                     .fill(Color.primary.opacity(colorScheme == .dark ? 0.10 : 0.07))
                                     .frame(width: 0.5, height: 26)
+                                    .padding(.top, 2)
                                     .padding(.horizontal, (MenuBarGrid.groupColumnGap - 0.5) / 2)
                             }
                             groupCells(for: account.groups.first(where: { $0.id == column.id }))
@@ -2261,7 +1941,6 @@ private struct AGMenuBarAccountQuotaBody: View {
         MenuBarHoverRow(hoverTint: accent) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .center, spacing: 6) {
-                    MenuBarHealthDot(fraction: healthFraction, brandAccent: accent)
                     Text(account.email)
                         .font(.system(size: 12, weight: .semibold))
                         .lineLimit(1)
@@ -2351,7 +2030,6 @@ private struct AGDisplayModeSwitcher: View {
 struct AntigravityMultiAccountCard: View {
     @Environment(\.colorScheme) private var colorScheme
     let accounts: [AGAccountQuota]
-    let todayTokens: Int
     @AppStorage("ag.hiddenAccountEmails") private var hiddenAccountEmailsRaw = ""
     @AppStorage("menubar.antigravityDisplayMode") private var antigravityDisplayMode = "accounts"
 
@@ -2385,8 +2063,7 @@ struct AntigravityMultiAccountCard: View {
         MenuBarToolShell(tool: .antigravity) {
             MenuBarToolIdentity(
                 tool: .antigravity,
-                accountCount: visible.count > 1 ? visible.count : nil,
-                todayTokens: todayTokens
+                accountCount: visible.count > 1 ? visible.count : nil
             ) {
                 HStack(spacing: 5) {
                     if visible.count > 1 {
@@ -2405,20 +2082,27 @@ struct AntigravityMultiAccountCard: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else if !columns.isEmpty && columns.count <= 2 {
                 VStack(spacing: 0) {
-                    // Column header strip printed once, gently tinted with provider accent
+                    MenuBarHairline(opacity: 0.06)
+
+                    // Pure neutral column header strip — typographic hierarchy only, no color wash
                     HStack(alignment: .bottom, spacing: 8) {
                         Text("ACCOUNT")
-                            .font(.system(size: 8.5, weight: .bold))
+                            .font(.system(size: 8.5, weight: .semibold))
                             .tracking(0.5)
-                            .foregroundStyle(.secondary.opacity(0.75))
-                            .padding(.leading, 12)
+                            .foregroundStyle(.tertiary)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                        HStack(alignment: .bottom, spacing: MenuBarGrid.groupColumnGap) {
-                            ForEach(columns) { column in
-                                VStack(alignment: .leading, spacing: 2) {
+                        HStack(alignment: .bottom, spacing: 0) {
+                            ForEach(Array(columns.enumerated()), id: \.element.id) { index, column in
+                                if index > 0 {
+                                    Rectangle()
+                                        .fill(Color.primary.opacity(colorScheme == .dark ? 0.10 : 0.07))
+                                        .frame(width: 0.5, height: 22)
+                                        .padding(.horizontal, (MenuBarGrid.groupColumnGap - 0.5) / 2)
+                                }
+                                VStack(alignment: .leading, spacing: 1.5) {
                                     Text(column.shortTitle.uppercased())
-                                        .font(.system(size: 9, weight: .bold))
-                                        .tracking(0.4)
+                                        .font(.system(size: 8.5, weight: .bold))
+                                        .tracking(0.45)
                                         .foregroundStyle(.secondary)
                                         .lineLimit(1)
                                         .help(column.fullTitle)
@@ -2428,18 +2112,19 @@ struct AntigravityMultiAccountCard: View {
                                         Text("7D")
                                             .frame(width: MenuBarGrid.cellWidth, alignment: .leading)
                                     }
-                                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                                    .foregroundStyle(.secondary)
+                                    .font(.system(size: 8.5, weight: .medium, design: .monospaced))
+                                    .foregroundStyle(.tertiary)
                                 }
                                 .frame(width: MenuBarGrid.groupColumnWidth, alignment: .leading)
                             }
                         }
                     }
                     .padding(.horizontal, MenuBarGrid.horizontalInset)
-                    .padding(.vertical, 5.5)
-                    .background(accent.opacity(colorScheme == .dark ? 0.08 : 0.045))
+                    .padding(.top, 6)
+                    .padding(.bottom, 5)
 
-                    MenuBarHairline(opacity: 0.08)
+                    MenuBarHairline(opacity: 0.07)
+                        .padding(.horizontal, MenuBarGrid.horizontalInset)
 
                     VStack(spacing: 0) {
                         ForEach(Array(visible.enumerated()), id: \.element.id) { index, account in
@@ -2477,7 +2162,6 @@ struct AntigravityMultiAccountCard: View {
 
 struct AntigravityAggregateCard: View {
     let accounts: [AGAccountQuota]
-    let todayTokens: Int
     @AppStorage("ag.hiddenAccountEmails") private var hiddenAccountEmailsRaw = ""
     @AppStorage("menubar.antigravityDisplayMode") private var antigravityDisplayMode = "accounts"
 
@@ -2488,12 +2172,20 @@ struct AntigravityAggregateCard: View {
     var body: some View {
         let visible = visibleAccounts
         let summary = visible.isEmpty ? nil : AntigravityProAggregator.aggregate(accounts: visible)
+        let usesProAccounts = visible.contains(where: \.isPaid)
+        let badgeText: String? = summary.map { item in
+            let tier = usesProAccounts ? "Pro" : "Free"
+            return item.proAccountCount > 1 ? "\(tier) · \(item.proAccountCount)" : tier
+        }
+        let badgeHelp: String? = summary.map {
+            String(localized: "账号额度聚合 (\($0.proAccountCount)个账号)")
+        }
 
         MenuBarToolShell(tool: .antigravity) {
             MenuBarToolIdentity(
                 tool: .antigravity,
-                subtitle: summary.map { String(localized: "账号额度聚合 (\($0.proAccountCount)个账号)") },
-                todayTokens: todayTokens
+                subtitle: badgeText,
+                subtitleHelp: badgeHelp
             ) {
                 HStack(spacing: 5) {
                     if visible.count > 1 {
@@ -2527,32 +2219,12 @@ struct AntigravityAggregateCard: View {
     }
 }
 
-/// Content for a single Antigravity account (email + tier badge + quota groups).
-struct AntigravityAccountSection: View {
-    let account: AGAccountQuota
-    @AppStorage("ag.hiddenAccountEmails") private var hiddenAccountEmailsRaw = ""
-
-    private var isAccountHidden: Bool {
-        Set(hiddenAccountEmailsRaw.components(separatedBy: ",").filter { !$0.isEmpty }).contains(account.email)
-    }
-
-    var body: some View {
-        if isAccountHidden { EmptyView() } else {
-            AGMenuBarAccountQuotaBody(account: account)
-        }
-    }
-}
-
 struct AntigravityFallbackCard: View {
     @Environment(\.menuBarQuotaNow) private var now
     let quota: QuotaRecord
-    let todayTokens: Int
     var body: some View {
         MenuBarToolShell(tool: .antigravity) {
-            MenuBarToolIdentity(
-                tool: .antigravity,
-                todayTokens: todayTokens
-            ) {
+            MenuBarToolIdentity(tool: .antigravity) {
                 ConfigShortcutButton(tool: .antigravity)
             }
         } content: {

@@ -1,5 +1,6 @@
 import Foundation
 import CryptoKit
+import SQLite
 
 /// OAuth credentials belonging to the Antigravity CLI application itself — not personal credentials.
 /// Extracted from the open-source Antigravity/Quotio CLI tool source code.
@@ -11,10 +12,19 @@ enum AntigravityOAuth {
     static let scopes = "openid email profile https://www.googleapis.com/auth/cloud-platform"
 }
 
-/// Parses Antigravity (Gemini Code Assist) task data from ~/.gemini/antigravity/brain/
+/// Parses Antigravity (Gemini Code Assist, Orca / agy CLI, ACP, T3 Code, and Pi/OMP) session data from
+/// ~/.gemini/antigravity*/brain/, ~/.t3/userdata/providers/antigravity/*/antigravity-acp/brain/, and ~/.omp|~/.pi/agent/sessions/
 /// and fetches quota via the Google Cloud Code Assist internal API.
 actor AntigravityParser {
+    static let defaultBrainDir: URL = .homeDirectory.appending(path: ".gemini/antigravity/brain")
+    static let defaultGeminiDir: URL = .homeDirectory.appending(path: ".gemini")
+    static let defaultT3ProvidersDir: URL = .homeDirectory.appending(path: ".t3/userdata/providers/antigravity")
+
     private let brainDir: URL
+    private let geminiDir: URL?
+    private let t3ProvidersDir: URL?
+    private let piSessionRoots: [URL]
+    private let usesRegistry: Bool
     private let proxyDir: URL
     private let session: URLSession
     private let accountService: AntigravityAccountService?
@@ -31,14 +41,84 @@ actor AntigravityParser {
     static let apiUserAgent = "antigravity/cli/1.5.8 (aidev_client; os_type=darwin; arch=arm64)"
 
     init(
-        brainDir: URL = .homeDirectory.appending(path: ".gemini/antigravity/brain"),
+        brainDir: URL = AntigravityParser.defaultBrainDir,
+        geminiDir: URL? = nil,
+        t3ProvidersDir: URL? = nil,
+        piSessionRoots: [URL]? = nil,
         session: URLSession = .shared,
         accountService: AntigravityAccountService? = AntigravityAccountService()
     ) {
         self.brainDir = brainDir
+        let isDefaultBrain = brainDir.standardizedFileURL == Self.defaultBrainDir.standardizedFileURL
+        self.usesRegistry = isDefaultBrain && geminiDir == nil && t3ProvidersDir == nil && piSessionRoots == nil
+        self.geminiDir = geminiDir ?? (isDefaultBrain ? Self.defaultGeminiDir : nil)
+        self.t3ProvidersDir = t3ProvidersDir ?? (isDefaultBrain ? Self.defaultT3ProvidersDir : nil)
+        self.piSessionRoots = piSessionRoots ?? (isDefaultBrain ? PiAgentSessionScanner.defaultSessionRoots : [])
         proxyDir = URL.homeDirectory.appending(path: ".cli-proxy-api")
         self.session = session
         self.accountService = accountService
+    }
+
+    private func resolvedBrainRoots() -> [URL] {
+        if usesRegistry {
+            return SessionSourceRegistry.shared.enabledURLs(for: .antigravityBrain)
+        }
+        return Self.discoveredBrainRoots(primaryBrainDir: brainDir, geminiDir: geminiDir, t3ProvidersDir: t3ProvidersDir)
+    }
+
+    private func resolvedPiSessionRoots() -> [URL] {
+        if usesRegistry {
+            return SessionSourceRegistry.shared.enabledURLs(for: .piAgentSessions)
+        }
+        return piSessionRoots
+    }
+
+    static func discoveredBrainRoots(
+        primaryBrainDir: URL = defaultBrainDir,
+        geminiDir: URL? = defaultGeminiDir,
+        t3ProvidersDir: URL? = defaultT3ProvidersDir
+    ) -> [URL] {
+        let fm = FileManager.default
+        var roots: [URL] = []
+        var seenPaths = Set<String>()
+
+        func appendIfDirectory(_ url: URL) {
+            let stdPath = url.standardizedFileURL.path
+            guard seenPaths.insert(stdPath).inserted else { return }
+            var isDir: ObjCBool = false
+            if fm.fileExists(atPath: stdPath, isDirectory: &isDir), isDir.boolValue {
+                roots.append(url)
+            }
+        }
+
+        appendIfDirectory(primaryBrainDir)
+
+        // Scan ~/.gemini/antigravity*/brain (covers IDE, Orca agy CLI `antigravity-cli`, and `antigravity-acp`).
+        if let geminiDir,
+           let entries = try? fm.contentsOfDirectory(
+            at: geminiDir,
+            includingPropertiesForKeys: [.isDirectoryKey]
+           ) {
+            for entry in entries.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+                guard entry.lastPathComponent.lowercased().hasPrefix("antigravity"),
+                      (try? entry.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { continue }
+                appendIfDirectory(entry.appending(path: "brain"))
+            }
+        }
+
+        if let t3ProvidersDir,
+           let providerHashes = try? fm.contentsOfDirectory(
+            at: t3ProvidersDir,
+            includingPropertiesForKeys: [.isDirectoryKey]
+           ) {
+            for hashDir in providerHashes {
+                guard (try? hashDir.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { continue }
+                appendIfDirectory(hashDir.appending(path: "antigravity-acp/brain"))
+                appendIfDirectory(hashDir.appending(path: "brain"))
+            }
+        }
+
+        return roots
     }
 
     // MARK: - Credential sources
@@ -53,69 +133,354 @@ actor AntigravityParser {
     // MARK: - Public API
 
     func parseTodayTasks() async throws -> [TaskItem] {
-        guard FileManager.default.fileExists(atPath: brainDir.path) else { return [] }
+        let roots = resolvedBrainRoots()
+        guard !roots.isEmpty else { return [] }
 
         let today = Calendar.current.startOfDay(for: Date())
         let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: today)!
 
         var items: [TaskItem] = []
-        let subdirs = (try? FileManager.default.contentsOfDirectory(
-            at: brainDir,
-            includingPropertiesForKeys: [.isDirectoryKey]
-        ).filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }) ?? []
+        for root in roots {
+            let subdirs = (try? FileManager.default.contentsOfDirectory(
+                at: root,
+                includingPropertiesForKeys: [.isDirectoryKey]
+            ).filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }) ?? []
 
-        for dir in subdirs {
-            let metaURL = dir.appending(path: "task.md.metadata.json")
-            let taskURL = dir.appending(path: "task.md.resolved")
+            for dir in subdirs {
+                let metaURL = dir.appending(path: "task.md.metadata.json")
+                let taskURL = dir.appending(path: "task.md.resolved")
 
-            guard FileManager.default.fileExists(atPath: metaURL.path),
-                  FileManager.default.fileExists(atPath: taskURL.path),
-                  let meta = try? parseMetadata(at: metaURL),
-                  let updatedAt = meta.updatedAt,
-                  updatedAt >= today && updatedAt < tomorrow else { continue }
+                guard FileManager.default.fileExists(atPath: metaURL.path),
+                      FileManager.default.fileExists(atPath: taskURL.path),
+                      let meta = try? parseMetadata(at: metaURL),
+                      let updatedAt = meta.updatedAt,
+                      updatedAt >= today && updatedAt < tomorrow else { continue }
 
-            let tasks = (try? parseTaskMarkdown(at: taskURL)) ?? []
-            items.append(contentsOf: tasks)
+                let tasks = (try? parseTaskMarkdown(at: taskURL)) ?? []
+                items.append(contentsOf: tasks)
+            }
         }
 
         return items
     }
 
     func parseSessions(since date: Date? = nil) async throws -> [ToolSession] {
-        guard FileManager.default.fileExists(atPath: brainDir.path) else { return [] }
+        let roots = resolvedBrainRoots()
+        var sessionsByID: [UUID: ToolSession] = [:]
 
-        var sessions: [ToolSession] = []
-        let subdirs = (try? FileManager.default.contentsOfDirectory(
-            at: brainDir,
-            includingPropertiesForKeys: [.isDirectoryKey]
-        ).filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }) ?? []
-
-        for dir in subdirs {
-            let metaURL = dir.appending(path: "task.md.metadata.json")
-            let taskURL = dir.appending(path: "task.md.resolved")
-
-            guard let meta = try? parseMetadata(at: metaURL),
-                  let updatedAt = meta.updatedAt else { continue }
-
-            if let cutoff = date, updatedAt < cutoff { continue }
-
-            let taskItems = (try? parseTaskMarkdown(at: taskURL)) ?? []
-            let taskContent = (try? String(contentsOf: taskURL, encoding: .utf8)) ?? ""
-            let firstLine = taskContent.components(separatedBy: "\n")
-                .first(where: { $0.hasPrefix("# ") })
-                .map { String($0.dropFirst(2)) } ?? meta.summary ?? ""
-
-            sessions.append(ToolSession(
-                id: Self.sessionID(for: dir),
-                tool: .antigravity,
-                startedAt: updatedAt,
-                endedAt: updatedAt,
-                taskDescription: firstLine,
-                taskItems: taskItems
-            ))
+        func merge(_ parsed: ToolSession) {
+            if let existing = sessionsByID[parsed.id] {
+                // Prefer the richer record if the same conversation ID appears in multiple roots.
+                if parsed.totalTokens > existing.totalTokens
+                    || (parsed.totalTokens == existing.totalTokens && (parsed.endedAt ?? parsed.startedAt) > (existing.endedAt ?? existing.startedAt)) {
+                    sessionsByID[parsed.id] = parsed
+                }
+            } else {
+                sessionsByID[parsed.id] = parsed
+            }
         }
 
-        return sessions.sorted { $0.startedAt < $1.startedAt }
+        for root in roots {
+            let summaries = loadConversationSummaries(forBrainRoot: root)
+            let subdirs = (try? FileManager.default.contentsOfDirectory(
+                at: root,
+                includingPropertiesForKeys: [.isDirectoryKey]
+            ).filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }) ?? []
+
+            for dir in subdirs {
+                let summary = summaries[dir.lastPathComponent.lowercased()]
+                guard let parsed = parseBrainConversation(at: dir, cutoff: date, summary: summary) else { continue }
+                merge(parsed)
+            }
+        }
+
+        let effectivePiRoots = resolvedPiSessionRoots()
+        if !effectivePiRoots.isEmpty {
+            let piSessions = PiAgentSessionScanner.parseSessions(for: .antigravity, since: date, roots: effectivePiRoots)
+            for session in piSessions {
+                merge(session)
+            }
+        }
+
+        return sessionsByID.values.sorted { $0.startedAt < $1.startedAt }
+    }
+
+    private struct ConversationSummaryInfo {
+        let title: String
+        let workspacePath: String
+    }
+
+    private func loadConversationSummaries(forBrainRoot brainRoot: URL) -> [String: ConversationSummaryInfo] {
+        let dbURL = brainRoot.deletingLastPathComponent().appending(path: "conversation_summaries.db")
+        guard FileManager.default.fileExists(atPath: dbURL.path),
+              let db = try? Connection(.uri(dbURL.path, parameters: [.mode(.readOnly)])) else {
+            return [:]
+        }
+        db.busyTimeout = 1.0
+        var map: [String: ConversationSummaryInfo] = [:]
+        guard let rows = try? db.prepare("SELECT conversation_id, title, workspace_uris FROM conversation_summaries") else {
+            return [:]
+        }
+        for row in rows {
+            guard let id = row[0] as? String, !id.isEmpty else { continue }
+            let title = (row[1] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let workspaceRaw = (row[2] as? String) ?? ""
+            let workspacePath = Self.extractPrimaryWorkspacePath(from: workspaceRaw) ?? ""
+            map[id.lowercased()] = ConversationSummaryInfo(title: title, workspacePath: workspacePath)
+        }
+        return map
+    }
+
+    static func extractPrimaryWorkspacePath(from workspaceURIsJSON: String) -> String? {
+        guard !workspaceURIsJSON.isEmpty,
+              let data = workspaceURIsJSON.data(using: .utf8),
+              let uris = try? JSONDecoder().decode([String].self, from: data) else {
+            return nil
+        }
+        let paths = uris.compactMap { uri -> String? in
+            if let url = URL(string: uri), url.isFileURL {
+                return url.path
+            }
+            return uri.hasPrefix("/") ? uri : nil
+        }
+        guard !paths.isEmpty else { return nil }
+        // Prefer real user workspace paths over temporary, scratch, or internal host attachment paths.
+        if let preferred = paths.first(where: { !isInternalOrTempWorkspacePath($0) }) {
+            return preferred
+        }
+        return paths.first
+    }
+
+    static func isInternalOrTempWorkspacePath(_ path: String) -> Bool {
+        let lower = path.lowercased()
+        return lower.hasPrefix("/tmp/")
+            || lower == "/tmp"
+            || lower.hasPrefix("/private/tmp/")
+            || lower.hasPrefix("/var/")
+            || lower.hasPrefix("/private/var/")
+            || lower.contains("/.t3/userdata/")
+            || lower.hasPrefix("/users/shared/agy-probe")
+    }
+
+    private func parseBrainConversation(at dir: URL, cutoff: Date?, summary: ConversationSummaryInfo?) -> ToolSession? {
+        let fm = FileManager.default
+        let transcriptURL = dir.appending(path: ".system_generated/logs/transcript.jsonl")
+        if fm.fileExists(atPath: transcriptURL.path),
+           let transcriptSession = parseTranscriptConversation(at: dir, transcriptURL: transcriptURL, cutoff: cutoff, summary: summary) {
+            return transcriptSession
+        }
+
+        let primaryMetaURL = dir.appending(path: "task.md.metadata.json")
+        let primaryResolvedTaskURL = dir.appending(path: "task.md.resolved")
+        let primaryTaskURL = dir.appending(path: "task.md")
+
+        let preferredMetaFiles = [
+            primaryMetaURL,
+            dir.appending(path: "implementation_plan.md.metadata.json"),
+            dir.appending(path: "walkthrough.md.metadata.json"),
+        ]
+
+        var matchedMeta: BrainMetadata?
+        var matchedArtifactURL: URL?
+
+        for metaURL in preferredMetaFiles where fm.fileExists(atPath: metaURL.path) {
+            if let meta = try? parseMetadata(at: metaURL), meta.updatedAt != nil {
+                matchedMeta = meta
+                let stem = metaURL.lastPathComponent.replacingOccurrences(of: ".metadata.json", with: "")
+                let resolvedCandidate = dir.appending(path: "\(stem).resolved")
+                let plainCandidate = dir.appending(path: stem)
+                if fm.fileExists(atPath: resolvedCandidate.path) {
+                    matchedArtifactURL = resolvedCandidate
+                } else if fm.fileExists(atPath: plainCandidate.path) {
+                    matchedArtifactURL = plainCandidate
+                }
+                break
+            }
+        }
+
+        // Scan any other *.md.metadata.json if none of the standard artifacts matched.
+        if matchedMeta == nil,
+           let entries = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey]) {
+            let otherMetas = entries.filter { $0.lastPathComponent.hasSuffix(".metadata.json") }
+            for metaURL in otherMetas {
+                if let meta = try? parseMetadata(at: metaURL), meta.updatedAt != nil {
+                    matchedMeta = meta
+                    let stem = metaURL.lastPathComponent.replacingOccurrences(of: ".metadata.json", with: "")
+                    let plainCandidate = dir.appending(path: stem)
+                    if fm.fileExists(atPath: plainCandidate.path) {
+                        matchedArtifactURL = plainCandidate
+                    }
+                    break
+                }
+            }
+        }
+
+        let updatedAt: Date
+        if let metaDate = matchedMeta?.updatedAt {
+            updatedAt = metaDate
+        } else {
+            let fallbackMarkdown: URL? = [primaryResolvedTaskURL, primaryTaskURL].first { fm.fileExists(atPath: $0.path) }
+            guard let fallbackMarkdown,
+                  let modDate = (try? fallbackMarkdown.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate else {
+                return nil
+            }
+            updatedAt = modDate
+            matchedArtifactURL = fallbackMarkdown
+        }
+
+        if let cutoff, updatedAt < cutoff { return nil }
+
+        let taskFile = fm.fileExists(atPath: primaryResolvedTaskURL.path)
+            ? primaryResolvedTaskURL
+            : (fm.fileExists(atPath: primaryTaskURL.path) ? primaryTaskURL : matchedArtifactURL)
+        let taskItems = taskFile.flatMap { try? parseTaskMarkdown(at: $0) } ?? []
+        let contentURL = matchedArtifactURL ?? taskFile
+        let content = contentURL.flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
+        let heading = content.components(separatedBy: "\n")
+            .first(where: { $0.hasPrefix("# ") })
+            .map { String($0.dropFirst(2)).trimmingCharacters(in: .whitespacesAndNewlines) }
+        let title = (heading?.isEmpty == false ? heading : nil)
+            ?? matchedMeta?.summary?.trimmingCharacters(in: .whitespacesAndNewlines)
+            ?? (summary?.title.isEmpty == false ? summary?.title : nil)
+            ?? ""
+
+        return ToolSession(
+            id: Self.sessionID(for: dir),
+            tool: .antigravity,
+            startedAt: updatedAt,
+            endedAt: updatedAt,
+            taskDescription: title,
+            cwd: summary?.workspacePath ?? "",
+            taskItems: taskItems
+        )
+    }
+
+    private func parseTranscriptConversation(
+        at dir: URL,
+        transcriptURL: URL,
+        cutoff: Date?,
+        summary: ConversationSummaryInfo?
+    ) -> ToolSession? {
+        if let cutoff,
+           let modDate = (try? transcriptURL.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate,
+           modDate < cutoff {
+            return nil
+        }
+
+        let decoder = JSONDecoder()
+        var firstTimestampRaw: String?
+        var lastTimestampRaw: String?
+        var totalInput = 0
+        var totalOutput = 0
+        var totalCacheRead = 0
+        var model = ""
+        var firstUserPrompt = ""
+
+        JSONLReader.forEachLine(of: transcriptURL) { lineData, _ in
+            guard !lineData.isEmpty,
+                  let entry = try? decoder.decode(AGTranscriptEntry.self, from: lineData) else { return }
+
+            if let ts = entry.createdAt, !ts.isEmpty {
+                if firstTimestampRaw == nil { firstTimestampRaw = ts }
+                lastTimestampRaw = ts
+            }
+
+            switch entry.type {
+            case "USER_INPUT":
+                if firstUserPrompt.isEmpty, let content = entry.content {
+                    firstUserPrompt = Self.extractUserPromptTitle(from: content)
+                }
+            case "PLANNER_RESPONSE":
+                totalInput += entry.inputTokens ?? 0
+                totalOutput += entry.outputTokens ?? 0
+                totalCacheRead += entry.cacheReadTokens ?? 0
+                if let m = entry.model, !m.isEmpty {
+                    model = m
+                }
+            default:
+                break
+            }
+        }
+
+        let startDate = firstTimestampRaw.flatMap(parseISO8601Flexible)
+            ?? (try? transcriptURL.resourceValues(forKeys: [.creationDateKey]))?.creationDate
+            ?? (try? transcriptURL.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+        guard let startDate else { return nil }
+        let endDate = lastTimestampRaw.flatMap(parseISO8601Flexible) ?? startDate
+
+        let summaryTitle: String? = {
+            guard let t = summary?.title, !t.isEmpty else { return nil }
+            // Avoid generic T3 Code boilerplate title when we have an actual user prompt.
+            if t.caseInsensitiveCompare("T3 Code Interaction Mode") == .orderedSame && !firstUserPrompt.isEmpty {
+                return nil
+            }
+            return t
+        }()
+        let resolvedTitle = summaryTitle
+            ?? (!firstUserPrompt.isEmpty ? firstUserPrompt : nil)
+            ?? ""
+
+        // Skip completely empty stub conversations that have neither tokens nor a user prompt.
+        if totalInput + totalOutput + totalCacheRead == 0 && resolvedTitle.isEmpty {
+            return nil
+        }
+
+        return ToolSession(
+            id: Self.sessionID(for: dir),
+            tool: .antigravity,
+            startedAt: startDate,
+            endedAt: endDate,
+            inputTokens: totalInput,
+            outputTokens: totalOutput,
+            cacheReadTokens: totalCacheRead,
+            taskDescription: resolvedTitle,
+            model: model,
+            cwd: summary?.workspacePath ?? ""
+        )
+    }
+
+    static func extractUserPromptTitle(from rawContent: String) -> String {
+        var extracted: String?
+        if let startRange = rawContent.range(of: "<user_request>", options: .caseInsensitive),
+           let endRange = rawContent.range(of: "</user_request>", options: .caseInsensitive, range: startRange.upperBound..<rawContent.endIndex) {
+            let inner = String(rawContent[startRange.upperBound..<endRange.lowerBound])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !inner.isEmpty {
+                extracted = inner
+            }
+        }
+        var candidate = extracted ?? rawContent
+
+        // Strip wrapper blocks (case-insensitive) when present.
+        for tag in ["t3_code_instructions", "runtime_info", "additional_metadata", "user_settings_change"] {
+            while let s = candidate.range(of: "<\(tag)>", options: .caseInsensitive),
+                  let e = candidate.range(of: "</\(tag)>", options: .caseInsensitive, range: s.upperBound..<candidate.endIndex) {
+                candidate.removeSubrange(s.lowerBound..<e.upperBound)
+            }
+        }
+
+        // If a T3 Code context handoff wrapper is present, jump to the actual "User message:" body.
+        if candidate.hasPrefix("Context handoff"),
+           let marker = candidate.range(of: "\nUser message:\n", options: .backwards) {
+            let tail = String(candidate[marker.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !tail.isEmpty {
+                candidate = tail
+            }
+        }
+
+        return compactPromptLine(candidate.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    private static func compactPromptLine(_ text: String) -> String {
+        let singleLine = text
+            .replacingOccurrences(of: "\r\n", with: " ")
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\t", with: " ")
+            .components(separatedBy: .whitespaces)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return String(singleLine.prefix(240))
     }
 
     /// Brain directories identify conversations; refreshes must update the same row.
@@ -141,15 +506,36 @@ actor AntigravityParser {
         let creds = try await credentials()
         guard !creds.isEmpty else { throw AntigravityError.noAuthFile }
 
+        let indexedResults = await withTaskGroup(
+            of: (Int, Swift.Result<AGAccountQuota, Error>).self,
+            returning: [(Int, Swift.Result<AGAccountQuota, Error>)].self
+        ) { group in
+            for (index, cred) in creds.enumerated() {
+                group.addTask {
+                    do {
+                        return (index, .success(try await self.fetchAccountQuota(for: cred)))
+                    } catch {
+                        return (index, .failure(error))
+                    }
+                }
+            }
+            var collected: [(Int, Swift.Result<AGAccountQuota, Error>)] = []
+            collected.reserveCapacity(creds.count)
+            for await result in group {
+                collected.append(result)
+            }
+            return collected.sorted { $0.0 < $1.0 }
+        }
+
         var accounts: [AGAccountQuota] = []
         var lastError: Error?
 
-        for cred in creds {
-            do {
-                let account = try await fetchAccountQuota(for: cred)
+        for (index, result) in indexedResults {
+            switch result {
+            case .success(let account):
                 accounts.append(account)
-            } catch {
-                print("[OpenPulse] Antigravity account \(cred.email) failed: \(error.localizedDescription)")
+            case .failure(let error):
+                print("[OpenPulse] Antigravity account \(creds[index].email) failed: \(error.localizedDescription)")
                 lastError = error
             }
         }
@@ -469,8 +855,21 @@ struct AGQuotaGroup: Codable, Sendable, Identifiable {
 }
 
 struct AGTier: Codable, Sendable {
+    enum Source: String, Codable, Sendable {
+        case paidTier
+        case currentTier
+    }
+
     let id: String
     let name: String
+    let source: Source?
+
+    init(id: String, name: String, source: Source? = nil) {
+        self.id = id
+        self.name = name
+        self.source = source
+    }
+
     var isPaid: Bool { id != "free-tier" }
     var badgeLabel: String {
         guard isPaid else { return "Free" }
@@ -490,13 +889,20 @@ struct AGAccountQuota: Codable, Sendable, Identifiable {
     var id: String { email }
 
     private var hasConsumerProQuotaWindows: Bool {
-        groups.contains { group in
+        if let gemini = groups.first(where: { $0.id.caseInsensitiveCompare("gemini") == .orderedSame }) {
+            return gemini.fiveHour != nil && gemini.weekly != nil
+        }
+        return groups.contains { group in
             group.fiveHour != nil && group.weekly != nil
         }
     }
 
     var isPaid: Bool {
-        tier?.isPaid == true || hasConsumerProQuotaWindows
+        if let tier {
+            if tier.isPaid { return true }
+            if tier.source == .paidTier { return false }
+        }
+        return hasConsumerProQuotaWindows
     }
 
     var badgeLabel: String {
@@ -720,10 +1126,10 @@ extension AntigravityParser {
     static func decodeTier(from data: Data) -> AGTier? {
         guard let info = try? JSONDecoder().decode(AGLoadCodeAssistResponse.self, from: data) else { return nil }
         if let paidTier = info.paidTier {
-            return AGTier(id: paidTier.id, name: paidTier.name)
+            return AGTier(id: paidTier.id, name: paidTier.name, source: .paidTier)
         }
         if let currentTier = info.currentTier {
-            return AGTier(id: currentTier.id, name: currentTier.name)
+            return AGTier(id: currentTier.id, name: currentTier.name, source: .currentTier)
         }
         return nil
     }
@@ -785,6 +1191,26 @@ private struct BrainMetadata: Decodable {
     let summary: String?
     let updatedAt: Date?
     let version: String?
+}
+
+private struct AGTranscriptEntry: Decodable {
+    let type: String?
+    let content: String?
+    let createdAt: String?
+    let model: String?
+    let inputTokens: Int?
+    let outputTokens: Int?
+    let cacheReadTokens: Int?
+
+    private enum CodingKeys: String, CodingKey {
+        case type
+        case content
+        case createdAt = "created_at"
+        case model
+        case inputTokens = "input_tokens"
+        case outputTokens = "output_tokens"
+        case cacheReadTokens = "cache_read_tokens"
+    }
 }
 
 private struct AntigravityAuthFile: Decodable {

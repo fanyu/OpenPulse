@@ -7,24 +7,41 @@ import SQLite
 /// Token usage: projects/**/*.jsonl (per-message) + stats-cache.json (aggregated)
 /// Quota: prefer OpenPulse Claude Code bridge cache, then Claude Desktop Web usage, then Anthropic OAuth usage API.
 actor ClaudeCodeParser {
+    static let defaultClaudeDir: URL = .homeDirectory.appending(path: ".claude")
+    static let defaultConfigProjectsDir: URL = .homeDirectory.appending(path: ".config/claude/projects")
+
     private let claudeDir: URL
     private let configProjectsDir: URL
     private let claudeDesktopDir: URL
+    private let piSessionRoots: [URL]
+    private let usesRegistry: Bool
     private let statusCacheURL: URL
     private var cachedKeychainCredentials: ClaudeCredentialSource?
+    private var cachedDesktopSessionFiles: [String: CachedDesktopSessionEntry] = [:]
+
+    private struct CachedDesktopSessionEntry {
+        let modifiedAt: Date
+        let cliSessionID: UUID?
+        let meta: ClaudeDesktopSessionMeta?
+    }
 
     init(
-        claudeDir: URL = .homeDirectory.appending(path: ".claude"),
-        configProjectsDir: URL = .homeDirectory.appending(path: ".config/claude/projects"),
+        claudeDir: URL = ClaudeCodeParser.defaultClaudeDir,
+        configProjectsDir: URL = ClaudeCodeParser.defaultConfigProjectsDir,
         claudeDesktopDir: URL = .homeDirectory
             .appending(path: "Library")
             .appending(path: "Application Support")
             .appending(path: "Claude"),
+        piSessionRoots: [URL]? = nil,
         statusCacheURL: URL = ClaudeCodeBridgeInstaller.cacheURL
     ) {
         self.claudeDir = claudeDir
         self.configProjectsDir = configProjectsDir
         self.claudeDesktopDir = claudeDesktopDir
+        let isDefault = claudeDir.standardizedFileURL == Self.defaultClaudeDir.standardizedFileURL
+            && configProjectsDir.standardizedFileURL == Self.defaultConfigProjectsDir.standardizedFileURL
+        self.usesRegistry = isDefault && piSessionRoots == nil
+        self.piSessionRoots = piSessionRoots ?? (isDefault ? PiAgentSessionScanner.defaultSessionRoots : [])
         self.statusCacheURL = statusCacheURL
     }
 
@@ -95,13 +112,33 @@ actor ClaudeCodeParser {
     // MARK: - Per-session parsing from JSONL (detailed)
 
     func parseSessions(since cutoff: Date? = nil) async throws -> [ToolSession] {
-        let projectsDir = claudeDir.appending(path: "projects")
-        // Either supported location can exist independently.
-        let searchDirs = [projectsDir, configProjectsDir].filter {
-            FileManager.default.fileExists(atPath: $0.path)
+        let searchDirs: [URL]
+        if usesRegistry {
+            searchDirs = SessionSourceRegistry.shared.enabledURLs(for: .claudeProjects).filter {
+                FileManager.default.fileExists(atPath: $0.path)
+            }
+        } else {
+            let projectsDir = claudeDir.appending(path: "projects")
+            // Either supported location can exist independently.
+            searchDirs = [projectsDir, configProjectsDir].filter {
+                FileManager.default.fileExists(atPath: $0.path)
+            }
         }
 
-        var sessions: [ToolSession] = []
+        let desktopMeta = loadClaudeDesktopSessionMetadata()
+        var sessionsByID: [UUID: ToolSession] = [:]
+
+        func merge(_ session: ToolSession) {
+            if let existing = sessionsByID[session.id] {
+                if session.totalTokens > existing.totalTokens
+                    || (session.totalTokens == existing.totalTokens && (session.endedAt ?? session.startedAt) > (existing.endedAt ?? existing.startedAt)) {
+                    sessionsByID[session.id] = session
+                }
+            } else {
+                sessionsByID[session.id] = session
+            }
+        }
+
         for searchDir in searchDirs {
             let projectDirs = (try? FileManager.default.contentsOfDirectory(
                 at: searchDir,
@@ -117,13 +154,98 @@ actor ClaudeCodeParser {
                 // Skip files not modified since cutoff (perf optimization)
                 for file in jsonlFiles {
                     if let cutoff, let modDate = try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate, modDate < cutoff { continue }
-                    if let session = parseSessionFile(file, since: cutoff) {
-                        sessions.append(session)
+                    if let session = parseSessionFile(file, since: cutoff, desktopMeta: desktopMeta) {
+                        merge(session)
                     }
                 }
             }
         }
-        return sessions.sorted { $0.startedAt < $1.startedAt }
+
+        let effectivePiRoots = usesRegistry
+            ? SessionSourceRegistry.shared.enabledURLs(for: .piAgentSessions)
+            : piSessionRoots
+        if !effectivePiRoots.isEmpty {
+            let piSessions = PiAgentSessionScanner.parseSessions(for: .claudeCode, since: cutoff, roots: effectivePiRoots)
+            for session in piSessions {
+                merge(session)
+            }
+        }
+
+        return sessionsByID.values.sorted { $0.startedAt < $1.startedAt }
+    }
+
+    private struct ClaudeDesktopSessionMeta {
+        let title: String?
+        let cwd: String?
+    }
+
+    private func loadClaudeDesktopSessionMetadata() -> [UUID: ClaudeDesktopSessionMeta] {
+        let sessionsRoot = claudeDesktopDir.appending(path: "claude-code-sessions")
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: sessionsRoot.path),
+              let enumerator = fm.enumerator(
+                at: sessionsRoot,
+                includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey],
+                options: [.skipsHiddenFiles]
+              ) else {
+            cachedDesktopSessionFiles.removeAll()
+            return [:]
+        }
+
+        let decoder = JSONDecoder()
+        var map: [UUID: ClaudeDesktopSessionMeta] = [:]
+        var seenPaths = Set<String>()
+
+        for case let url as URL in enumerator {
+            guard url.pathExtension.lowercased() == "json",
+                  url.lastPathComponent.hasPrefix("local_"),
+                  !url.path.contains("/deleted_") else { continue }
+            let path = url.standardizedFileURL.path
+            seenPaths.insert(path)
+
+            let modDate = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+            if let modDate,
+               let cached = cachedDesktopSessionFiles[path],
+               cached.modifiedAt == modDate {
+                if let id = cached.cliSessionID, let meta = cached.meta {
+                    map[id] = meta
+                }
+                continue
+            }
+
+            var parsedID: UUID?
+            var parsedMeta: ClaudeDesktopSessionMeta?
+            if let data = try? Data(contentsOf: url),
+               let meta = try? decoder.decode(ClaudeDesktopSessionFile.self, from: data),
+               meta.isArchived != true,
+               let cliIDString = meta.cliSessionId,
+               let cliUUID = UUID(uuidString: cliIDString) {
+                let cleanTitle = meta.title?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let resolvedCwd = [meta.cwd, meta.originCwd]
+                    .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .first { !$0.isEmpty }
+                parsedID = cliUUID
+                parsedMeta = ClaudeDesktopSessionMeta(
+                    title: (cleanTitle?.isEmpty == false ? cleanTitle : nil),
+                    cwd: resolvedCwd
+                )
+                map[cliUUID] = parsedMeta
+            }
+
+            if let modDate {
+                cachedDesktopSessionFiles[path] = CachedDesktopSessionEntry(
+                    modifiedAt: modDate,
+                    cliSessionID: parsedID,
+                    meta: parsedMeta
+                )
+            }
+        }
+
+        // Prune deleted files from cache.
+        if cachedDesktopSessionFiles.count != seenPaths.count {
+            cachedDesktopSessionFiles = cachedDesktopSessionFiles.filter { seenPaths.contains($0.key) }
+        }
+        return map
     }
 
     // MARK: - Subscription quota
@@ -187,7 +309,7 @@ actor ClaudeCodeParser {
             throw ClaudeError.desktopSessionUnavailable("Missing Claude desktop session")
         }
 
-        var request = URLRequest(url: URL(string: "https://claude.ai/api/organizations/\(orgUUID)/usage")!)
+        var request = URLRequest(url: URL(string: "https://claude.ai/api/organizations/\(orgUUID)/usage?cedar_ember=1&skip_spend=1")!)
         request.httpMethod = "GET"
         request.timeoutInterval = 10
         request.setValue(makeCookieHeader(cookies), forHTTPHeaderField: "Cookie")
@@ -235,10 +357,10 @@ actor ClaudeCodeParser {
         using token: String,
         retryingAfterCredentialRefresh: Bool
     ) async throws -> ToolQuota {
-        var request = URLRequest(url: URL(string: "https://api.anthropic.com/api/oauth/usage")!)
+        var request = URLRequest(url: URL(string: "https://api.anthropic.com/api/oauth/usage?cedar_ember=1&skip_spend=1")!)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
-        request.setValue("claude-code/2.0.76", forHTTPHeaderField: "User-Agent")
+        request.setValue("claude-cli/2.1.0", forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 10
 
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -542,7 +664,11 @@ actor ClaudeCodeParser {
         return try? isoPlain.parse(raw)
     }
 
-    private func parseSessionFile(_ url: URL, since cutoff: Date?) -> ToolSession? {
+    private func parseSessionFile(
+        _ url: URL,
+        since cutoff: Date?,
+        desktopMeta: [UUID: ClaudeDesktopSessionMeta] = [:]
+    ) -> ToolSession? {
         let decoder = JSONDecoder()
 
         var firstTimestamp: Date?
@@ -573,12 +699,12 @@ actor ClaudeCodeParser {
                 if firstTimestampRaw == nil { firstTimestampRaw = raw }
                 lastTimestampRaw = raw
             }
+            if sessionId == nil, let sid = record.sessionId, !sid.isEmpty { sessionId = sid }
+            if cwd.isEmpty, let c = record.cwd, !c.isEmpty { cwd = c }
+            if gitBranch == nil, let b = record.gitBranch, !b.isEmpty { gitBranch = b }
 
             switch record.type {
             case "assistant":
-                if sessionId == nil { sessionId = record.sessionId }
-                if let c = record.cwd, cwd.isEmpty { cwd = c }
-                if let b = record.gitBranch, gitBranch == nil { gitBranch = b }
                 if let m = record.message {
                     if model.isEmpty, let mdl = m.model { model = mdl }
                     let msgId = m.id ?? UUID().uuidString
@@ -592,7 +718,10 @@ actor ClaudeCodeParser {
                 }
             case "user":
                 if taskDescription.isEmpty, let content = record.message?.contentString {
-                    taskDescription = String(content.prefix(200))
+                    let cleaned = Self.cleanUserPromptTitle(content)
+                    if !cleaned.isEmpty {
+                        taskDescription = cleaned
+                    }
                 }
             case "summary":
                 if let s = record.summary { summaries.append(s) }
@@ -619,8 +748,15 @@ actor ClaudeCodeParser {
         if totalInput + totalOutput == 0 { return nil }  // skip empty sessions
         if model == "<synthetic>" { return nil }  // skip internal Claude Code sub-agent sessions
 
+        let resolvedUUID = UUID(uuidString: sessionId ?? "") ?? UUID()
+        let meta = desktopMeta[resolvedUUID]
+        let finalTitle = summaries.last
+            ?? meta?.title
+            ?? taskDescription
+        let finalCwd = !cwd.isEmpty ? cwd : (meta?.cwd ?? "")
+
         return ToolSession(
-            id: UUID(uuidString: sessionId ?? "") ?? UUID(),
+            id: resolvedUUID,
             tool: .claudeCode,
             startedAt: startDate,
             endedAt: lastTimestamp,
@@ -628,11 +764,30 @@ actor ClaudeCodeParser {
             outputTokens: totalOutput,
             cacheReadTokens: totalCacheRead,
             cacheWriteTokens: totalCacheWrite,
-            taskDescription: summaries.last ?? taskDescription,
+            taskDescription: finalTitle,
             model: model,
-            cwd: cwd,
+            cwd: finalCwd,
             gitBranch: gitBranch
         )
+    }
+
+    private static func cleanUserPromptTitle(_ raw: String) -> String {
+        var cleaned = raw
+        for tag in ["ide_opened_file", "ide_selection", "system-reminder", "command-name", "command-message", "command-args", "local-command-stdout", "local-command-caveat"] {
+            while let s = cleaned.range(of: "<\(tag)>", options: .caseInsensitive),
+                  let e = cleaned.range(of: "</\(tag)>", options: .caseInsensitive, range: s.upperBound..<cleaned.endIndex) {
+                cleaned.removeSubrange(s.lowerBound..<e.upperBound)
+            }
+        }
+        let singleLine = cleaned
+            .replacingOccurrences(of: "\r\n", with: " ")
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\t", with: " ")
+            .components(separatedBy: .whitespaces)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return String(singleLine.prefix(200))
     }
 }
 
@@ -715,6 +870,7 @@ struct ClaudeUsageResponse: Codable, Sendable {
     let sevenDayOpus: UsageWindow?
     let extraUsage: ExtraUsage?
     let contextWindow: ClaudeContextWindow?
+    let cedarEmber: ClaudeLimitResets?
 
     enum CodingKeys: String, CodingKey {
         case fiveHour = "five_hour"
@@ -723,6 +879,7 @@ struct ClaudeUsageResponse: Codable, Sendable {
         case sevenDayOpus = "seven_day_opus"
         case extraUsage = "extra_usage"
         case contextWindow = "context_window"
+        case cedarEmber = "cedar_ember"
     }
 
     init(
@@ -731,7 +888,8 @@ struct ClaudeUsageResponse: Codable, Sendable {
         sevenDaySonnet: UsageWindow? = nil,
         sevenDayOpus: UsageWindow? = nil,
         extraUsage: ExtraUsage? = nil,
-        contextWindow: ClaudeContextWindow? = nil
+        contextWindow: ClaudeContextWindow? = nil,
+        cedarEmber: ClaudeLimitResets? = nil
     ) {
         self.fiveHour = fiveHour
         self.sevenDay = sevenDay
@@ -739,6 +897,22 @@ struct ClaudeUsageResponse: Codable, Sendable {
         self.sevenDayOpus = sevenDayOpus
         self.extraUsage = extraUsage
         self.contextWindow = contextWindow
+        self.cedarEmber = cedarEmber
+    }
+
+    /// Preserves API-only supplemental metadata (such as `cedar_ember` limit resets
+    /// and `extra_usage`) when applying a local Statusline Bridge update.
+    func mergingSupplementalMetadata(from previous: ClaudeUsageResponse?) -> ClaudeUsageResponse {
+        guard let previous else { return self }
+        return ClaudeUsageResponse(
+            fiveHour: fiveHour ?? previous.fiveHour,
+            sevenDay: sevenDay ?? previous.sevenDay,
+            sevenDaySonnet: sevenDaySonnet ?? previous.sevenDaySonnet,
+            sevenDayOpus: sevenDayOpus ?? previous.sevenDayOpus,
+            extraUsage: extraUsage ?? previous.extraUsage,
+            contextWindow: contextWindow ?? previous.contextWindow,
+            cedarEmber: cedarEmber ?? previous.cedarEmber
+        )
     }
 
     /// Remaining percentage (0–100) for the 5-hour window.
@@ -829,6 +1003,303 @@ struct ExtraUsage: Codable, Sendable {
         case usedCredits = "used_credits"
         case utilization
     }
+}
+
+enum ClaudeLimitResetKind: String, Codable, Sendable, CaseIterable, Identifiable {
+    case full
+    case fable
+    case other
+
+    var id: String { rawValue }
+
+    var displayTitle: String {
+        switch self {
+        case .full:  String(localized: "Full Reset")
+        case .fable: String(localized: "Fable Reset")
+        case .other: String(localized: "可用重置次数")
+        }
+    }
+}
+
+struct ClaudeLimitResetBucket: Identifiable, Sendable, Equatable {
+    let kind: ClaudeLimitResetKind
+    let count: Int
+    let expiryDates: [Date]
+    let grants: [ClaudeLimitResetGrant]
+
+    var id: ClaudeLimitResetKind { kind }
+}
+
+/// Banked / promotional Claude limit-reset grants (`cedar_ember` payload).
+struct ClaudeLimitResets: Codable, Sendable, Equatable {
+    let eligible: Bool?
+    let grants: [ClaudeLimitResetGrant]?
+    let nextGrantID: String?
+    let resetsLeft: Int?
+    let resetsTotal: Int?
+    let endsAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case eligible
+        case grants
+        case nextGrantID = "next_grant_id"
+        case resetsLeft = "resets_left"
+        case remainingResets = "remaining_resets"
+        case resetsTotal = "resets_total"
+        case totalResets = "total_resets"
+        case endsAt = "ends_at"
+        case expiresAt = "expires_at"
+    }
+
+    init(
+        eligible: Bool? = nil,
+        grants: [ClaudeLimitResetGrant]? = nil,
+        nextGrantID: String? = nil,
+        resetsLeft: Int? = nil,
+        resetsTotal: Int? = nil,
+        endsAt: String? = nil
+    ) {
+        self.eligible = eligible
+        self.grants = grants
+        self.nextGrantID = nextGrantID
+        self.resetsLeft = resetsLeft
+        self.resetsTotal = resetsTotal
+        self.endsAt = endsAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        eligible = try container.decodeIfPresent(Bool.self, forKey: .eligible)
+        grants = try container.decodeIfPresent([ClaudeLimitResetGrant].self, forKey: .grants)
+        nextGrantID = try container.decodeIfPresent(String.self, forKey: .nextGrantID)
+        resetsLeft = try container.decodeIfPresent(Int.self, forKey: .resetsLeft)
+            ?? container.decodeIfPresent(Int.self, forKey: .remainingResets)
+        resetsTotal = try container.decodeIfPresent(Int.self, forKey: .resetsTotal)
+            ?? container.decodeIfPresent(Int.self, forKey: .totalResets)
+        endsAt = Self.decodeTimestampString(from: container, forKey: .endsAt)
+            ?? Self.decodeTimestampString(from: container, forKey: .expiresAt)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(eligible, forKey: .eligible)
+        try container.encodeIfPresent(grants, forKey: .grants)
+        try container.encodeIfPresent(nextGrantID, forKey: .nextGrantID)
+        try container.encodeIfPresent(resetsLeft, forKey: .resetsLeft)
+        try container.encodeIfPresent(resetsTotal, forKey: .resetsTotal)
+        try container.encodeIfPresent(endsAt, forKey: .endsAt)
+    }
+
+    /// Unexpired, unpaused grants with remaining resets, sorted earliest expiry first.
+    func activeGrants(now: Date = Date()) -> [ClaudeLimitResetGrant] {
+        (grants ?? [])
+            .filter { grant in
+                guard grant.paused != true else { return false }
+                guard (grant.resetsLeft ?? 0) > 0 else { return false }
+                if let end = grant.endDate, end <= now { return false }
+                return true
+            }
+            .sorted { lhs, rhs in
+                switch (lhs.endDate, rhs.endDate) {
+                case let (l?, r?): return l < r
+                case (.some, .none): return true
+                case (.none, .some): return false
+                case (.none, .none): return (lhs.label ?? lhs.id ?? "") < (rhs.label ?? rhs.id ?? "")
+                }
+            }
+    }
+
+    /// Groups active reset grants by kind (`Full Reset` vs `Fable Reset` vs generic),
+    /// preserving earliest-expiry ordering within each bucket.
+    func groupedResets(now: Date = Date()) -> [ClaudeLimitResetBucket] {
+        let active = activeGrants(now: now)
+        if !active.isEmpty {
+            return ClaudeLimitResetKind.allCases.compactMap { kind in
+                let matching = active.filter { $0.resetKind == kind }
+                guard !matching.isEmpty else { return nil }
+                let count = matching.reduce(0) { $0 + max(0, $1.resetsLeft ?? 0) }
+                let dates = matching.compactMap(\.endDate)
+                return ClaudeLimitResetBucket(kind: kind, count: count, expiryDates: dates, grants: matching)
+            }
+        }
+        if let end = topLevelEndDate, end <= now { return [] }
+        let fallbackCount = max(0, resetsLeft ?? 0)
+        guard fallbackCount > 0 else { return [] }
+        let dates = topLevelEndDate.map { [$0] } ?? []
+        return [ClaudeLimitResetBucket(kind: .other, count: fallbackCount, expiryDates: dates, grants: [])]
+    }
+
+    func totalResetsLeft(now: Date = Date()) -> Int {
+        groupedResets(now: now).reduce(0) { $0 + $1.count }
+    }
+
+    func expiryDates(now: Date = Date()) -> [Date] {
+        groupedResets(now: now).flatMap(\.expiryDates).sorted()
+    }
+
+    var topLevelEndDate: Date? {
+        endsAt.flatMap(parseClaudeTimestamp)
+    }
+
+    func hasDisplayableResets(now: Date = Date()) -> Bool {
+        !groupedResets(now: now).isEmpty
+    }
+
+    private static func decodeTimestampString(
+        from container: KeyedDecodingContainer<CodingKeys>,
+        forKey key: CodingKeys
+    ) -> String? {
+        if let s = try? container.decodeIfPresent(String.self, forKey: key) { return s }
+        if let d = try? container.decodeIfPresent(Double.self, forKey: key) { return String(d) }
+        if let i = try? container.decodeIfPresent(Int.self, forKey: key) { return String(i) }
+        return nil
+    }
+}
+
+struct ClaudeLimitResetGrant: Codable, Sendable, Identifiable, Equatable {
+    let id: String?
+    let label: String?
+    let grantType: String?
+    let resetsLeft: Int?
+    let resetsTotal: Int?
+    let startsAt: String?
+    let endsAt: String?
+    let clears: [String]?
+    let paused: Bool?
+    let usableNow: Bool?
+    let givesBackWeekly: Bool?
+
+    var stableID: String {
+        id ?? [label, endsAt].compactMap { $0 }.joined(separator: "-")
+    }
+
+    /// Distinguishes Fable-scoped resets from all-model Full Resets.
+    /// Note: Anthropic's Fable launch-week grant can carry `type: "full"` while its
+    /// `id`/`label` mention Fable and `clears` only targets `seven_day_overage_included`,
+    /// so we inspect `clears` and text markers before falling back to `type`.
+    var resetKind: ClaudeLimitResetKind {
+        let lowerType = grantType?.lowercased() ?? ""
+        let lowerID = id?.lowercased() ?? ""
+        let lowerLabel = label?.lowercased() ?? ""
+        let lowerClears = Set((clears ?? []).map { $0.lowercased() })
+
+        let mentionsFable = lowerType.contains("fable")
+            || lowerID.contains("fable")
+            || lowerLabel.contains("fable")
+        let clearsAllModelsWeekly = lowerClears.contains("seven_day")
+        let clearsFableBucket = lowerClears.contains("seven_day_overage_included")
+            || lowerClears.contains(where: { $0.contains("fable") })
+
+        if mentionsFable || (clearsFableBucket && !clearsAllModelsWeekly) {
+            return .fable
+        }
+        if clearsAllModelsWeekly || lowerType.contains("full") || lowerLabel.contains("full reset") {
+            return .full
+        }
+        return .other
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case label
+        case title
+        case grantType = "type"
+        case resetsLeft = "resets_left"
+        case remainingResets = "remaining_resets"
+        case remaining
+        case resetsTotal = "resets_total"
+        case totalResets = "total_resets"
+        case total
+        case startsAt = "starts_at"
+        case endsAt = "ends_at"
+        case expiresAt = "expires_at"
+        case clears
+        case paused
+        case usableNow = "usable_now"
+        case givesBackWeekly = "gives_back_weekly"
+    }
+
+    init(
+        id: String? = nil,
+        label: String? = nil,
+        grantType: String? = nil,
+        resetsLeft: Int? = nil,
+        resetsTotal: Int? = nil,
+        startsAt: String? = nil,
+        endsAt: String? = nil,
+        clears: [String]? = nil,
+        paused: Bool? = nil,
+        usableNow: Bool? = nil,
+        givesBackWeekly: Bool? = nil
+    ) {
+        self.id = id
+        self.label = label
+        self.grantType = grantType
+        self.resetsLeft = resetsLeft
+        self.resetsTotal = resetsTotal
+        self.startsAt = startsAt
+        self.endsAt = endsAt
+        self.clears = clears
+        self.paused = paused
+        self.usableNow = usableNow
+        self.givesBackWeekly = givesBackWeekly
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(String.self, forKey: .id)
+        label = try container.decodeIfPresent(String.self, forKey: .label)
+            ?? container.decodeIfPresent(String.self, forKey: .title)
+        grantType = try container.decodeIfPresent(String.self, forKey: .grantType)
+        resetsLeft = try container.decodeIfPresent(Int.self, forKey: .resetsLeft)
+            ?? container.decodeIfPresent(Int.self, forKey: .remainingResets)
+            ?? container.decodeIfPresent(Int.self, forKey: .remaining)
+        resetsTotal = try container.decodeIfPresent(Int.self, forKey: .resetsTotal)
+            ?? container.decodeIfPresent(Int.self, forKey: .totalResets)
+            ?? container.decodeIfPresent(Int.self, forKey: .total)
+        startsAt = Self.decodeTimestampString(from: container, forKey: .startsAt)
+        endsAt = Self.decodeTimestampString(from: container, forKey: .endsAt)
+            ?? Self.decodeTimestampString(from: container, forKey: .expiresAt)
+        clears = try container.decodeIfPresent([String].self, forKey: .clears)
+        paused = try container.decodeIfPresent(Bool.self, forKey: .paused)
+        usableNow = try container.decodeIfPresent(Bool.self, forKey: .usableNow)
+        givesBackWeekly = try container.decodeIfPresent(Bool.self, forKey: .givesBackWeekly)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(id, forKey: .id)
+        try container.encodeIfPresent(label, forKey: .label)
+        try container.encodeIfPresent(grantType, forKey: .grantType)
+        try container.encodeIfPresent(resetsLeft, forKey: .resetsLeft)
+        try container.encodeIfPresent(resetsTotal, forKey: .resetsTotal)
+        try container.encodeIfPresent(startsAt, forKey: .startsAt)
+        try container.encodeIfPresent(endsAt, forKey: .endsAt)
+        try container.encodeIfPresent(clears, forKey: .clears)
+        try container.encodeIfPresent(paused, forKey: .paused)
+        try container.encodeIfPresent(usableNow, forKey: .usableNow)
+        try container.encodeIfPresent(givesBackWeekly, forKey: .givesBackWeekly)
+    }
+
+    var startDate: Date? { startsAt.flatMap(parseClaudeTimestamp) }
+    var endDate: Date? { endsAt.flatMap(parseClaudeTimestamp) }
+
+    private static func decodeTimestampString(
+        from container: KeyedDecodingContainer<CodingKeys>,
+        forKey key: CodingKeys
+    ) -> String? {
+        if let s = try? container.decodeIfPresent(String.self, forKey: key) { return s }
+        if let d = try? container.decodeIfPresent(Double.self, forKey: key) { return String(d) }
+        if let i = try? container.decodeIfPresent(Int.self, forKey: key) { return String(i) }
+        return nil
+    }
+}
+
+private func parseClaudeTimestamp(_ raw: String) -> Date? {
+    if let epochSeconds = Double(raw) {
+        return Date(timeIntervalSince1970: epochSeconds)
+    }
+    return parseClaudeISO8601(raw)
 }
 
 struct ClaudeContextWindow: Codable, Sendable {
@@ -960,4 +1431,12 @@ private struct ClaudeUsage: Decodable {
         case cacheReadInputTokens = "cache_read_input_tokens"
         case cacheCreationInputTokens = "cache_creation_input_tokens"
     }
+}
+
+private struct ClaudeDesktopSessionFile: Decodable {
+    let cliSessionId: String?
+    let title: String?
+    let cwd: String?
+    let originCwd: String?
+    let isArchived: Bool?
 }

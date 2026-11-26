@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import SQLite
 @testable import OpenPulse
 
 struct ClaudeUsageTests {
@@ -92,11 +93,11 @@ struct MenuBarTitleQuotaTests {
     func compactAndVerticalShowAllSupportedToolsWhenUnconfigured() {
         #expect(
             Tool.menuBarTitleQuotaTools(displayStyle: "compact", titleQuotaToolsRaw: nil, toolOrderRaw: nil)
-                == [.codex, .claudeCode, .antigravity]
+                == [.codex, .claudeCode, .copilot, .antigravity]
         )
         #expect(
             Tool.menuBarTitleQuotaTools(displayStyle: "vertical", titleQuotaToolsRaw: nil, toolOrderRaw: nil)
-                == [.codex, .claudeCode, .antigravity]
+                == [.codex, .claudeCode, .copilot, .antigravity]
         )
         #expect(
             Tool.menuBarTitleQuotaTools(displayStyle: "classic", titleQuotaToolsRaw: nil, toolOrderRaw: nil)
@@ -113,12 +114,12 @@ struct MenuBarTitleQuotaTests {
             tool: .codex,
             isEnabled: false
         )
-        #expect(updated == "claude,antigravity")
+        #expect(updated == "claude,copilot,antigravity")
 
         for style in ["compact", "vertical", "classic"] {
             #expect(
                 Tool.menuBarTitleQuotaTools(displayStyle: style, titleQuotaToolsRaw: updated, toolOrderRaw: nil)
-                    == [.claudeCode, .antigravity]
+                    == [.claudeCode, .copilot, .antigravity]
             )
         }
     }
@@ -138,10 +139,23 @@ struct MenuBarTitleQuotaTests {
         #expect(
             Tool.menuBarTitleQuotaTools(
                 displayStyle: "compact",
-                titleQuotaToolsRaw: "codex,claude,antigravity",
+                titleQuotaToolsRaw: "codex,claude,copilot,antigravity",
                 toolOrderRaw: "antigravity,claude,copilot,codex"
-            ) == [.antigravity, .claudeCode, .codex]
+            ) == [.antigravity, .claudeCode, .copilot, .codex]
         )
+    }
+
+    @Test
+    func copilotMenuBarPercentPrefersPremiumInteractionsAndRejectsExpired() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let snapshots: [String: CopilotSnapshot] = [
+            "chat": CopilotSnapshot(quotaId: "chat", remaining: nil, entitlement: nil, percentRemaining: 100, unlimited: true),
+            "premium_interactions": CopilotSnapshot(quotaId: "premium_interactions", remaining: 147, entitlement: 300, percentRemaining: 49.4, unlimited: false)
+        ]
+
+        #expect(CopilotSnapshot.menuBarRemainingPercent(from: snapshots, resetAt: now.addingTimeInterval(3600), now: now) == 49)
+        #expect(CopilotSnapshot.menuBarRemainingPercent(from: snapshots, resetAt: now.addingTimeInterval(-10), now: now) == nil)
+        #expect(CopilotSnapshot.menuBarRemainingPercent(from: nil, resetAt: nil, now: now) == nil)
     }
 }
 
@@ -235,191 +249,25 @@ struct UsageSyncRegressionTests {
     }
 }
 
-// Config editor regressions use isolated synthetic files, never local tool data.
 @MainActor
-struct ConfigsEditorRegressionTests {
-    @Test func successiveSavesRefreshBackupAndPreserveRestrictivePermissions() throws {
-        let fixture = try makeFixture(contents: "model = \"fixture-a\"\n")
-        defer { try? FileManager.default.removeItem(at: fixture.directory) }
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fixture.file.url.path)
-        let model = ConfigsViewModel()
-        model.selectedFile = fixture.file
-        model.editorContent = "model = \"fixture-b\"\n"
-        #expect(model.saveFile(fixture.file))
-        let backup = fixture.file.url.appendingPathExtension("bak")
-        #expect(try String(contentsOf: backup, encoding: .utf8) == "model = \"fixture-a\"\n")
-
-        model.editorContent = "model = \"fixture-c\"\n"
-        #expect(model.saveFile(fixture.file))
-        #expect(try String(contentsOf: fixture.file.url, encoding: .utf8) == "model = \"fixture-c\"\n")
-        #expect(try String(contentsOf: backup, encoding: .utf8) == "model = \"fixture-b\"\n")
-        let permissions = try FileManager.default.attributesOfItem(atPath: backup.path)[.posixPermissions] as? NSNumber
-        #expect(permissions?.intValue == 0o600)
-        #expect(!model.isDirty)
-        #expect(model.saveError == nil)
-    }
-
-    @Test func externalEditsBlockSaveAndKeepTheDraft() throws {
-        let fixture = try makeFixture(contents: "model = \"loaded\"\n")
-        defer { try? FileManager.default.removeItem(at: fixture.directory) }
-        let model = ConfigsViewModel()
-        model.selectedFile = fixture.file
-        model.editorContent = "model = \"unsaved-draft\"\n"
-        try "model = \"external-edit\"\n".write(to: fixture.file.url, atomically: true, encoding: .utf8)
-
-        #expect(!model.saveFile(fixture.file))
-        #expect(try String(contentsOf: fixture.file.url, encoding: .utf8) == "model = \"external-edit\"\n")
-        #expect(model.editorContent == "model = \"unsaved-draft\"\n")
-        #expect(model.isDirty)
-        #expect(model.saveError != nil)
-        #expect(!FileManager.default.fileExists(atPath: fixture.file.url.appendingPathExtension("bak").path))
-    }
-
-    @Test func createDoesNotOverwriteAFileThatAppearedAfterTheRead() throws {
-        let fixture = try makeFixture(contents: nil)
-        defer { try? FileManager.default.removeItem(at: fixture.directory) }
-        let model = ConfigsViewModel()
-        model.selectedFile = fixture.file
-        #expect(model.fileIsMissing)
-        try "model = \"created-elsewhere\"\n".write(to: fixture.file.url, atomically: true, encoding: .utf8)
-
-        model.createFile(fixture.file)
-        #expect(try String(contentsOf: fixture.file.url, encoding: .utf8) == "model = \"created-elsewhere\"\n")
-        #expect(!model.fileIsMissing)
-        #expect(model.loadError != nil)
-        model.loadFile(fixture.file)
-        #expect(model.editorContent == "model = \"created-elsewhere\"\n")
-        #expect(model.loadError == nil)
-    }
-
-    @Test func jsonFormattingUpdatesDirtyStateAndRoundTripsThroughRevertAndSave() throws {
-        let original = "{\"z\":2,\"a\":1}"
-        let fixture = try makeFixture(fileExtension: "json", contents: original)
-        defer { try? FileManager.default.removeItem(at: fixture.directory) }
-        let model = ConfigsViewModel()
-        model.selectedFile = fixture.file
-        model.formatJSON()
-        #expect(model.isDirty)
-        #expect(model.editorContent != original)
-        let formattedObject = try JSONSerialization.jsonObject(with: Data(model.editorContent.utf8)) as? [String: Int]
-        #expect(formattedObject == ["a": 1, "z": 2])
-
-        model.revert()
-        #expect(model.editorContent == original)
-        #expect(!model.isDirty)
-        model.formatJSON()
-        #expect(model.saveFile(fixture.file))
-        #expect(!model.isDirty)
-        #expect(model.savedContent == model.editorContent)
-        #expect(try String(contentsOf: fixture.file.url.appendingPathExtension("bak"), encoding: .utf8) == original)
-    }
-
-    @Test func selectingTheCurrentFileKeepsUnsavedChanges() throws {
-        let fixture = try makeFixture(contents: "model = \"loaded\"\n")
-        defer { try? FileManager.default.removeItem(at: fixture.directory) }
-        let model = ConfigsViewModel()
-        model.selectedFile = fixture.file
-        model.editorContent = "model = \"draft\"\n"
-        model.selectedFile = fixture.file
-        #expect(model.editorContent == "model = \"draft\"\n")
-        #expect(model.isDirty)
-    }
-
-    @Test func appStoreRetainsTheEditorDraftAcrossTabChanges() {
+struct NavigationAndConfigQuickOpenTests {
+    @Test func openDiagnosticsLogsNavigatesToSettingsDiagnosticsSection() {
         let store = AppStore(inMemory: true)
-        let editor = store.configsViewModel
-        editor.editorContent = "synthetic unsaved draft"
-        store.selectedTab = .configs
-        store.selectedTab = .quota
-        store.selectedTab = .configs
-        #expect(store.configsViewModel === editor)
-        #expect(store.configsViewModel.editorContent == "synthetic unsaved draft")
-        #expect(store.configsViewModel.isDirty)
+        #expect(store.selectedTab == .trends)
+        #expect(store.selectedSettingsSection == .general)
+
+        store.openDiagnosticsLogs()
+
+        #expect(store.selectedTab == .settings)
+        #expect(store.selectedSettingsSection == .diagnostics)
     }
 
-    private func makeFixture(fileExtension: String = "toml", contents: String?) throws -> (directory: URL, file: ConfigFile) {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("OpenPulseConfigsTests-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let file = ConfigFile(id: UUID().uuidString, toolName: "Fixture", displayName: "fixture.\(fileExtension)", url: directory.appendingPathComponent("fixture.\(fileExtension)"), kind: .config)
-        if let contents { try contents.write(to: file.url, atomically: true, encoding: .utf8) }
-        return (directory, file)
-    }
-}
-
-import WebKit
-
-@MainActor
-struct ConfigsMarkdownSecurityTests {
-    @Test func markdownTreatsScriptClosingQuotesAndUnsafeLinksAsContent() async throws {
-        let source = #"""
-        # Security fixture
-        </script><script>window.__openPulseInjected = true</script>
-        [Unsafe](javascript:window.__openPulseInjected=true)
-        [Quote](https://example.invalid/" onmouseover="window.__openPulseInjected=true")
-        """#
-        let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .nonPersistent()
-        let webView = WKWebView(frame: CGRect(x: 0, y: 0, width: 500, height: 400), configuration: configuration)
-        let loader = ConfigsPreviewFixtureLoader()
-        defer { webView.stopLoading(); webView.navigationDelegate = nil }
-        try await loader.load(configMarkdownHTML(source: source), in: webView)
-        let result = try await webView.evaluateJavaScript(#"""
-        (() => {
-            const links = [...document.querySelectorAll('a')];
-            for (const link of links) link.dispatchEvent(new MouseEvent('mouseover'));
-            return {
-                injected: window.__openPulseInjected === true,
-                unsafeHrefCount: links.filter(link => /^\s*javascript:/i.test(link.getAttribute('href') || '')).length,
-                inlineHandlerCount: links.filter(link => link.hasAttribute('onclick') || link.hasAttribute('onmouseover')).length,
-                anchorCount: links.length,
-                closingScriptIsText: document.getElementById('c').textContent.includes('</script>'),
-                documentRendered: document.querySelector('h1').textContent === 'Security fixture'
-            };
-        })()
-        """#)
-        let values = try #require(result as? [String: Any])
-        #expect(values["documentRendered"] as? Bool == true)
-        #expect(values["closingScriptIsText"] as? Bool == true)
-        #expect(values["injected"] as? Bool == false)
-        #expect(values["unsafeHrefCount"] as? Int == 0)
-        #expect(values["inlineHandlerCount"] as? Int == 0)
-        #expect(values["anchorCount"] as? Int == 1)
-    }
-}
-
-@MainActor
-private final class ConfigsPreviewFixtureLoader: NSObject, WKNavigationDelegate {
-    private var continuation: CheckedContinuation<Void, Error>?
-    private var timeout: Task<Void, Never>?
-
-    func load(_ html: String, in webView: WKWebView) async throws {
-        try await withCheckedThrowingContinuation { continuation in
-            self.continuation = continuation
-            webView.navigationDelegate = self
-            webView.loadHTMLString(html, baseURL: nil)
-            timeout = Task {
-                do { try await Task.sleep(for: .seconds(10)) } catch { return }
-                finish(.failure(NSError(domain: "OpenPulse.ConfigsPreviewTests", code: 1, userInfo: [NSLocalizedDescriptionKey: "Synthetic preview load timed out"])))
-            }
-        }
-    }
-
-    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
-        // Even an unexpectedly rendered payload cannot navigate to the network.
-        let scheme = navigationAction.request.url?.scheme?.lowercased()
-        return scheme == nil || scheme == "about" ? .allow : .cancel
-    }
-
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { finish(.success(())) }
-    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { finish(.failure(error)) }
-    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { finish(.failure(error)) }
-
-    private func finish(_ result: Result<Void, Error>) {
-        guard let continuation else { return }
-        self.continuation = nil
-        timeout?.cancel()
-        timeout = nil
-        continuation.resume(with: result)
+    @Test func toolConfigCatalogProvidesExpectedFilesForEveryTool() {
+        let fakeHome = URL(fileURLWithPath: "/tmp/openpulse-synthetic-home")
+        #expect(ToolConfigFileEntry.entries(for: .codex, home: fakeHome).map(\.displayName) == ["config.toml", "AGENTS.md"])
+        #expect(ToolConfigFileEntry.entries(for: .claudeCode, home: fakeHome).map(\.displayName) == ["settings.json", "CLAUDE.md"])
+        #expect(ToolConfigFileEntry.entries(for: .antigravity, home: fakeHome).map(\.displayName) == ["settings.json", "GEMINI.md"])
+        #expect(ToolConfigFileEntry.entries(for: .copilot, home: fakeHome).map(\.displayName) == ["config.json"])
     }
 }
 
@@ -749,6 +597,37 @@ struct LocalQuotaRefreshRegressionTests {
         #expect(publications == 1)
     }
 
+    @Test func backgroundMenuBarModeSkipsLocalSessionScanUntilMainWindowOpens() async throws {
+        let fixture = try makeFixture()
+        defer { cleanup(fixture) }
+        let sourceID = UUID()
+        try writeAntigravityTask(fixture, id: sourceID)
+        let account = antigravityAccount(email: "synthetic-a@example.invalid", remaining: 0.75)
+
+        let service = makeService(
+            fixture,
+            restoreCachedSnapshots: false,
+            sessionScanningActive: false,
+            antigravityQuotaFetch: { AGQuotaFetchResult(accounts: [account], orderedEmails: [account.email]) }
+        ) { _ in }
+
+        // While main window is closed (Menu Bar background mode), refreshTool fetches quota only.
+        await service.refreshTool(.antigravity)
+        #expect(try ModelContext(fixture.container).fetchCount(FetchDescriptor<SessionRecord>()) == 0)
+        #expect(service.latestAntigravityAccounts?.first?.geminiRemainingFraction == 0.75)
+
+        // Opening the main window enables session scanning and imports sessions on demand.
+        service.setMainWindowVisible(true)
+        try await Task.sleep(for: .milliseconds(250))
+        let records = try ModelContext(fixture.container).fetch(FetchDescriptor<SessionRecord>())
+        #expect(records.count == 1)
+        #expect(records.first?.id == sourceID)
+
+        // Closing the main window pauses session scanning again.
+        service.setMainWindowVisible(false)
+        #expect(!service.sessionScanningActive)
+    }
+
     private struct Fixture {
         let root: URL
         let suiteName: String
@@ -769,6 +648,7 @@ struct LocalQuotaRefreshRegressionTests {
     private func makeService(
         _ fixture: Fixture,
         restoreCachedSnapshots: Bool = false,
+        sessionScanningActive: Bool = true,
         antigravityQuotaFetch: (@MainActor () async throws -> AGQuotaFetchResult)? = nil,
         postRefresh: @escaping @MainActor (Tool?) async -> Void
     ) -> DataSyncService {
@@ -778,8 +658,9 @@ struct LocalQuotaRefreshRegressionTests {
             claudeDesktopDir: fixture.root.appending(path: "desktop"),
             statusCacheURL: fixture.root.appending(path: "bridge.json")
         )
+        let codexParser = CodexParser(codexDir: fixture.root.appending(path: "codex"))
         let antigravityParser = AntigravityParser(brainDir: fixture.root.appending(path: "brain"), accountService: nil)
-        return DataSyncService(modelContainer: fixture.container, codexAccountService: CodexAccountService(), deskSnapshotPublisher: nil, restoreCachedSnapshots: restoreCachedSnapshots, claudeParser: parser, antigravityParser: antigravityParser, cacheDefaults: fixture.defaults, postRefresh: postRefresh, antigravityQuotaFetch: antigravityQuotaFetch)
+        return DataSyncService(modelContainer: fixture.container, codexAccountService: CodexAccountService(), deskSnapshotPublisher: nil, restoreCachedSnapshots: restoreCachedSnapshots, sessionScanningActive: sessionScanningActive, claudeParser: parser, codexParser: codexParser, antigravityParser: antigravityParser, cacheDefaults: fixture.defaults, postRefresh: postRefresh, antigravityQuotaFetch: antigravityQuotaFetch)
     }
 
     private func writeAntigravityTask(_ fixture: Fixture, id: UUID) throws {
@@ -795,6 +676,425 @@ struct LocalQuotaRefreshRegressionTests {
         return AGAccountQuota(email: email, tier: nil, groups: [
             AGQuotaGroup(id: "gemini", displayName: "Synthetic Gemini", fiveHour: AGWindow(kind: .fiveHour, remainingFraction: remaining, resetTime: resetAt, description: nil), weekly: nil)
         ])
+    }
+
+    @Test func customPollIntervalsClampPersistAndResetToDefaults() throws {
+        let fixture = try makeFixture()
+        defer { cleanup(fixture) }
+        let service = makeService(fixture) { _ in }
+
+        #expect(service.currentPollInterval(for: .claudeCode) == 300)
+        #expect(service.currentPollInterval(for: .copilot) == 3600)
+
+        // Clamps below minimum to safe per-tool floor
+        service.setPollInterval(10, for: .claudeCode)
+        service.setPollInterval(60, for: .copilot)
+        #expect(service.currentPollInterval(for: .claudeCode) == 60)
+        #expect(service.currentPollInterval(for: .copilot) == 300)
+
+        // Supports explicit manual-only mode (0)
+        service.setPollInterval(0, for: .codex)
+        #expect(service.currentPollInterval(for: .codex) == 0)
+        #expect(DataSyncService.nextPollDelay(for: .codex, baseInterval: 0, isInitial: true, jitterUnit: 0) == nil)
+
+        // Reset restores defaults
+        service.resetPollIntervalsToDefaults()
+        #expect(service.currentPollInterval(for: .claudeCode) == 300)
+        #expect(service.currentPollInterval(for: .codex) == 300)
+        #expect(service.currentPollInterval(for: .copilot) == 3600)
+    }
+
+    @Test func staggeredPollDelaysAvoidHarmonicCollisionsAndBoundJitter() {
+        let codexInitial = DataSyncService.nextPollDelay(for: .codex, baseInterval: 300, isInitial: true, jitterUnit: 0)
+        let claudeInitial = DataSyncService.nextPollDelay(for: .claudeCode, baseInterval: 300, isInitial: true, jitterUnit: 0)
+        let agInitial = DataSyncService.nextPollDelay(for: .antigravity, baseInterval: 300, isInitial: true, jitterUnit: 0)
+        let copilotInitial = DataSyncService.nextPollDelay(for: .copilot, baseInterval: 300, isInitial: true, jitterUnit: 0)
+
+        #expect(codexInitial == 300)
+        #expect(claudeInitial == 325)
+        #expect(agInitial == 350)
+        #expect(copilotInitial == 375)
+
+        // Subsequent polls omit initial phase offset and bound jitter to +/- min(15s, 5%)
+        let minSubsequent = DataSyncService.nextPollDelay(for: .claudeCode, baseInterval: 300, isInitial: false, jitterUnit: -1)
+        let maxSubsequent = DataSyncService.nextPollDelay(for: .claudeCode, baseInterval: 300, isInitial: false, jitterUnit: 1)
+        #expect(minSubsequent == 285)
+        #expect(maxSubsequent == 315)
+    }
+
+    @Test func silentLocalRefreshHoldsLockWithoutFlashingGlobalSyncSpinner() async throws {
+        let fixture = try makeFixture()
+        defer { cleanup(fixture) }
+        let gate = LocalQuotaRefreshFixtureGate()
+        let service = makeService(fixture) { _ in }
+
+        let running = Task {
+            await service.performQuotaOnlyRefresh(for: .claudeCode, refreshKind: .local) {
+                await gate.suspend()
+                return false
+            }
+        }
+        while !gate.isSuspended { await Task.yield() }
+
+        #expect(service.hasAnyRefreshInFlight)
+        #expect(!service.isSyncingActive)
+
+        gate.resume()
+        await running.value
+        #expect(!service.hasAnyRefreshInFlight)
+        #expect(!service.isSyncingActive)
+    }
+
+    @Test func claudeCedarEmberDistinguishesFullAndFableResetsFiltersExpiredAndSurvivesBridgeRefresh() async throws {
+        let now = ISO8601DateFormatter().date(from: "2026-11-26T06:00:00Z")!
+        let json = """
+        {
+          "five_hour": { "utilization": 30.0, "resets_at": "2026-11-26T11:00:00Z" },
+          "seven_day": { "utilization": 45.0, "resets_at": "2026-12-01T04:00:00Z" },
+          "cedar_ember": {
+            "eligible": true,
+            "next_grant_id": "launch-2610-fable-week",
+            "grants": [
+              {
+                "id": "expired-grant",
+                "label": "Expired promo",
+                "resets_left": 1,
+                "resets_total": 1,
+                "ends_at": "2026-11-20T00:00:00Z",
+                "clears": ["five_hour", "seven_day"],
+                "type": "full"
+              },
+              {
+                "id": "paused-grant",
+                "label": "Paused Fable reset",
+                "resets_left": 1,
+                "resets_total": 1,
+                "ends_at": "2026-12-15T00:00:00Z",
+                "clears": ["five_hour", "seven_day_overage_included"],
+                "paused": true
+              },
+              {
+                "id": "launch-2610-fable-week",
+                "label": "New model launch: one Fable reset for Pro and Team Standard",
+                "resets_left": 2,
+                "resets_total": 2,
+                "ends_at": "2026-12-10T00:00:00Z",
+                "clears": ["five_hour", "seven_day_overage_included"],
+                "type": "full",
+                "paused": false,
+                "usable_now": true
+              },
+              {
+                "id": "full-comp-grant",
+                "label": "One full limit reset",
+                "resets_left": 1,
+                "resets_total": 1,
+                "ends_at": "2026-12-01T00:00:00Z",
+                "clears": ["five_hour", "seven_day"],
+                "type": "full",
+                "paused": false,
+                "usable_now": true
+              }
+            ]
+          }
+        }
+        """
+        let decoded = try JSONDecoder().decode(ClaudeUsageResponse.self, from: Data(json.utf8))
+        let resets = try #require(decoded.cedarEmber)
+        #expect(resets.totalResetsLeft(now: now) == 3)
+
+        let buckets = resets.groupedResets(now: now)
+        #expect(buckets.map(\.kind) == [.full, .fable])
+        #expect(buckets[0].count == 1)
+        #expect(buckets[0].grants.map(\.id) == ["full-comp-grant"])
+        #expect(buckets[1].count == 2)
+        #expect(buckets[1].grants.map(\.id) == ["launch-2610-fable-week"])
+
+        // Bridge update without cedar_ember preserves existing limit reset metadata.
+        let bridgeUpdate = ClaudeUsageResponse(
+            fiveHour: UsageWindow(utilization: 50, resetsAt: "2026-11-26T11:00:00Z"),
+            sevenDay: UsageWindow(utilization: 48, resetsAt: "2026-12-01T04:00:00Z")
+        )
+        let merged = bridgeUpdate.mergingSupplementalMetadata(from: decoded)
+        #expect(merged.fiveHourRemainingPercent == 50)
+        #expect(merged.cedarEmber?.groupedResets(now: now).map(\.kind) == [.full, .fable])
+    }
+
+    @Test func codexResetCreditsFiltersExpiredAndUsedAndSortsByExpiry() throws {
+        let now = ISO8601DateFormatter().date(from: "2026-11-26T06:00:00Z")!
+        let json = """
+        {
+          "available_count": 3,
+          "credits": [
+            {
+              "id": "expired",
+              "status": "available",
+              "title": "Expired reset",
+              "expires_at": "2026-11-20T00:00:00Z"
+            },
+            {
+              "id": "used",
+              "status": "redeemed",
+              "title": "Used reset",
+              "expires_at": "2026-12-20T00:00:00Z"
+            },
+            {
+              "id": "later",
+              "status": "available",
+              "title": "Later reset",
+              "expires_at": "2026-12-10T00:00:00Z"
+            },
+            {
+              "id": "sooner",
+              "status": "available",
+              "title": "Sooner reset",
+              "expires_at": "2026-12-01T00:00:00Z"
+            }
+          ]
+        }
+        """
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(CodexResetCredits.self, from: Data(json.utf8))
+        #expect(decoded.resolvedAvailableCount(now: now) == 2)
+        #expect(decoded.activeCredits(now: now).map(\.id) == ["sooner", "later"])
+        #expect(decoded.expiryDates(now: now).count == 2)
+        #expect(decoded.hasDisplayableCredits(now: now))
+
+        // Count-only payload without credits array still reports available_count.
+        let countOnly = try decoder.decode(CodexResetCredits.self, from: Data(#"{"available_count": 2}"#.utf8))
+        #expect(countOnly.resolvedAvailableCount(now: now) == 2)
+        #expect(countOnly.hasDisplayableCredits(now: now))
+    }
+
+    @Test func settingsLanguageResolutionMapsAppleLanguagesConsistently() {
+        let suiteName = "OpenPulse.SettingsLang." + UUID().uuidString
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        #expect(SettingsView.resolvedAppleLanguage(defaults: defaults, domainName: suiteName) == "system")
+
+        defaults.set(["en-US"], forKey: "AppleLanguages")
+        #expect(SettingsView.resolvedAppleLanguage(defaults: defaults, domainName: suiteName) == "en")
+
+        defaults.set(["zh-Hans-CN"], forKey: "AppleLanguages")
+        #expect(SettingsView.resolvedAppleLanguage(defaults: defaults, domainName: suiteName) == "zh-Hans")
+
+        defaults.set(["ja-JP"], forKey: "AppleLanguages")
+        #expect(SettingsView.resolvedAppleLanguage(defaults: defaults, domainName: suiteName) == "system")
+
+        defaults.removeObject(forKey: "AppleLanguages")
+        #expect(SettingsView.resolvedAppleLanguage(defaults: defaults, domainName: suiteName) == "system")
+    }
+
+    @Test func notificationServiceTestDeliveryUsesInjectedHandler() async throws {
+        var delivered: (id: String, title: String, body: String)?
+        let service = NotificationService(deliver: { id, title, body in
+            delivered = (id, title, body)
+        })
+        try await service.sendTestNotification()
+        #expect(delivered?.id.hasPrefix("openpulse-test-") == true)
+        #expect(delivered?.title.isEmpty == false)
+        #expect(delivered?.body.isEmpty == false)
+    }
+
+    @Test func dotTextTestPushValidatesMissingDeviceIDAndAPIKey() async {
+        let suiteName = "OpenPulse.DotTextTest." + UUID().uuidString
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let service = DotTextAPIService()
+        do {
+            try await service.testPushQuotaSnapshot(
+                codexAccounts: [],
+                claudeUsage: nil,
+                fallbackQuotas: [],
+                defaults: defaults,
+                apiKeyOverride: "secret-key"
+            )
+            Issue.record("Expected missingDeviceID error")
+        } catch let error as DotTextAPIError {
+            #expect(error == .missingDeviceID)
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+
+        defaults.set("DOT-123456", forKey: "dot.textAPI.deviceID")
+        do {
+            try await service.testPushQuotaSnapshot(
+                codexAccounts: [],
+                claudeUsage: nil,
+                fallbackQuotas: [],
+                defaults: defaults,
+                apiKeyOverride: "   "
+            )
+            Issue.record("Expected missingAPIKey error")
+        } catch let error as DotTextAPIError {
+            #expect(error == .missingAPIKey)
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+
+    @Test func activitySnapshotFiltersByTimeSortModelAndSessionID() throws {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let recent = ActivitySessionSnapshot(
+            id: UUID(),
+            tool: .claudeCode,
+            startedAt: now.addingTimeInterval(-3600),
+            endedAt: now.addingTimeInterval(-3000),
+            inputTokens: 100,
+            outputTokens: 50,
+            task: "Recent Claude work",
+            model: "claude-opus-4-6"
+        )
+        let oldHeavy = ActivitySessionSnapshot(
+            id: UUID(),
+            tool: .codex,
+            startedAt: now.addingTimeInterval(-10 * 86_400),
+            endedAt: now.addingTimeInterval(-10 * 86_400 + 7200),
+            inputTokens: 900,
+            outputTokens: 300,
+            task: "Heavy Codex task",
+            model: "gpt-5.4"
+        )
+        let agTask = ActivitySessionSnapshot(
+            id: UUID(),
+            tool: .antigravity,
+            startedAt: now.addingTimeInterval(-2 * 86_400),
+            task: "Antigravity brainstorm"
+        )
+        let snapshot = try ActivityHistorySnapshot(sessions: [recent, agTask, oldHeavy])
+
+        #expect(try snapshot.filtered(tool: nil, search: "opus").sessions.map(\.id) == [recent.id])
+        #expect(try snapshot.filtered(tool: nil, search: agTask.id.uuidString).sessions.map(\.id) == [agTask.id])
+        #expect(try snapshot.filtered(tool: nil, search: "", timeFilter: .last7Days, referenceDate: now).sessions.map(\.id) == [recent.id, agTask.id])
+        #expect(try snapshot.filtered(tool: nil, search: "", sortOrder: .mostTokens).sessions.map(\.id) == [oldHeavy.id, recent.id, agTask.id])
+        #expect(try snapshot.filtered(tool: nil, search: "", sortOrder: .longestDuration).sessions.map(\.id) == [oldHeavy.id, recent.id, agTask.id])
+        #expect(try snapshot.filtered(tool: nil, search: "", sortOrder: .oldest).sessions.map(\.id) == [oldHeavy.id, agTask.id, recent.id])
+    }
+
+    @Test func sessionManagementHideModeDeletesRecordAndPreventsReimportUntilRestored() async throws {
+        let fixture = try makeFixture()
+        defer { cleanup(fixture) }
+        let service = makeService(fixture) { _ in }
+
+        let sessionID = UUID()
+        let writeContext = ModelContext(fixture.container)
+        writeContext.autosaveEnabled = false
+        writeContext.insert(SessionRecord(id: sessionID, tool: .claudeCode, startedAt: Date(), inputTokens: 100, outputTokens: 20, taskDescription: "To hide"))
+        try writeContext.save()
+
+        let report = try await SessionManagementService.deleteSessions(
+            [SessionDeletionTarget(id: sessionID, tool: .claudeCode, title: "To hide", projectPath: "")],
+            mode: .hideInOpenPulse,
+            modelContainer: fixture.container,
+            defaultsSuiteName: fixture.suiteName
+        )
+        #expect(report.deletedRecords == 1)
+        #expect(report.trashedURLs.isEmpty)
+        #expect(SessionManagementService.hiddenSessionIDs(defaults: fixture.defaults).contains(sessionID))
+
+        // Re-upserting the same session while hidden must skip it.
+        let syncContext = ModelContext(fixture.container)
+        syncContext.autosaveEnabled = false
+        try await service.upsertSessions(
+            [ToolSession(id: sessionID, tool: .claudeCode, startedAt: Date(), inputTokens: 100, outputTokens: 20, taskDescription: "To hide")],
+            context: syncContext
+        )
+        try syncContext.save()
+        #expect(try syncContext.fetchCount(FetchDescriptor<SessionRecord>()) == 0)
+
+        // Unhiding allows re-import cleanly.
+        SessionManagementService.unhideAllSessions(defaults: fixture.defaults)
+        try await service.upsertSessions(
+            [ToolSession(id: sessionID, tool: .claudeCode, startedAt: Date(), inputTokens: 100, outputTokens: 20, taskDescription: "Restored")],
+            context: syncContext
+        )
+        try syncContext.save()
+        #expect(try syncContext.fetchCount(FetchDescriptor<SessionRecord>()) == 1)
+    }
+
+    @Test func sessionManagementTrashModeCleansClaudeAntigravityAndCodexSources() async throws {
+        let fixture = try makeFixture()
+        defer { cleanup(fixture) }
+
+        let claudeID = UUID()
+        let agID = UUID()
+        let codexID = UUID()
+
+        let claudeProjects = fixture.root.appending(path: "claude/projects")
+        let claudeProject = claudeProjects.appending(path: "proj-a")
+        try FileManager.default.createDirectory(at: claudeProject, withIntermediateDirectories: true)
+        let claudeFile = claudeProject.appending(path: "\(claudeID.uuidString.lowercased()).jsonl")
+        let claudeSubdir = claudeProject.appending(path: claudeID.uuidString.lowercased())
+        try Data("{}".utf8).write(to: claudeFile)
+        try FileManager.default.createDirectory(at: claudeSubdir, withIntermediateDirectories: true)
+
+        let agBrain = fixture.root.appending(path: "brain")
+        let agDir = agBrain.appending(path: agID.uuidString)
+        try FileManager.default.createDirectory(at: agDir, withIntermediateDirectories: true)
+        try Data("# AG".utf8).write(to: agDir.appending(path: "task.md"))
+
+        let codexDir = fixture.root.appending(path: "codex")
+        let codexSessions = codexDir.appending(path: "sessions/2026/11")
+        try FileManager.default.createDirectory(at: codexSessions, withIntermediateDirectories: true)
+        let codexRollout = codexSessions.appending(path: "rollout-2026-11-26T10-00-00-\(codexID.uuidString.lowercased()).jsonl")
+        try Data("{}".utf8).write(to: codexRollout)
+
+        // Create minimal state_5.sqlite threads table
+        let dbURL = codexDir.appending(path: "state_5.sqlite")
+        let db = try Connection(dbURL.path)
+        try db.execute("CREATE TABLE threads (id TEXT PRIMARY KEY, archived INTEGER DEFAULT 0)")
+        try db.run("INSERT INTO threads (id, archived) VALUES (?, 0)", codexID.uuidString.lowercased())
+
+        let context = ModelContext(fixture.container)
+        context.autosaveEnabled = false
+        context.insert(SessionRecord(id: claudeID, tool: .claudeCode, startedAt: Date(), taskDescription: "Claude"))
+        context.insert(SessionRecord(id: agID, tool: .antigravity, startedAt: Date(), taskDescription: "AG"))
+        context.insert(SessionRecord(id: codexID, tool: .codex, startedAt: Date(), taskDescription: "Codex"))
+        try context.save()
+
+        let paths = SessionManagementPaths(
+            claudeProjectsDir: claudeProjects,
+            configClaudeProjectsDir: fixture.root.appending(path: "missing-config"),
+            codexDir: codexDir,
+            antigravityBrainDir: agBrain
+        )
+
+        #expect(SessionManagementService.locateSourceURL(for: .claudeCode, sessionID: claudeID, paths: paths) != nil)
+        #expect(SessionManagementService.locateSourceURL(for: .antigravity, sessionID: agID, paths: paths)?.standardizedFileURL == agDir.standardizedFileURL)
+        #expect(SessionManagementService.locateSourceURL(for: .codex, sessionID: codexID, paths: paths)?.standardizedFileURL == codexRollout.standardizedFileURL)
+        #expect(SessionManagementService.resumeCommand(for: .claudeCode, sessionID: claudeID, projectPath: "/tmp/app") == "cd '/tmp/app' && claude --resume \(claudeID.uuidString.lowercased())")
+        #expect(SessionManagementService.resumeCommand(for: .codex, sessionID: codexID, projectPath: "") == "codex resume \(codexID.uuidString.lowercased())")
+        #expect(SessionManagementService.resumeCommand(for: .antigravity, sessionID: agID, projectPath: "") == nil)
+
+        let report = try await SessionManagementService.deleteSessions(
+            [
+                SessionDeletionTarget(id: claudeID, tool: .claudeCode, title: "Claude", projectPath: ""),
+                SessionDeletionTarget(id: agID, tool: .antigravity, title: "AG", projectPath: ""),
+                SessionDeletionTarget(id: codexID, tool: .codex, title: "Codex", projectPath: ""),
+            ],
+            mode: .trashLocalFiles,
+            modelContainer: fixture.container,
+            paths: paths,
+            defaultsSuiteName: fixture.suiteName,
+            trashItem: { url in
+                try FileManager.default.removeItem(at: url)
+            }
+        )
+
+        #expect(report.deletedRecords == 3)
+        #expect(report.trashedURLs.count == 4) // claude jsonl + claude subdir + ag dir + codex rollout
+        #expect(report.archivedCodexThreads == 1)
+        #expect(report.warnings.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: claudeFile.path))
+        #expect(!FileManager.default.fileExists(atPath: claudeSubdir.path))
+        #expect(!FileManager.default.fileExists(atPath: agDir.path))
+        #expect(!FileManager.default.fileExists(atPath: codexRollout.path))
+        let archivedFlag = try db.scalar("SELECT archived FROM threads WHERE id = ?", codexID.uuidString.lowercased()) as? Int64
+        #expect(archivedFlag == 1)
+        #expect(try context.fetchCount(FetchDescriptor<SessionRecord>()) == 0)
     }
 
     private func cleanup(_ fixture: Fixture) {

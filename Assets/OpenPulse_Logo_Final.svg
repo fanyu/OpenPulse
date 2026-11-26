@@ -1,26 +1,24 @@
-<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+<svg viewBox="0 0 1024 1024" width="1024" height="1024" xmlns="http://www.w3.org/2000/svg">
     <defs>
-        <linearGradient id="mainGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" stop-color="#00FFC2" />
-            <stop offset="100%" stop-color="#00D2FF" />
+        <linearGradient id="barStone" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stop-color="#CFD6E0" />
+            <stop offset="100%" stop-color="#B8C1CE" />
         </linearGradient>
-        <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
-            <feGaussianBlur in="SourceAlpha" stdDeviation="2" />
-            <feOffset dx="0" dy="2" result="offsetblur" />
-            <feComponentTransfer>
-                <feFuncA type="linear" slope="0.3" />
-            </feComponentTransfer>
-            <feMerge>
-                <feMergeNode />
-                <feMergeNode in="SourceGraphic" />
-            </feMerge>
-        </filter>
+        <linearGradient id="barInk" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stop-color="#282F3D" />
+            <stop offset="100%" stop-color="#11151E" />
+        </linearGradient>
+        <linearGradient id="barTeal" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stop-color="#2DD4BF" />
+            <stop offset="55%" stop-color="#14B8A6" />
+            <stop offset="100%" stop-color="#0D9488" />
+        </linearGradient>
     </defs>
-    <g filter="url(#softShadow)">
-        <rect x="22" y="45" width="10" height="15" rx="4" fill="url(#mainGradient)" opacity="0.3" />
-        <rect x="35" y="32" width="10" height="38" rx="4" fill="url(#mainGradient)" opacity="0.6" />
-        <rect x="48" y="20" width="10" height="60" rx="4" fill="url(#mainGradient)" />
-        <rect x="61" y="38" width="10" height="30" rx="4" fill="url(#mainGradient)" opacity="0.8" />
-        <rect x="74" y="52" width="10" height="10" rx="4" fill="url(#mainGradient)" opacity="0.4" />
+
+    <g>
+        <rect x="184" y="420" width="128" height="248" rx="64" fill="url(#barStone)" />
+        <rect x="360" y="288" width="128" height="456" rx="64" fill="url(#barInk)" />
+        <rect x="536" y="196" width="128" height="632" rx="64" fill="url(#barTeal)" />
+        <rect x="712" y="342" width="128" height="356" rx="64" fill="url(#barInk)" />
     </g>
 </svg>
