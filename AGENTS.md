@@ -61,7 +61,7 @@ Each tool has a dedicated `actor` (thread-safe, no locks). Three integration pat
 2. **REST API clients** — `CopilotAPIClient` (GitHub internal API)
 3. **Hybrid** — `AntigravityParser` reads local files for sessions + calls Google OAuth API for quota
 
-`DataSyncService` orchestrates all parsers, manages FSEvents watchers for local files, and per-tool polling timers (Copilot: 1h, API tools: 30–60min).
+`DataSyncService` orchestrates all parsers, manages FSEvents watchers for local files, and runs staggered per-tool polling timers (configurable per tool in Settings; defaults: Antigravity 3m, Claude/Codex 5m, Copilot 1h).
 
 ### Persistence (`Data/Persistence/`)
 
@@ -74,8 +74,8 @@ SwiftData `@Model` types: `SessionRecord`, `QuotaRecord`, `DailyStatsRecord`. Vi
 ### View Structure
 
 - **`MenuBarView`** — Compact popover: quota cards, today's token count, tool visibility/reordering, sync status.
-- **`MainWindowView`** — `NavigationSplitView` with 7 tabs: Quota, Activity, Trends, Providers, Configs, Settings, Logs.
-- **`AppLogger`** — In-memory ring buffer (500 entries); surfaced in `LogView`.
+- **`MainWindowView`** — `NavigationSplitView` with 6 tabs across 2 groups (Monitoring: Trends, Quota, Activity; Management: Providers, Menu Bar, Settings). Quick-open config shortcuts live inside Providers, and diagnostic logs live inside Settings.
+- **`AppLogger`** — In-memory ring buffer (500 entries); surfaced via `EmbeddedLogPanel` (`Views/Logs/LogView.swift`) inside Settings → Data & Diagnostics.
 
 ### Key Models
 

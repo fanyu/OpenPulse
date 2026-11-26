@@ -19,12 +19,11 @@ The macOS screenshots use fictional demo data.
 ## What you can do
 
 - See today's tokens, usage trends, cache usage, activity patterns, and model/project breakdowns in **Overview**.
-- Monitor account quotas, reset times, and unknown or stale observations in **Quota**.
+- Monitor account quotas, reset times, Claude/Codex reset credits, and stale observations in **Quota**.
 - Search local sessions and inspect token counts, models, working directories, and Git context in **Activity**. Search covers the full history while rows load in batches.
-- Choose menu bar styles, tool visibility/order, quota summaries, and a global shortcut in **Menu Bar**.
-- Manage Codex and Antigravity accounts, Copilot authorization, and Codex providers/model routing in **Providers**.
-- Edit supported local configuration and rule files with Markdown preview, diffs, backups, and external-change checks in **Configs**.
-- Configure refresh intervals, launch at login, low-quota notifications, and optional Dot Text API quota pushes in **Settings**; inspect refresh and error messages in **Logs**.
+- Choose menu bar styles, tool visibility/order (including Copilot), quota summaries, and a global shortcut in **Menu Bar**.
+- Manage Codex and Antigravity accounts, Copilot authorization, and quick-open local tool configuration files in **Providers**.
+- Configure per-tool refresh intervals, launch at login, low-quota notifications, optional Dot Text API quota pushes, cache management, and diagnostic logs in **Settings**.
 
 Codex supports importing the current account, OpenAI OAuth login, per-account 5h/7d quotas, and manual switching with a Codex restart. Optional smart switching requires recent, successful quota observations and confirmed exhaustion. Inactive accounts do not yet automatically renew expired authorization; reauthenticate or import fresh authorization when needed.
 
@@ -94,12 +93,11 @@ The [project rules](AGENTS.md) describe the architecture and contribution workfl
 ## 主要功能
 
 - **总览**：查看今日 Token、用量趋势、缓存使用、活动规律，以及模型和项目分布。
-- **配额**：查看各账号额度、重置时间，以及未知或过期的数据状态。
+- **配额**：查看各账号额度、重置时间、Claude/Codex 重置券，以及未知或过期的数据状态。
 - **活动**：搜索本机会话，查看 Token、模型、工作目录和 Git 信息。搜索覆盖全部历史，列表按批次加载。
-- **菜单栏**：调整显示样式、工具顺序与显隐、额度摘要和全局快捷键。
-- **接入**：管理 Codex / Antigravity 账号、Copilot 授权，以及 Codex Provider 和模型路由。
-- **配置**：编辑支持的本地配置与规则文件，提供 Markdown 预览、差异对比、备份和外部修改检查。
-- **设置**：配置刷新频率、开机启动、低额度通知和可选的 Dot Text API 推送；在 **日志** 中查看刷新与错误信息。
+- **菜单栏**：调整显示样式、工具顺序与显隐（含 Copilot）、额度摘要和全局快捷键。
+- **接入**：管理 Codex / Antigravity 账号、Copilot 授权，以及快捷打开各工具本地配置文件。
+- **设置**：配置按工具独立的刷新频率、开机启动、低额度通知、可选的 Dot Text API 推送，以及数据缓存与诊断日志。
 
 Codex 支持导入当前账号、OpenAI OAuth 登录、按账号查看 5h/7d 配额，以及手动切换并重新启动 Codex。可选的智能切换仅在近期成功获取配额且确认当前账号额度耗尽后执行。非当前账号暂不自动续期过期授权，需要时请重新登录或导入最新授权。
 
