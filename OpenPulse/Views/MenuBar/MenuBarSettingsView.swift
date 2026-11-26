@@ -3,13 +3,12 @@ import SwiftUI
 struct MenuBarSettingsView: View {
     @AppStorage("menubar.toolOrder")        private var toolOrderRaw = Tool.defaultOrderRaw
     @AppStorage("menubar.hiddenTools")      private var hiddenToolsRaw = ""
-    @AppStorage("menubar.titleQuotaTools")  private var titleQuotaToolsRaw = ""
+    @AppStorage("menubar.titleQuotaTools")  private var titleQuotaToolsRaw: String?
     @AppStorage("menubar.antigravityDisplayMode") private var antigravityDisplayMode = "accounts"
     @AppStorage("menubar.displayStyle") private var displayStyle = "compact"
 
     private var orderedTools: [Tool] {
-        let order = toolOrderRaw.components(separatedBy: ",").compactMap { Tool(rawValue: $0) }
-        return order + Tool.allCases.filter { !order.contains($0) }
+        Tool.orderedTools(from: toolOrderRaw)
     }
 
     private var hiddenTools: Set<String> {
@@ -17,7 +16,13 @@ struct MenuBarSettingsView: View {
     }
 
     private var selectedTitleQuotaTools: Set<String> {
-        Set(titleQuotaToolsRaw.components(separatedBy: ",").filter { !$0.isEmpty })
+        Set(
+            Tool.menuBarTitleQuotaTools(
+                displayStyle: displayStyle,
+                titleQuotaToolsRaw: titleQuotaToolsRaw,
+                toolOrderRaw: toolOrderRaw
+            ).map(\.rawValue)
+        )
     }
 
     private var menuBarTitleQuotaTools: [Tool] {
@@ -37,16 +42,13 @@ struct MenuBarSettingsView: View {
     }
 
     private func setTitleQuotaToolEnabled(_ tool: Tool, _ enabled: Bool) {
-        var selected = selectedTitleQuotaTools
-        if enabled {
-            selected.insert(tool.rawValue)
-        } else {
-            selected.remove(tool.rawValue)
-        }
-        titleQuotaToolsRaw = orderedTools
-            .map(\.rawValue)
-            .filter { selected.contains($0) }
-            .joined(separator: ",")
+        titleQuotaToolsRaw = Tool.updatingTitleQuotaTools(
+            displayStyle: displayStyle,
+            currentRaw: titleQuotaToolsRaw,
+            toolOrderRaw: toolOrderRaw,
+            tool: tool,
+            isEnabled: enabled
+        )
     }
 
     var body: some View {

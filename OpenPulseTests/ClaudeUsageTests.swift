@@ -87,6 +87,64 @@ struct ClaudeUsageTests {
     }
 }
 
+struct MenuBarTitleQuotaTests {
+    @Test
+    func compactAndVerticalShowAllSupportedToolsWhenUnconfigured() {
+        #expect(
+            Tool.menuBarTitleQuotaTools(displayStyle: "compact", titleQuotaToolsRaw: nil, toolOrderRaw: nil)
+                == [.codex, .claudeCode, .antigravity]
+        )
+        #expect(
+            Tool.menuBarTitleQuotaTools(displayStyle: "vertical", titleQuotaToolsRaw: nil, toolOrderRaw: nil)
+                == [.codex, .claudeCode, .antigravity]
+        )
+        #expect(
+            Tool.menuBarTitleQuotaTools(displayStyle: "classic", titleQuotaToolsRaw: nil, toolOrderRaw: nil)
+                == []
+        )
+    }
+
+    @Test
+    func uncheckingCodexRemovesCodexFromCompactVerticalAndClassic() {
+        let updated = Tool.updatingTitleQuotaTools(
+            displayStyle: "compact",
+            currentRaw: nil,
+            toolOrderRaw: nil,
+            tool: .codex,
+            isEnabled: false
+        )
+        #expect(updated == "claude,antigravity")
+
+        for style in ["compact", "vertical", "classic"] {
+            #expect(
+                Tool.menuBarTitleQuotaTools(displayStyle: style, titleQuotaToolsRaw: updated, toolOrderRaw: nil)
+                    == [.claudeCode, .antigravity]
+            )
+        }
+    }
+
+    @Test
+    func emptyExplicitSelectionHidesAllToolsInEveryStyle() {
+        for style in ["compact", "vertical", "classic"] {
+            #expect(
+                Tool.menuBarTitleQuotaTools(displayStyle: style, titleQuotaToolsRaw: "", toolOrderRaw: nil)
+                    == []
+            )
+        }
+    }
+
+    @Test
+    func toolOrderControlsResolvedMenuBarOrder() {
+        #expect(
+            Tool.menuBarTitleQuotaTools(
+                displayStyle: "compact",
+                titleQuotaToolsRaw: "codex,claude,antigravity",
+                toolOrderRaw: "antigravity,claude,copilot,codex"
+            ) == [.antigravity, .claudeCode, .codex]
+        )
+    }
+}
+
 // Regression coverage for committed usage updates and refresh lifecycle.
 import SwiftData
 import Observation

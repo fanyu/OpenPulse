@@ -251,6 +251,9 @@ private final class StatusBarImageRenderer {
     }
 
     private func renderCompact(items: [StatusBarCompactItem]) -> StatusBarRenderedImage {
+        if items.isEmpty {
+            return renderClassic(lines: [])
+        }
         var totalWidth = horizontalPadding * 2
         for (index, item) in items.enumerated() {
             if index > 0 { totalWidth += itemSpacing }
@@ -334,6 +337,9 @@ private final class StatusBarImageRenderer {
         return StatusBarRenderedImage(image: image, size: NSSize(width: width, height: height))
     }
     private func renderVertical(items: [StatusBarCompactItem]) -> StatusBarRenderedImage {
+        if items.isEmpty {
+            return renderClassic(lines: [])
+        }
         var totalWidth = verticalHorizontalPadding * 2
         for (index, item) in items.enumerated() {
             if index > 0 { totalWidth += verticalItemSpacing }
@@ -402,28 +408,18 @@ private enum StatusBarSnapshot: Equatable {
 
     static func build(appStore: AppStore) -> StatusBarSnapshot {
         let style = UserDefaults.standard.string(forKey: "menubar.displayStyle") ?? "compact"
+        let tools = Tool.menuBarTitleQuotaTools(
+            displayStyle: style,
+            titleQuotaToolsRaw: UserDefaults.standard.string(forKey: "menubar.titleQuotaTools"),
+            toolOrderRaw: UserDefaults.standard.string(forKey: "menubar.toolOrder")
+        )
 
         if style == "compact" || style == "vertical" {
-            let orderRaw = UserDefaults.standard.string(forKey: "menubar.toolOrder") ?? Tool.defaultOrderRaw
-            let orderedTools = orderRaw.components(separatedBy: ",").compactMap { Tool(rawValue: $0) }
-            let tools = (orderedTools + Tool.allCases.filter { !orderedTools.contains($0) })
-                .filter(\.supportsMenuBarFiveHourDisplay)
-
             let items = tools.map { StatusBarCompactItem.build(tool: $0, appStore: appStore) }
             return style == "vertical" ? .vertical(items: items) : .compact(items: items)
         }
 
         // classic
-        let selected = Set(
-            (UserDefaults.standard.string(forKey: "menubar.titleQuotaTools") ?? "")
-                .components(separatedBy: ",")
-                .filter { !$0.isEmpty }
-        )
-        let orderRaw = UserDefaults.standard.string(forKey: "menubar.toolOrder") ?? Tool.defaultOrderRaw
-        let orderedTools = orderRaw.components(separatedBy: ",").compactMap { Tool(rawValue: $0) }
-        let tools = (orderedTools + Tool.allCases.filter { !orderedTools.contains($0) })
-            .filter { selected.contains($0.rawValue) && $0.supportsMenuBarFiveHourDisplay }
-
         let items = tools.map { StatusBarClassicItem.build(tool: $0, appStore: appStore) }
 
         let lines: [String]

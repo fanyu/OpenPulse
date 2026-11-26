@@ -67,11 +67,12 @@ struct QuotaProgressBar: View {
     let color: Color
     var height: CGFloat = 4
     var showsGlow = false
+    var trackColor: Color = Color.primary.opacity(0.06)
 
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
-                Capsule().fill(Color.primary.opacity(0.06)).frame(height: height)
+                Capsule().fill(trackColor).frame(height: height)
                 if let f = fraction {
                     Capsule()
                         .fill(color)

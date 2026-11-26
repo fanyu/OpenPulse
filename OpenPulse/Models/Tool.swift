@@ -75,4 +75,51 @@ enum Tool: String, Codable, CaseIterable, Sendable {
     static var defaultOrderRaw: String {
         allCases.map(\.rawValue).joined(separator: ",")
     }
+
+    static func orderedTools(from orderRaw: String?) -> [Tool] {
+        let raw = orderRaw ?? defaultOrderRaw
+        let order = raw.components(separatedBy: ",").compactMap { Tool(rawValue: $0) }
+        return order + allCases.filter { !order.contains($0) }
+    }
+
+    /// Resolves which tools should be shown in the system menu bar title/icon area
+    /// for the given status bar style (`compact`, `vertical`, or `classic`).
+    static func menuBarTitleQuotaTools(
+        displayStyle: String,
+        titleQuotaToolsRaw: String?,
+        toolOrderRaw: String?
+    ) -> [Tool] {
+        let supported = orderedTools(from: toolOrderRaw).filter(\.supportsMenuBarFiveHourDisplay)
+        guard let titleQuotaToolsRaw else {
+            return displayStyle == "classic" ? [] : supported
+        }
+        let selected = Set(titleQuotaToolsRaw.components(separatedBy: ",").filter { !$0.isEmpty })
+        return supported.filter { selected.contains($0.rawValue) }
+    }
+
+    /// Returns the updated comma-separated `menubar.titleQuotaTools` value after toggling one tool.
+    static func updatingTitleQuotaTools(
+        displayStyle: String,
+        currentRaw: String?,
+        toolOrderRaw: String?,
+        tool: Tool,
+        isEnabled: Bool
+    ) -> String {
+        var selected = Set(
+            menuBarTitleQuotaTools(
+                displayStyle: displayStyle,
+                titleQuotaToolsRaw: currentRaw,
+                toolOrderRaw: toolOrderRaw
+            ).map(\.rawValue)
+        )
+        if isEnabled {
+            selected.insert(tool.rawValue)
+        } else {
+            selected.remove(tool.rawValue)
+        }
+        return orderedTools(from: toolOrderRaw)
+            .map(\.rawValue)
+            .filter { selected.contains($0) }
+            .joined(separator: ",")
+    }
 }
