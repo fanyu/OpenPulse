@@ -694,6 +694,10 @@ final class ActivityHistoryModel {
                 defer { ActivityHistoryPerformance.signposter.endInterval("ActivityHistoryApplySnapshot", interval) }
                 self.snapshot = result
                 self.snapshotRevision &+= 1
+                if let path = self.latestProjectPath,
+                   !result.projects(for: self.latestFilterTool).contains(where: { $0.path == path }) {
+                    self.latestProjectPath = nil
+                }
                 self.isLoading = false
                 self.reloadError = nil
                 self.filter(
@@ -1001,6 +1005,12 @@ private struct ActivityHistoryBrowser: View {
                 detailIsPresented = false
             } else {
                 batchSelectedIDs.removeAll()
+            }
+        }
+        .onChange(of: history.snapshotRevision) { _, _ in
+            if let path = selectedProjectPath,
+               !history.snapshot.projects(for: selectedTool).contains(where: { $0.path == path }) {
+                selectedProjectPath = nil
             }
         }
         .onChange(of: history.filterRevision) { _, _ in
@@ -1749,16 +1759,17 @@ private struct ActivityProjectFilterMenu: View {
         projects.filter(\.isTemporary)
     }
 
+    private var activeProject: ActivityProjectOption? {
+        guard let path = selectedProjectPath else { return nil }
+        return projects.first(where: { $0.path == path })
+    }
+
     private var activeLabel: String {
-        if let path = selectedProjectPath,
-           let match = projects.first(where: { $0.path == path }) {
-            return match.displayLabel
-        }
-        return String(localized: "全部项目")
+        activeProject?.displayLabel ?? String(localized: "全部项目")
     }
 
     var body: some View {
-        let isFiltered = selectedProjectPath != nil
+        let isFiltered = activeProject != nil
         ActivityToolbarMenu(
             icon: isFiltered ? "folder.fill" : "folder",
             title: activeLabel,

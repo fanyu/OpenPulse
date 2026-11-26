@@ -469,6 +469,43 @@ final class ActivityHistorySnapshotTests: XCTestCase {
         XCTAssertEqual(model.filterRevision, acceptedRevision)
     }
 
+    func testReloadClearsProjectFilterWhenFilteredProjectHasNoRemainingSessions() async throws {
+        let model = ActivityHistoryModel()
+        let deletedProjectSession = ActivitySessionSnapshot(
+            id: UUID(),
+            tool: .codex,
+            startedAt: Date(timeIntervalSince1970: 100),
+            inputTokens: 10,
+            task: "Deleted project task",
+            projectPath: "/tmp/deleted-project"
+        )
+        let keptProjectSession = ActivitySessionSnapshot(
+            id: UUID(),
+            tool: .codex,
+            startedAt: Date(timeIntervalSince1970: 200),
+            inputTokens: 20,
+            task: "Kept project task",
+            projectPath: "/tmp/kept-project"
+        )
+
+        let initialSnapshot = try ActivityHistorySnapshot(sessions: [deletedProjectSession, keptProjectSession])
+        await model.reload { initialSnapshot }.value
+        await model.waitForPendingFilter()
+
+        model.filter(tool: .codex, search: "", projectPath: "/tmp/deleted-project")
+        await model.waitForPendingFilter()
+        XCTAssertEqual(model.filtered.sessions.map(\.id), [deletedProjectSession.id])
+
+        // After deleting all sessions in /tmp/deleted-project, reload should reset projectPath to nil ("All Projects")
+        // and immediately show remaining Codex sessions instead of an empty list.
+        let afterDeleteSnapshot = try ActivityHistorySnapshot(sessions: [keptProjectSession])
+        await model.reload { afterDeleteSnapshot }.value
+        await model.waitForPendingFilter()
+
+        XCTAssertNil(model.appliedFilter.projectPath)
+        XCTAssertEqual(model.filtered.sessions.map(\.id), [keptProjectSession.id])
+    }
+
     private func readSnapshot(from container: ModelContainer) async throws -> ActivityHistorySnapshot {
         try await Task.detached {
             let reader = ActivityHistorySnapshotReader(modelContainer: container)
