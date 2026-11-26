@@ -109,7 +109,6 @@ struct ProviderView: View {
                         ProviderSelectorCard(
                             provider: provider,
                             summary: providerSummary(for: provider),
-                            isConnected: hasLiveData(for: provider),
                             isSelected: selectedProvider == provider
                         ) {
                             withAnimation(.smooth(duration: 0.22)) {
@@ -238,7 +237,6 @@ private struct ProviderSelectorCard: View {
     @Environment(\.colorScheme) private var colorScheme
     let provider: Provider
     let summary: String
-    let isConnected: Bool
     let isSelected: Bool
     let action: () -> Void
     @State private var isHovered = false
@@ -249,19 +247,7 @@ private struct ProviderSelectorCard: View {
 
         Button(action: action) {
             VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .top) {
-                    ToolBrandIconWell(tool: provider.tool, size: 32, iconSize: 18)
-                    Spacer(minLength: 6)
-                    Circle()
-                        .fill(
-                            isConnected
-                                ? brand
-                                : Color.primary.opacity(colorScheme == .dark ? 0.20 : 0.14)
-                        )
-                        .frame(width: 6.5, height: 6.5)
-                        .shadow(color: isConnected ? brand.opacity(0.45) : .clear, radius: 2.5)
-                        .padding(.top, 3)
-                }
+                ToolBrandIconWell(tool: provider.tool, size: 32, iconSize: 18)
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(provider.displayName)
