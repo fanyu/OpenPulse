@@ -2500,6 +2500,22 @@
         }
       }
     },
+    "为下拉面板中的多账号工具设置手动拖拽顺序，或按剩余额度自动排序。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set manual drag order or auto-sort multi-account tools by remaining quota in the popover."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "为下拉面板中的多账号工具设置手动拖拽顺序，或按剩余额度自动排序。"
+          }
+        }
+      }
+    },
     "仅从 OpenPulse 隐藏": {
       "localizations": {
         "en": {
@@ -4952,6 +4968,38 @@
         }
       }
     },
+    "多 → 少": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "High → Low"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "多 → 少"
+          }
+        }
+      }
+    },
+    "多账号排序": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Multi-Account Order"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "多账号排序"
+          }
+        }
+      }
+    },
     "安排工具顺序、额度摘要与快捷键。": {
       "extractionState": "manual",
       "localizations": {
@@ -5146,6 +5194,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "少"
+          }
+        }
+      }
+    },
+    "少 → 多": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Low → High"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "少 → 多"
           }
         }
       }
@@ -6431,6 +6495,22 @@
         }
       }
     },
+    "当前按剩余额度自动排序；拖拽任意账号可切换为手动顺序。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-sorting by remaining quota; drag any account to switch to manual order."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前按剩余额度自动排序；拖拽任意账号可切换为手动顺序。"
+          }
+        }
+      }
+    },
     "当前账号": {
       "localizations": {
         "en": {
@@ -6855,6 +6935,38 @@
         }
       }
     },
+    "手动": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manual"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手动"
+          }
+        }
+      }
+    },
+    "手动排序（可拖拽调整顺序）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manual order (drag to reorder)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手动排序（可拖拽调整顺序）"
+          }
+        }
+      }
+    },
     "打开": {
       "localizations": {
         "en": {
@@ -7037,6 +7149,22 @@
         }
       }
     },
+    "拖拽行或使用上下箭头调整顺序，也可在下拉面板中直接拖拽。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drag rows or use arrows to reorder; you can also drag accounts directly in the popover."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拖拽行或使用上下箭头调整顺序，也可在下拉面板中直接拖拽。"
+          }
+        }
+      }
+    },
     "拖拽调整工具顺序，分别控制其在菜单栏与下拉面板中的显示。": {
       "extractionState": "manual",
       "localizations": {
@@ -7100,6 +7228,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "按下快捷键随时显示或隐藏 OpenPulse 菜单栏窗口"
+          }
+        }
+      }
+    },
+    "按剩余额度从多到少自动排序": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-sort by remaining quota (high to low)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按剩余额度从多到少自动排序"
+          }
+        }
+      }
+    },
+    "按剩余额度从少到多自动排序": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-sort by remaining quota (low to high)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按剩余额度从少到多自动排序"
           }
         }
       }
@@ -9929,6 +10089,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "添加多个 OpenAI 账号，查看额度并切换当前 Codex 账号。切换账号时会重新启动 Codex。"
+          }
+        }
+      }
+    },
+    "添加多个账号后将按此规则排序。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accounts will follow this rule once multiple accounts are added."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加多个账号后将按此规则排序。"
           }
         }
       }

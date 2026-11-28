@@ -57,7 +57,9 @@
 		9B3399EEB8EDBE10BC0BAFB3 /* DeskSnapshotStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17E651D1FDFFE5962CFE6F74 /* DeskSnapshotStatus.swift */; };
 		9B55BE0FE4AF691EB7E7DB4B /* QuotaView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42286951DA0BA5C7591060C1 /* QuotaView.swift */; };
 		9B7FC1F6533F976E30302DAF /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 286B3F5BD5A8E159BD60C5BC /* Assets.xcassets */; };
+		9EC8C343281426BDE5F5C367 /* MenuBarAccountSorting.swift in Sources */ = {isa = PBXBuildFile; fileRef = A77CF467A86BEDAB395B8CED /* MenuBarAccountSorting.swift */; };
 		9EE166A477B452E864116449 /* OpenPulseiPhoneApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EBE61111110DE52D6658CF8 /* OpenPulseiPhoneApp.swift */; };
+		9F70E0A3301F83DBF492CF24 /* MenuBarAccountSortingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8895D0E9AD814AA0F842F2C /* MenuBarAccountSortingTests.swift */; };
 		A3B98E5E9F03105E78B007DB /* DeskSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF29881A5F817072F5E1D8BA /* DeskSnapshot.swift */; };
 		A47C83F64EF5FDEDDFEC8550 /* DeskSnapshotPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A9AE21683AF7CC1231E7F06 /* DeskSnapshotPublisher.swift */; };
 		A7F5BB96B28B86404C636C2C /* AntigravityParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17FF3012B7E2288F242C0B7 /* AntigravityParser.swift */; };
@@ -173,6 +175,8 @@
 		A494FF8BD7215CF0925772F8 /* AppStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStore.swift; sourceTree = "<group>"; };
 		A53C7BF7E8640ADC4B27FD2B /* AntigravityProAggregatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AntigravityProAggregatorTests.swift; sourceTree = "<group>"; };
 		A57ADBD61505E897EDD99EBF /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		A77CF467A86BEDAB395B8CED /* MenuBarAccountSorting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarAccountSorting.swift; sourceTree = "<group>"; };
+		A8895D0E9AD814AA0F842F2C /* MenuBarAccountSortingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarAccountSortingTests.swift; sourceTree = "<group>"; };
 		AAE363D258692709B22F2620 /* AppLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLogger.swift; sourceTree = "<group>"; };
 		ACEBE0AE555CC217177ACD78 /* AntigravityAccountService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AntigravityAccountService.swift; sourceTree = "<group>"; };
 		AD19B5E14DF8670708D6A8C0 /* ModelPricing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelPricing.swift; sourceTree = "<group>"; };
@@ -377,6 +381,7 @@
 				EB9652A2DAE18EAA213DE1BB /* CodexAccountStorageTests.swift */,
 				1B000B01D6393DAD7166E79C /* CodexLocalQuotaFreshnessTests.swift */,
 				46B3675E70F8FE20C314691D /* DeskSnapshotBuilderTests.swift */,
+				A8895D0E9AD814AA0F842F2C /* MenuBarAccountSortingTests.swift */,
 			);
 			path = OpenPulseTests;
 			sourceTree = "<group>";
@@ -435,6 +440,7 @@
 			children = (
 				C00887B511AFC8B11A0DCBC2 /* CodexAccount.swift */,
 				FA613E3CB91EF6FF4D66FE15 /* DailyStats.swift */,
+				A77CF467A86BEDAB395B8CED /* MenuBarAccountSorting.swift */,
 				AD19B5E14DF8670708D6A8C0 /* ModelPricing.swift */,
 				B225807FEB6829DD500E63EB /* Provider.swift */,
 				2F162B140D2651A261556DD6 /* TaskItem.swift */,
@@ -691,6 +697,7 @@
 				2B97EA5210173C6BB042657E /* CodexAccountStorageTests.swift in Sources */,
 				7196AC5A6482EFDDF6C53451 /* CodexLocalQuotaFreshnessTests.swift in Sources */,
 				BF06B609A4E880A4B563C576 /* DeskSnapshotBuilderTests.swift in Sources */,
+				9F70E0A3301F83DBF492CF24 /* MenuBarAccountSortingTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -735,6 +742,7 @@
 				DA3DEB8874BEACF4CF1A51F5 /* KeychainService.swift in Sources */,
 				301E60B6321C36303453A64E /* LogView.swift in Sources */,
 				4B5F4624D23EE82803A69FE6 /* MainWindowView.swift in Sources */,
+				9EC8C343281426BDE5F5C367 /* MenuBarAccountSorting.swift in Sources */,
 				89BF8D46FF5379EBDC21B8CE /* MenuBarSettingsView.swift in Sources */,
 				E0B47DD84E5433B04F1E56C2 /* MenuBarView.swift in Sources */,
 				2B82DB8B5FDD88D24079D486 /* ModelPricing.swift in Sources */,

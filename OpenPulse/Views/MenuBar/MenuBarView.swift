@@ -1556,20 +1556,59 @@ private struct CodexResetCreditsLine: View {
 struct CodexMultiAccountQuotaCard: View {
     @Environment(AppStore.self) private var appStore
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.menuBarQuotaNow) private var now
     @AppStorage("codex.smartSwitch.enabled") private var codexSmartSwitchEnabled = false
+    @AppStorage(MenuBarAccountSortStorage.codexSortModeKey) private var sortModeRaw = MenuBarAccountSortMode.manual.rawValue
+    @AppStorage(MenuBarAccountSortStorage.codexOrderKey) private var accountOrderRaw = ""
     let accounts: [CodexAccountSnapshot]
     @State private var isSwitching = false
     @State private var statusMessage: String?
+    @State private var draggingAccountID: String?
+    @State private var dropTargetAccountID: String?
+
+    private var sortMode: MenuBarAccountSortMode {
+        MenuBarAccountSortMode(rawValueOrDefault: sortModeRaw)
+    }
+
+    private var orderedAccounts: [CodexAccountSnapshot] {
+        MenuBarAccountOrdering.sortCodexAccounts(
+            accounts,
+            mode: sortMode,
+            manualOrderRaw: accountOrderRaw,
+            now: now
+        )
+    }
+
+    private func reorderAccount(_ draggedID: String, to targetID: String, currentAccounts: [CodexAccountSnapshot]) {
+        guard draggedID != targetID else { return }
+        withAnimation(.smooth(duration: 0.22)) {
+            accountOrderRaw = MenuBarAccountOrdering.reordering(
+                visibleIDs: currentAccounts.map(\.id),
+                existingOrderRaw: accountOrderRaw,
+                draggedID: draggedID,
+                to: targetID
+            )
+            sortModeRaw = MenuBarAccountSortMode.manual.rawValue
+        }
+    }
 
     var body: some View {
-        let allTitles = accounts.map(\.titleText)
+        let ordered = orderedAccounts
+        let allTitles = ordered.map(\.titleText)
         let accent = menuBarToolAccentColor(for: .codex, colorScheme: colorScheme)
+        let canReorder = ordered.count > 1
         MenuBarToolShell(tool: .codex) {
             MenuBarToolIdentity(
                 tool: .codex,
-                accountCount: accounts.count > 1 ? accounts.count : nil
+                accountCount: ordered.count > 1 ? ordered.count : nil
             ) {
                 HStack(spacing: 5) {
+                    if canReorder {
+                        MenuBarAccountSortSwitcher(
+                            modeRaw: $sortModeRaw,
+                            accent: accent
+                        )
+                    }
                     if codexSmartSwitchEnabled {
                         MenuBarTintedChipButton(
                             title: "智能切换",
@@ -1589,15 +1628,16 @@ struct CodexMultiAccountQuotaCard: View {
             VStack(alignment: .leading, spacing: 0) {
                 MenuBarHairline(opacity: 0.06)
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(accounts.enumerated()), id: \.element.id) { index, account in
+                    ForEach(Array(ordered.enumerated()), id: \.element.id) { index, account in
+                        let isDropTarget = dropTargetAccountID == account.id && draggingAccountID != nil && draggingAccountID != account.id
                         if index > 0 {
                             MenuBarHairline(opacity: 0.06)
                                 .padding(.horizontal, MenuBarGrid.horizontalInset)
                         }
-                        CodexAccountQuotaCard(
+                        let row = CodexAccountQuotaCard(
                             account: account,
                             allTitles: allTitles,
-                            isMultiAccount: accounts.count > 1,
+                            isMultiAccount: ordered.count > 1,
                             isSwitching: isSwitching,
                             onSwitch: { id in
                                 runSwitch(closeWhenNoDecision: true) {
@@ -1609,6 +1649,45 @@ struct CodexMultiAccountQuotaCard: View {
                                 statusMessage = message
                             }
                         )
+                        .overlay(alignment: .top) {
+                            if isDropTarget {
+                                Rectangle()
+                                    .fill(accent)
+                                    .frame(height: 2)
+                                    .padding(.horizontal, MenuBarGrid.horizontalInset)
+                            }
+                        }
+
+                        if canReorder {
+                            row
+                                .draggable("codex-acct:\(account.id)") {
+                                    Text(menuBarShortAccountName(account.titleText, allIdentifiers: allTitles))
+                                        .font(.system(size: 11.5, weight: .semibold))
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 5)
+                                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                                        .onAppear { draggingAccountID = account.id }
+                                }
+                                .dropDestination(for: String.self) { items, _ in
+                                    defer {
+                                        draggingAccountID = nil
+                                        dropTargetAccountID = nil
+                                    }
+                                    guard let raw = items.first,
+                                          raw.hasPrefix("codex-acct:") else { return false }
+                                    let draggedID = String(raw.dropFirst("codex-acct:".count))
+                                    reorderAccount(draggedID, to: account.id, currentAccounts: ordered)
+                                    return true
+                                } isTargeted: { targeted in
+                                    if targeted {
+                                        dropTargetAccountID = account.id
+                                    } else if dropTargetAccountID == account.id {
+                                        dropTargetAccountID = nil
+                                    }
+                                }
+                        } else {
+                            row
+                        }
                     }
                     if let statusMessage {
                         Text(statusMessage)
@@ -2028,6 +2107,58 @@ private struct AGDisplayModeSwitcher: View {
     }
 }
 
+private struct MenuBarAccountSortSwitcher: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @Binding var modeRaw: String
+    let accent: Color
+    @Namespace private var switcherNamespace
+    @State private var hoveredMode: MenuBarAccountSortMode?
+
+    private var selectedMode: MenuBarAccountSortMode {
+        MenuBarAccountSortMode(rawValueOrDefault: modeRaw)
+    }
+
+    var body: some View {
+        HStack(spacing: 1) {
+            ForEach(MenuBarAccountSortMode.allCases) { mode in
+                let isSelected = selectedMode == mode
+                let isHovered = hoveredMode == mode
+                Button {
+                    modeRaw = mode.rawValue
+                } label: {
+                    Image(systemName: mode.iconName)
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(isSelected ? accent : (isHovered ? .primary : .secondary))
+                        .frame(width: 20, height: 18)
+                        .background {
+                            if isSelected {
+                                Capsule()
+                                    .fill(colorScheme == .dark ? Color.white.opacity(0.18) : Color.white.opacity(0.95))
+                                    .matchedGeometryEffect(id: "accountSortSelection", in: switcherNamespace)
+                                    .shadow(color: Color.black.opacity(0.08), radius: 1, y: 0.5)
+                            }
+                        }
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .onHover { hovering in
+                    hoveredMode = hovering ? mode : (hoveredMode == mode ? nil : hoveredMode)
+                }
+                .focusEffectDisabled()
+                .help(mode.helpText)
+                .accessibilityLabel(mode.helpText)
+            }
+        }
+        .padding(2)
+        .background(Color.primary.opacity(colorScheme == .dark ? 0.11 : 0.065), in: Capsule())
+        .overlay {
+            Capsule()
+                .strokeBorder(Color.primary.opacity(colorScheme == .dark ? 0.12 : 0.08), lineWidth: 0.5)
+        }
+        .animation(.smooth(duration: 0.22), value: modeRaw)
+    }
+}
+
 /// Telemetry matrix for Antigravity accounts: column headers once at top,
 /// aligned account rows underneath for instant side-by-side comparison.
 struct AntigravityMultiAccountCard: View {
@@ -2035,9 +2166,35 @@ struct AntigravityMultiAccountCard: View {
     let accounts: [AGAccountQuota]
     @AppStorage("ag.hiddenAccountEmails") private var hiddenAccountEmailsRaw = ""
     @AppStorage("menubar.antigravityDisplayMode") private var antigravityDisplayMode = "accounts"
+    @AppStorage(MenuBarAccountSortStorage.antigravitySortModeKey) private var sortModeRaw = MenuBarAccountSortMode.manual.rawValue
+    @AppStorage(MenuBarAccountSortStorage.antigravityOrderKey) private var accountOrderRaw = ""
+    @State private var draggingEmail: String?
+    @State private var dropTargetEmail: String?
+
+    private var sortMode: MenuBarAccountSortMode {
+        MenuBarAccountSortMode(rawValueOrDefault: sortModeRaw)
+    }
 
     private var visibleAccounts: [AGAccountQuota] {
-        menuBarVisibleAntigravityAccounts(accounts, hiddenAccountEmailsRaw: hiddenAccountEmailsRaw)
+        let filtered = menuBarVisibleAntigravityAccounts(accounts, hiddenAccountEmailsRaw: hiddenAccountEmailsRaw)
+        return MenuBarAccountOrdering.sortAntigravityAccounts(
+            filtered,
+            mode: sortMode,
+            manualOrderRaw: accountOrderRaw
+        )
+    }
+
+    private func reorderAccount(_ draggedEmail: String, to targetEmail: String, currentAccounts: [AGAccountQuota]) {
+        guard draggedEmail != targetEmail else { return }
+        withAnimation(.smooth(duration: 0.22)) {
+            accountOrderRaw = MenuBarAccountOrdering.reordering(
+                visibleIDs: currentAccounts.map(\.email),
+                existingOrderRaw: accountOrderRaw,
+                draggedID: draggedEmail,
+                to: targetEmail
+            )
+            sortModeRaw = MenuBarAccountSortMode.manual.rawValue
+        }
     }
 
     private var matrixColumns: [AGMenuBarColumnDescriptor] {
@@ -2062,6 +2219,7 @@ struct AntigravityMultiAccountCard: View {
         let columns = matrixColumns
         let allEmails = visible.map(\.email)
         let accent = menuBarToolAccentColor(for: .antigravity, colorScheme: colorScheme)
+        let canReorder = visible.count > 1
 
         MenuBarToolShell(tool: .antigravity) {
             MenuBarToolIdentity(
@@ -2069,7 +2227,11 @@ struct AntigravityMultiAccountCard: View {
                 accountCount: visible.count > 1 ? visible.count : nil
             ) {
                 HStack(spacing: 5) {
-                    if visible.count > 1 {
+                    if canReorder {
+                        MenuBarAccountSortSwitcher(
+                            modeRaw: $sortModeRaw,
+                            accent: accent
+                        )
                         AGDisplayModeSwitcher(mode: $antigravityDisplayMode)
                     }
                     ConfigShortcutButton(tool: .antigravity)
@@ -2135,11 +2297,19 @@ struct AntigravityMultiAccountCard: View {
                                 MenuBarHairline(opacity: 0.06)
                                     .padding(.horizontal, MenuBarGrid.horizontalInset)
                             }
-                            AGMenuBarMatrixRow(
+                            agReorderableRow(
                                 account: account,
                                 allEmails: allEmails,
-                                columns: columns
-                            )
+                                currentAccounts: visible,
+                                accent: accent,
+                                canReorder: canReorder
+                            ) {
+                                AGMenuBarMatrixRow(
+                                    account: account,
+                                    allEmails: allEmails,
+                                    columns: columns
+                                )
+                            }
                         }
                     }
                     .padding(.vertical, 3)
@@ -2153,12 +2323,72 @@ struct AntigravityMultiAccountCard: View {
                                 MenuBarHairline(opacity: 0.06)
                                     .padding(.horizontal, MenuBarGrid.horizontalInset)
                             }
-                            AGMenuBarAccountQuotaBody(account: account)
+                            agReorderableRow(
+                                account: account,
+                                allEmails: allEmails,
+                                currentAccounts: visible,
+                                accent: accent,
+                                canReorder: canReorder
+                            ) {
+                                AGMenuBarAccountQuotaBody(account: account)
+                            }
                         }
                     }
                     .padding(.vertical, 3)
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func agReorderableRow<Content: View>(
+        account: AGAccountQuota,
+        allEmails: [String],
+        currentAccounts: [AGAccountQuota],
+        accent: Color,
+        canReorder: Bool,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        let isDropTarget = dropTargetEmail == account.email && draggingEmail != nil && draggingEmail != account.email
+        let row = content()
+            .overlay(alignment: .top) {
+                if isDropTarget {
+                    Rectangle()
+                        .fill(accent)
+                        .frame(height: 2)
+                        .padding(.horizontal, MenuBarGrid.horizontalInset)
+                }
+            }
+
+        if canReorder {
+            row
+                .draggable("ag-acct:\(account.email)") {
+                    Text(menuBarShortAccountName(account.email, allIdentifiers: allEmails))
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                        .onAppear { draggingEmail = account.email }
+                }
+                .dropDestination(for: String.self) { items, _ in
+                    defer {
+                        draggingEmail = nil
+                        dropTargetEmail = nil
+                    }
+                    guard let raw = items.first,
+                          raw.hasPrefix("ag-acct:") else { return false }
+                    let dragged = String(raw.dropFirst("ag-acct:".count))
+                    reorderAccount(dragged, to: account.email, currentAccounts: currentAccounts)
+                    return true
+                } isTargeted: { targeted in
+                    if targeted {
+                        dropTargetEmail = account.email
+                    } else if dropTargetEmail == account.email {
+                        dropTargetEmail = nil
+                    }
+                }
+        } else {
+            row
         }
     }
 }

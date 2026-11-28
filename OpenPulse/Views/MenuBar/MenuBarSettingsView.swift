@@ -385,7 +385,16 @@ struct MenuBarSettingsView: View {
                     .dashboardSurface()
                 }
 
-                // Section 3: Hotkey & Shortcuts
+                // Section 3: Multi-Account Ordering (Codex & Antigravity)
+                MenuBarMultiAccountSortingSection(
+                    codexAccounts: appStore.syncService?.latestCodexAccounts ?? [],
+                    antigravityAccounts: menuBarVisibleAntigravityAccounts(
+                        appStore.syncService?.latestAntigravityAccounts ?? [],
+                        hiddenAccountEmailsRaw: hiddenAGEmailsRaw
+                    )
+                )
+
+                // Section 4: Hotkey & Shortcuts
                 SettingsCard(title: "快捷键") {
                     MenuBarHotkeySettings()
                 }
@@ -1005,5 +1014,379 @@ private struct AntigravityDisplayModeSwitcher: View {
             hoveredID = hovering ? id : (hoveredID == id ? nil : hoveredID)
         }
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
+// MARK: - Multi-Account Sorting Settings
+
+private struct MenuBarMultiAccountSortingSection: View {
+    @AppStorage(MenuBarAccountSortStorage.codexSortModeKey) private var codexSortModeRaw = MenuBarAccountSortMode.manual.rawValue
+    @AppStorage(MenuBarAccountSortStorage.codexOrderKey) private var codexOrderRaw = ""
+    @AppStorage(MenuBarAccountSortStorage.antigravitySortModeKey) private var agSortModeRaw = MenuBarAccountSortMode.manual.rawValue
+    @AppStorage(MenuBarAccountSortStorage.antigravityOrderKey) private var agOrderRaw = ""
+
+    let codexAccounts: [CodexAccountSnapshot]
+    let antigravityAccounts: [AGAccountQuota]
+
+    private var orderedCodexItems: [SortableAccountRowItem] {
+        let mode = MenuBarAccountSortMode(rawValueOrDefault: codexSortModeRaw)
+        let ordered = MenuBarAccountOrdering.sortCodexAccounts(
+            codexAccounts,
+            mode: mode,
+            manualOrderRaw: codexOrderRaw
+        )
+        return ordered.map { account in
+            let pct = MenuBarAccountOrdering.codexPrimaryFraction(for: account).map { Int(($0 * 100).rounded()) }
+            return SortableAccountRowItem(
+                id: account.id,
+                title: account.titleText,
+                badge: account.isCurrent ? String(localized: "当前") : account.displaySubscriptionName,
+                isPrimaryBadge: account.isCurrent,
+                remainingPercent: pct
+            )
+        }
+    }
+
+    private var orderedAGItems: [SortableAccountRowItem] {
+        let mode = MenuBarAccountSortMode(rawValueOrDefault: agSortModeRaw)
+        let ordered = MenuBarAccountOrdering.sortAntigravityAccounts(
+            antigravityAccounts,
+            mode: mode,
+            manualOrderRaw: agOrderRaw
+        )
+        return ordered.map { account in
+            let pct = MenuBarAccountOrdering.antigravityPrimaryFraction(for: account).map { Int(($0 * 100).rounded()) }
+            return SortableAccountRowItem(
+                id: account.email,
+                title: account.email,
+                badge: account.isPaid ? "Pro" : "Free",
+                isPrimaryBadge: account.isPaid,
+                remainingPercent: pct
+            )
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            DashboardSectionTitle(
+                title: "多账号排序",
+                subtitle: "为下拉面板中的多账号工具设置手动拖拽顺序，或按剩余额度自动排序。"
+            )
+
+            VStack(spacing: 0) {
+                ToolAccountSortingBlock(
+                    tool: .codex,
+                    dragPrefix: "settings-codex:",
+                    sortModeRaw: $codexSortModeRaw,
+                    accountOrderRaw: $codexOrderRaw,
+                    items: orderedCodexItems
+                )
+
+                TelemetryHairline()
+
+                ToolAccountSortingBlock(
+                    tool: .antigravity,
+                    dragPrefix: "settings-ag:",
+                    sortModeRaw: $agSortModeRaw,
+                    accountOrderRaw: $agOrderRaw,
+                    items: orderedAGItems
+                )
+            }
+            .dashboardSurface()
+        }
+    }
+}
+
+private struct SortableAccountRowItem: Identifiable, Equatable {
+    let id: String
+    let title: String
+    let badge: String?
+    let isPrimaryBadge: Bool
+    let remainingPercent: Int?
+}
+
+private struct ToolAccountSortingBlock: View {
+    @Environment(\.colorScheme) private var colorScheme
+    let tool: Tool
+    let dragPrefix: String
+    @Binding var sortModeRaw: String
+    @Binding var accountOrderRaw: String
+    let items: [SortableAccountRowItem]
+
+    @State private var draggingID: String?
+    @State private var dropTargetID: String?
+    @State private var hoveredID: String?
+
+    private var sortMode: MenuBarAccountSortMode {
+        MenuBarAccountSortMode(rawValueOrDefault: sortModeRaw)
+    }
+
+    private func reorder(_ draggedID: String, to targetID: String) {
+        guard draggedID != targetID else { return }
+        withAnimation(.smooth(duration: 0.22)) {
+            accountOrderRaw = MenuBarAccountOrdering.reordering(
+                visibleIDs: items.map(\.id),
+                existingOrderRaw: accountOrderRaw,
+                draggedID: draggedID,
+                to: targetID
+            )
+            sortModeRaw = MenuBarAccountSortMode.manual.rawValue
+        }
+    }
+
+    private func move(_ id: String, by delta: Int) {
+        withAnimation(.smooth(duration: 0.22)) {
+            accountOrderRaw = MenuBarAccountOrdering.moving(
+                visibleIDs: items.map(\.id),
+                existingOrderRaw: accountOrderRaw,
+                id: id,
+                by: delta
+            )
+            sortModeRaw = MenuBarAccountSortMode.manual.rawValue
+        }
+    }
+
+    var body: some View {
+        let accent = tool.brandAccentColor(for: colorScheme)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .center, spacing: 14) {
+                ToolBrandIconWell(tool: tool, size: 28, iconSize: 17)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 7) {
+                        Text(tool.displayName)
+                            .font(.system(size: 13, weight: .semibold))
+                        if items.count > 1 {
+                            Text(String(localized: "\(items.count) 个账号"))
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Text(
+                        items.count > 1
+                            ? (sortMode == .manual
+                                ? String(localized: "拖拽行或使用上下箭头调整顺序，也可在下拉面板中直接拖拽。")
+                                : String(localized: "当前按剩余额度自动排序；拖拽任意账号可切换为手动顺序。"))
+                            : String(localized: "添加多个账号后将按此规则排序。")
+                    )
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 12)
+                AccountSortModeSegmentedPicker(selectionRaw: $sortModeRaw, accent: accent)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+
+            if items.count > 1 {
+                TelemetryHairline()
+                    .padding(.leading, 20)
+
+                VStack(spacing: 0) {
+                    ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                        let isHovered = hoveredID == item.id
+                        let isDropTarget = dropTargetID == item.id && draggingID != nil && draggingID != item.id
+
+                        HStack(spacing: 12) {
+                            Image(systemName: "line.3.horizontal")
+                                .font(.system(size: 10.5, weight: .medium))
+                                .foregroundStyle(sortMode == .manual ? (isHovered ? .secondary : .tertiary) : .quaternary)
+                                .frame(width: 12)
+
+                            Text("\(index + 1)")
+                                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                .foregroundStyle(.tertiary)
+                                .frame(width: 18, alignment: .trailing)
+
+                            HStack(spacing: 7) {
+                                Text(item.title)
+                                    .font(.system(size: 12.5, weight: .medium))
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+
+                                if let badge = item.badge, !badge.isEmpty {
+                                    Text(badge)
+                                        .font(.system(size: 10, weight: .semibold))
+                                        .foregroundStyle(item.isPrimaryBadge ? accent : .secondary)
+                                        .padding(.horizontal, 6.5)
+                                        .padding(.vertical, 1.5)
+                                        .background(
+                                            (item.isPrimaryBadge ? accent : Color.primary)
+                                                .opacity(colorScheme == .dark ? 0.16 : 0.08),
+                                            in: Capsule()
+                                        )
+                                }
+
+                                if isHovered {
+                                    HStack(spacing: 2) {
+                                        Button {
+                                            move(item.id, by: -1)
+                                        } label: {
+                                            Image(systemName: "chevron.up")
+                                                .font(.system(size: 9.5, weight: .semibold))
+                                                .frame(width: 18, height: 18)
+                                                .contentShape(Circle())
+                                        }
+                                        .buttonStyle(.plain)
+                                        .focusEffectDisabled()
+                                        .disabled(index == 0)
+                                        .opacity(index == 0 ? 0.25 : 0.7)
+                                        .help("上移")
+
+                                        Button {
+                                            move(item.id, by: 1)
+                                        } label: {
+                                            Image(systemName: "chevron.down")
+                                                .font(.system(size: 9.5, weight: .semibold))
+                                                .frame(width: 18, height: 18)
+                                                .contentShape(Circle())
+                                        }
+                                        .buttonStyle(.plain)
+                                        .focusEffectDisabled()
+                                        .disabled(index == items.count - 1)
+                                        .opacity(index == items.count - 1 ? 0.25 : 0.7)
+                                        .help("下移")
+                                    }
+                                    .foregroundStyle(.secondary)
+                                    .transition(.opacity)
+                                }
+                            }
+
+                            Spacer(minLength: 12)
+
+                            if let pct = item.remainingPercent {
+                                let frac = Double(max(0, min(100, pct))) / 100.0
+                                let tint = quotaBarColor(fraction: frac)
+                                Text("\(pct)%")
+                                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                    .foregroundStyle(tint)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 2.5)
+                                    .background(tint.opacity(colorScheme == .dark ? 0.15 : 0.10), in: Capsule())
+                            } else {
+                                Text("—")
+                                    .font(.system(size: 11.5, design: .monospaced))
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                        .padding(.horizontal, 20)
+                        .frame(minHeight: 42)
+                        .background(
+                            isDropTarget
+                                ? accent.opacity(colorScheme == .dark ? 0.14 : 0.08)
+                                : (isHovered ? Color.primary.opacity(colorScheme == .dark ? 0.032 : 0.02) : Color.clear)
+                        )
+                        .overlay(alignment: .top) {
+                            if isDropTarget {
+                                Rectangle()
+                                    .fill(accent)
+                                    .frame(height: 2)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                        .onHover { hovering in
+                            withAnimation(.easeOut(duration: 0.12)) {
+                                hoveredID = hovering ? item.id : (hoveredID == item.id ? nil : hoveredID)
+                            }
+                        }
+                        .draggable("\(dragPrefix)\(item.id)") {
+                            Text(item.title)
+                                .font(.system(size: 12, weight: .medium))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                .onAppear { draggingID = item.id }
+                        }
+                        .dropDestination(for: String.self) { dropped, _ in
+                            defer {
+                                draggingID = nil
+                                dropTargetID = nil
+                            }
+                            guard let raw = dropped.first, raw.hasPrefix(dragPrefix) else { return false }
+                            let dragged = String(raw.dropFirst(dragPrefix.count))
+                            reorder(dragged, to: item.id)
+                            return true
+                        } isTargeted: { targeted in
+                            if targeted {
+                                dropTargetID = item.id
+                            } else if dropTargetID == item.id {
+                                dropTargetID = nil
+                            }
+                        }
+
+                        if index < items.count - 1 {
+                            TelemetryHairline()
+                                .padding(.leading, 44)
+                        }
+                    }
+                }
+                .padding(.bottom, 4)
+            }
+        }
+    }
+}
+
+private struct AccountSortModeSegmentedPicker: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @Binding var selectionRaw: String
+    let accent: Color
+    @Namespace private var thumbNamespace
+    @State private var hoveredMode: MenuBarAccountSortMode?
+
+    private var selectedMode: MenuBarAccountSortMode {
+        MenuBarAccountSortMode(rawValueOrDefault: selectionRaw)
+    }
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(MenuBarAccountSortMode.allCases) { mode in
+                let isSelected = selectedMode == mode
+                let isHovered = hoveredMode == mode
+                Button {
+                    selectionRaw = mode.rawValue
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: mode.iconName)
+                            .font(.system(size: 10.5, weight: .semibold))
+                            .foregroundStyle(isSelected ? accent : (isHovered ? .primary : .secondary))
+                        Text(mode.shortLabel)
+                            .font(.system(size: 11.5, weight: isSelected ? .semibold : .medium))
+                            .foregroundStyle(isSelected ? .primary : (isHovered ? .primary : .secondary))
+                            .lineLimit(1)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5.5)
+                    .background {
+                        if isSelected {
+                            Capsule()
+                                .fill(colorScheme == .dark ? Color.white.opacity(0.16) : Color.white)
+                                .overlay {
+                                    Capsule()
+                                        .strokeBorder(Color.primary.opacity(colorScheme == .dark ? 0.14 : 0.06), lineWidth: 0.5)
+                                }
+                                .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.22 : 0.07), radius: 2, y: 1)
+                                .matchedGeometryEffect(id: "accountSortModeThumb", in: thumbNamespace)
+                        } else if isHovered {
+                            Capsule()
+                                .fill(Color.primary.opacity(colorScheme == .dark ? 0.06 : 0.04))
+                        }
+                    }
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .focusEffectDisabled()
+                .onHover { hovering in
+                    hoveredMode = hovering ? mode : (hoveredMode == mode ? nil : hoveredMode)
+                }
+                .help(mode.helpText)
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
+            }
+        }
+        .padding(3)
+        .background(Color.primary.opacity(colorScheme == .dark ? 0.10 : 0.055), in: Capsule())
+        .overlay {
+            Capsule()
+                .strokeBorder(Color.primary.opacity(colorScheme == .dark ? 0.12 : 0.08), lineWidth: 0.5)
+        }
+        .animation(.smooth(duration: 0.22), value: selectionRaw)
     }
 }
