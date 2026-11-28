@@ -42,7 +42,7 @@ Available fields depend on the tool's local records and API response. Codex loca
 
 Requires **macOS 26 or later**.
 
-1. Download `OpenPulse-3.0.1.zip` from [GitHub Releases](https://github.com/fanyu/OpenPulse/releases).
+1. Download `OpenPulse-3.0.2.zip` from [GitHub Releases](https://github.com/fanyu/OpenPulse/releases).
 2. Extract the ZIP and move **OpenPulse.app** to **Applications**.
 3. Open the app and configure the tools you use in **Providers**.
 
@@ -116,7 +116,7 @@ Codex 支持导入当前账号、OpenAI OAuth 登录、按账号查看 5h/7d 配
 
 需要 **macOS 26 或更高版本**。
 
-1. 从 [GitHub Releases](https://github.com/fanyu/OpenPulse/releases) 下载 `OpenPulse-3.0.1.zip`。
+1. 从 [GitHub Releases](https://github.com/fanyu/OpenPulse/releases) 下载 `OpenPulse-3.0.2.zip`。
 2. 解压 ZIP，将 **OpenPulse.app** 移至 **应用程序**。
 3. 打开应用，在 **接入** 页面配置使用的工具。
 
