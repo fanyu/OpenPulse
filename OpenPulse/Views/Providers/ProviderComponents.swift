@@ -873,6 +873,7 @@ struct CopilotProviderContent: View {
 private struct UnifiedAntigravityAccount: Identifiable {
     let email: String
     let quota: AGAccountQuota?
+    let quotaError: String?
     let isOpenPulseOwned: Bool
 
     var id: String { email }
@@ -893,6 +894,7 @@ struct AntigravityProviderContent: View {
     private var unifiedAccounts: [UnifiedAntigravityAccount] {
         let ownedSet = Set(ownedAccounts.map(\.email))
         let synced = appStore.syncService?.latestAntigravityAccounts ?? []
+        let errors = appStore.syncService?.latestAntigravityAccountErrors ?? [:]
         var seen = Set<String>()
         var merged: [UnifiedAntigravityAccount] = []
 
@@ -901,6 +903,7 @@ struct AntigravityProviderContent: View {
                 merged.append(UnifiedAntigravityAccount(
                     email: account.email,
                     quota: account,
+                    quotaError: errors[account.email],
                     isOpenPulseOwned: ownedSet.contains(account.email)
                 ))
             }
@@ -909,6 +912,7 @@ struct AntigravityProviderContent: View {
             merged.append(UnifiedAntigravityAccount(
                 email: stored.email,
                 quota: nil,
+                quotaError: errors[stored.email],
                 isOpenPulseOwned: true
             ))
         }
@@ -925,9 +929,13 @@ struct AntigravityProviderContent: View {
                     isWorking: isWorking || isLoading,
                     onLogin: {
                         runAsyncAction {
-                            _ = try await appStore.antigravityAccountService.addAccountViaOAuth()
+                            let added = try await appStore.antigravityAccountService.addAccountViaOAuth()
                             try await reload()
-                            await appStore.syncService?.refreshTool(.antigravity)
+                            await appStore.syncService?.refreshAntigravityAccount(email: added.email)
+                            if appStore.syncService?.latestAntigravityAccounts?.contains(where: { $0.email == added.email }) != true,
+                               appStore.syncService?.latestAntigravityAccountErrors[added.email] == nil {
+                                await appStore.syncService?.refreshTool(.antigravity)
+                            }
                         }
                     },
                     onRefresh: {
@@ -1128,10 +1136,14 @@ private struct AGUnifiedAccountPlate: View {
                         AGCompactGroupTile(group: group)
                     }
                 }
-            } else {
+            } else if entry.quotaError == nil {
                 Text("等待首次额度同步")
                     .font(.system(size: 11.5))
                     .foregroundStyle(.secondary)
+            }
+
+            if let error = entry.quotaError {
+                ProviderMessage(text: error, isError: true)
             }
         }
         .padding(14)

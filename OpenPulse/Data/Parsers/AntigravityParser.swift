@@ -9,7 +9,7 @@ enum AntigravityOAuth {
     static let clientId = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
     static let clientSecret = "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"
     static let tokenEndpoint = "https://oauth2.googleapis.com/token"
-    static let scopes = "openid email profile https://www.googleapis.com/auth/cloud-platform"
+    static let scopes = "openid email profile https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/cclog https://www.googleapis.com/auth/experimentsandconfigs"
 }
 
 /// Parses Antigravity (Gemini Code Assist, Orca / agy CLI, ACP, T3 Code, and Pi/OMP) session data from
@@ -528,6 +528,7 @@ actor AntigravityParser {
         }
 
         var accounts: [AGAccountQuota] = []
+        var accountErrors: [String: String] = [:]
         var lastError: Error?
 
         for (index, result) in indexedResults {
@@ -535,13 +536,20 @@ actor AntigravityParser {
             case .success(let account):
                 accounts.append(account)
             case .failure(let error):
-                print("[OpenPulse] Antigravity account \(creds[index].email) failed: \(error.localizedDescription)")
+                let message = error.localizedDescription
+                accountErrors[creds[index].email] = message
+                await AppLogger.shared.warning("[antigravity] account quota failed: \(message)")
+                await AppLogger.shared.recordDiagnostic(level: .warning, scope: "antigravity.quota", message: message)
                 lastError = error
             }
         }
 
         if accounts.isEmpty, let err = lastError { throw err }
-        return AGQuotaFetchResult(accounts: accounts, orderedEmails: creds.map(\.email))
+        return AGQuotaFetchResult(
+            accounts: accounts,
+            orderedEmails: creds.map(\.email),
+            accountErrors: accountErrors
+        )
     }
 
     /// Fetches quota for ALL Antigravity accounts found in ~/.cli-proxy-api/antigravity-*.json.
@@ -670,13 +678,16 @@ actor AntigravityParser {
                 let (data, response) = try await session.data(for: request)
                 guard let http = response as? HTTPURLResponse else { continue }
                 guard (200..<300).contains(http.statusCode) else {
-                    let body = String(data: data, encoding: .utf8) ?? ""
-                    lastError = AntigravityError.apiFailed("loadCodeAssist HTTP \(http.statusCode): \(body.prefix(200))")
+                    lastError = AntigravityError.apiFailed(
+                        Self.formatAPIError(statusCode: http.statusCode, operation: "loadCodeAssist", data: data)
+                    )
                     continue
                 }
                 let info = try? JSONDecoder().decode(AGLoadCodeAssistResponse.self, from: data)
                 let tier = Self.decodeTier(from: data)
-                return (info?.cloudaicompanionProject, tier)
+                if info?.cloudaicompanionProject != nil || tier != nil {
+                    return (info?.cloudaicompanionProject, tier)
+                }
             } catch {
                 lastError = error
             }
@@ -704,13 +715,10 @@ actor AntigravityParser {
             do {
                 let (data, response) = try await session.data(for: request)
                 guard let http = response as? HTTPURLResponse else { continue }
-                if http.statusCode == 403 {
-                    lastError = AntigravityError.apiFailed("403 Forbidden – check Google auth")
-                    continue
-                }
                 guard (200..<300).contains(http.statusCode) else {
-                    let body = String(data: data, encoding: .utf8) ?? ""
-                    lastError = AntigravityError.apiFailed("retrieveUserQuotaSummary HTTP \(http.statusCode): \(body.prefix(200))")
+                    lastError = AntigravityError.apiFailed(
+                        Self.formatAPIError(statusCode: http.statusCode, operation: "retrieveUserQuotaSummary", data: data)
+                    )
                     continue
                 }
                 return try Self.decodeQuotaGroups(from: data)
@@ -1133,6 +1141,39 @@ extension AntigravityParser {
         }
         return nil
     }
+
+    static func formatAPIError(statusCode: Int, operation: String, data: Data) -> String {
+        if let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let error = root["error"] as? [String: Any] {
+            let message = (error["message"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let details = error["details"] as? [[String: Any]] ?? []
+            var validationURL: String?
+            for detail in details {
+                if let metadata = detail["metadata"] as? [String: Any],
+                   let url = metadata["validation_url"] as? String,
+                   url.hasPrefix("https://") {
+                    validationURL = url
+                    break
+                }
+                if let links = detail["links"] as? [[String: Any]],
+                   let url = links.compactMap({ $0["url"] as? String }).first(where: { $0.hasPrefix("https://") }) {
+                    validationURL = url
+                    break
+                }
+            }
+            if let message, !message.isEmpty {
+                if let validationURL {
+                    return "HTTP \(statusCode): \(message) (\(validationURL))"
+                }
+                return "HTTP \(statusCode): \(message)"
+            }
+        }
+        let raw = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        if statusCode == 403 {
+            return raw.isEmpty ? "403 Forbidden – check Google auth" : "403 Forbidden – \(raw.prefix(200))"
+        }
+        return "\(operation) HTTP \(statusCode): \(raw.prefix(200))"
+    }
 }
 
 private struct AGQuotaSummaryResponse: Decodable {
@@ -1168,6 +1209,13 @@ private struct AGLoadCodeAssistResponse: Decodable {
 struct AGQuotaFetchResult: Sendable {
     let accounts: [AGAccountQuota]
     let orderedEmails: [String]
+    let accountErrors: [String: String]
+
+    init(accounts: [AGAccountQuota], orderedEmails: [String], accountErrors: [String: String] = [:]) {
+        self.accounts = accounts
+        self.orderedEmails = orderedEmails
+        self.accountErrors = accountErrors
+    }
 }
 
 /// Where an Antigravity credential's tokens live.

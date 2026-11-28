@@ -179,6 +179,54 @@ struct OAuthCallbackLifecycleRegressionTests {
             Issue.record("Expected cancellation")
         } catch { #expect(error is CancellationError) }
     }
+
+    @Test func loopbackServerStartsServesCallbackAndRejectsDuplicatePort() async throws {
+        var started: (server: SimpleHTTPServer, port: UInt16)?
+        var lastError: Error?
+        let basePort: UInt16 = 48_123
+        for offset in UInt16(0)..<32 {
+            let candidate = basePort + offset
+            do {
+                let server = try SimpleHTTPServer(port: candidate) { request in
+                    guard request.path == "/callback",
+                          let params = oauthCallbackParameters(request.queryItems),
+                          params["state"] == "test-state",
+                          params["code"] == "test-code" else {
+                        return .text(statusCode: 400, text: "bad request")
+                    }
+                    return .text(statusCode: 200, text: "ok")
+                }
+                do {
+                    try await server.start()
+                    started = (server, candidate)
+                    break
+                } catch {
+                    server.stop()
+                    throw error
+                }
+            } catch {
+                lastError = error
+            }
+        }
+
+        let (server, port) = try #require(started, "Failed to start SimpleHTTPServer: \(String(describing: lastError))")
+        defer { server.stop() }
+
+        let url = try #require(URL(string: "http://127.0.0.1:\(port)/callback?code=test-code&state=test-state"))
+        let (data, response) = try await URLSession.shared.data(from: url)
+        let http = try #require(response as? HTTPURLResponse)
+        #expect(http.statusCode == 200)
+        #expect(String(decoding: data, as: UTF8.self) == "ok")
+
+        let duplicate = try SimpleHTTPServer(port: port) { _ in .text(statusCode: 200, text: "dup") }
+        defer { duplicate.stop() }
+        do {
+            try await duplicate.start()
+            Issue.record("Expected duplicate loopback bind on occupied port to fail")
+        } catch {
+            // Occupied port fails at bind time so callers can retry the next candidate port.
+        }
+    }
 }
 
 struct KeychainDeletionTests {

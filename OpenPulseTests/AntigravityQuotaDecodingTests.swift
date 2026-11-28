@@ -38,6 +38,33 @@ struct AntigravityQuotaDecodingTests {
         #expect(gemini.fiveHour?.remainingPercentText == "58%")
     }
 
+    @Test func formatAPIErrorExtractsMessageAndValidationURL() {
+        let payload = """
+        {
+          "error": {
+            "code": 403,
+            "message": "Verify your account to continue.",
+            "status": "PERMISSION_DENIED",
+            "details": [
+              {
+                "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                "reason": "VALIDATION_REQUIRED",
+                "metadata": {
+                  "validation_url": "https://accounts.google.com/signin/continue?sarp=1"
+                }
+              }
+            ]
+          }
+        }
+        """.data(using: .utf8)!
+        let formatted = AntigravityParser.formatAPIError(
+            statusCode: 403,
+            operation: "retrieveUserQuotaSummary",
+            data: payload
+        )
+        #expect(formatted == "HTTP 403: Verify your account to continue. (https://accounts.google.com/signin/continue?sarp=1)")
+    }
+
     @Test func tierFreeVsPaid() {
         let free = AntigravityParser.decodeTier(from: #"{"currentTier":{"id":"free-tier","name":"Antigravity"}}"#.data(using: .utf8)!)
         #expect(free?.isPaid == false)

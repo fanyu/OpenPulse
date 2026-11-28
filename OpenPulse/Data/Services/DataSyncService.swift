@@ -31,6 +31,7 @@ final class DataSyncService {
 
     /// Latest Antigravity account quota list.
     private(set) var latestAntigravityAccounts: [AGAccountQuota]?
+    private(set) var latestAntigravityAccountErrors: [String: String] = [:]
     private(set) var refreshingAntigravityAccountEmails: Set<String> = []
 
     /// Latest Copilot quota snapshots keyed by quota_id.
@@ -74,18 +75,26 @@ final class DataSyncService {
         await performQuotaOnlyRefresh(for: .antigravity, refreshKind: .full) {
             self.refreshingAntigravityAccountEmails.insert(email)
             defer { self.refreshingAntigravityAccountEmails.remove(email) }
-            let account = try await antigravityParser.fetchQuota(forAccountEmail: email)
-            let merged = mergeAntigravityAccounts(
-                current: latestAntigravityAccounts ?? [],
-                refreshed: [account],
-                orderedEmails: antigravityOrderedEmails(current: latestAntigravityAccounts ?? [], refreshed: [account])
-            )
-            let context = makeWriteContext()
-            upsertQuota(antigravityAggregateQuota(from: merged), context: context)
-            try saveUsageContext(context)
-            latestAntigravityAccounts = merged
-            Self.persistAntigravityAccountsCache(merged, defaults: cacheDefaults)
-            return true
+            do {
+                let account = try await antigravityParser.fetchQuota(forAccountEmail: email)
+                let merged = mergeAntigravityAccounts(
+                    current: latestAntigravityAccounts ?? [],
+                    refreshed: [account],
+                    orderedEmails: antigravityOrderedEmails(current: latestAntigravityAccounts ?? [], refreshed: [account])
+                )
+                let context = makeWriteContext()
+                upsertQuota(antigravityAggregateQuota(from: merged), context: context)
+                try saveUsageContext(context)
+                latestAntigravityAccounts = merged
+                latestAntigravityAccountErrors.removeValue(forKey: email)
+                Self.persistAntigravityAccountsCache(merged, defaults: cacheDefaults)
+                return true
+            } catch {
+                let message = error.localizedDescription
+                latestAntigravityAccountErrors[email] = message
+                AppLogger.shared.recordDiagnostic(level: .warning, scope: "antigravity.quota", message: message)
+                throw error
+            }
         }
     }
 
@@ -598,6 +607,7 @@ final class DataSyncService {
         latestClaudeQuotaObservedAt = nil
         latestClaudeAccountInfo = nil
         latestAntigravityAccounts = nil
+        latestAntigravityAccountErrors = [:]
         latestCopilotSnapshots = nil
         latestCopilotResetAt = nil
         latestCopilotPlan = nil
@@ -857,6 +867,11 @@ final class DataSyncService {
             try Task.checkCancellation()
             let refreshedEmails = Set(result.accounts.map(\.email))
             let failedEmails = result.orderedEmails.filter { !refreshedEmails.contains($0) }
+            let validEmails = Set(result.orderedEmails)
+            var nextErrors = latestAntigravityAccountErrors.filter { validEmails.contains($0.key) && !refreshedEmails.contains($0.key) }
+            for (email, message) in result.accountErrors where !refreshedEmails.contains(email) {
+                nextErrors[email] = message
+            }
             let mergedAccounts = mergeAntigravityAccounts(
                 current: latestAntigravityAccounts ?? [],
                 refreshed: result.accounts,
@@ -876,9 +891,14 @@ final class DataSyncService {
             upsertQuota(antigravityAggregateQuota(from: mergedAccounts, observedAt: observedAt), context: context)
             try saveUsageContext(context)
             latestAntigravityAccounts = mergedAccounts
+            latestAntigravityAccountErrors = nextErrors
             Self.persistAntigravityAccountsCache(mergedAccounts, defaults: cacheDefaults)
             if !failedEmails.isEmpty {
-                throw AntigravityError.apiFailed("Quota refresh failed for \(failedEmails.count) of \(result.orderedEmails.count) accounts.")
+                let detail = failedEmails.compactMap { nextErrors[$0] }.first
+                let summary = detail.map {
+                    "Quota refresh failed for \(failedEmails.count) of \(result.orderedEmails.count) accounts: \($0)"
+                } ?? "Quota refresh failed for \(failedEmails.count) of \(result.orderedEmails.count) accounts."
+                throw AntigravityError.apiFailed(summary)
             }
         } catch {
             AppLogger.shared.warning("[antigravity] quota failed: \(error.localizedDescription)")

@@ -102,7 +102,7 @@ final class SimpleHTTPServer: @unchecked Sendable {
         }
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(host: .ipv4(.loopback), port: port)
-        listener = try NWListener(using: parameters, on: port)
+        listener = try NWListener(using: parameters)
         self.handler = handler
     }
 
@@ -169,13 +169,14 @@ func parseRequest(from data: Data) -> HTTPRequest {
 }
 
 func renderResponse(_ response: HTTPResponse) -> Data {
-    let header = """
-    HTTP/1.1 \(response.statusCode) OK\r
-    Content-Type: \(response.contentType)\r
-    Content-Length: \(response.body.count)\r
-    Connection: close\r
-    \r
-    """
+    let header = [
+        "HTTP/1.1 \(response.statusCode) OK",
+        "Content-Type: \(response.contentType)",
+        "Content-Length: \(response.body.count)",
+        "Connection: close",
+        "",
+        ""
+    ].joined(separator: "\r\n")
     return Data(header.utf8) + response.body
 }
 

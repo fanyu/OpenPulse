@@ -56,7 +56,8 @@ final class AppStore {
             modelContainer: modelContainer,
             codexAccountService: codexAccountService,
             deskSnapshotPublisher: DeskSnapshotPublisher.makeIfAvailable(),
-            sessionScanningActive: WindowCoordinator.shared.isMainWindowVisible
+            sessionScanningActive: WindowCoordinator.shared.isMainWindowVisible,
+            antigravityParser: AntigravityParser(accountService: antigravityAccountService)
         )
         syncService = service
         service.start()
